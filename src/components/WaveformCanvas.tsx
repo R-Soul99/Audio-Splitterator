@@ -175,42 +175,109 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // Precomputed waveform peaks for fast rendering
+  // Precomputed Multi-Resolution Peak Pyramid for fast, zero-lag rendering
+  interface PeakLevel {
+    blockSize: number;
+    min: Float32Array;
+    max: Float32Array;
+  }
+  interface ChannelPyramid {
+    levels: PeakLevel[];
+  }
+
+  const pyramidsRef = useRef<ChannelPyramid[]>([]);
   const peaksRef = useRef<{ min: Float32Array; max: Float32Array }[]>([]);
 
   useEffect(() => {
+    const totalSamples = audioBuffer.length;
+    if (totalSamples === 0) return;
+
     const channelsData: Float32Array[] = [];
     for (let c = 0; c < numChannels; c++) {
       channelsData.push(audioBuffer.getChannelData(c));
     }
 
-    const totalSamples = audioBuffer.length;
-    const bucketCount = 2000;
-    const bucketSize = Math.max(1, Math.floor(totalSamples / bucketCount));
-
+    const computedPyramids: ChannelPyramid[] = [];
     const computedPeaks: { min: Float32Array; max: Float32Array }[] = [];
+
+    // Level 0: base decimated peaks (blockSize = 256)
+    const b0Size = 256;
+    const numB0 = Math.ceil(totalSamples / b0Size);
+    // Level 1: blockSize = 4096 (16x Level 0)
+    const factor1 = 16;
+    const numB1 = Math.ceil(numB0 / factor1);
+    // Level 2: blockSize = 65536 (16x Level 1)
+    const numB2 = Math.ceil(numB1 / factor1);
 
     for (let c = 0; c < numChannels; c++) {
       const data = channelsData[c];
-      const minArr = new Float32Array(bucketCount);
-      const maxArr = new Float32Array(bucketCount);
 
-      for (let b = 0; b < bucketCount; b++) {
-        let minVal = 0;
-        let maxVal = 0;
-        const start = b * bucketSize;
-        const end = Math.min(totalSamples, start + bucketSize);
-        for (let s = start; s < end; s++) {
+      // 1. Compute Level 0 (fast single-pass over data)
+      const min0 = new Float32Array(numB0);
+      const max0 = new Float32Array(numB0);
+      for (let b = 0; b < numB0; b++) {
+        const start = b * b0Size;
+        const end = Math.min(totalSamples, start + b0Size);
+        let minV = data[start] || 0;
+        let maxV = data[start] || 0;
+        for (let s = start + 1; s < end; s++) {
           const val = data[s];
-          if (val < minVal) minVal = val;
-          if (val > maxVal) maxVal = val;
+          if (val < minV) minV = val;
+          else if (val > maxV) maxV = val;
         }
-        minArr[b] = minVal;
-        maxArr[b] = maxVal;
+        min0[b] = minV;
+        max0[b] = maxV;
       }
-      computedPeaks.push({ min: minArr, max: maxArr });
+
+      // 2. Compute Level 1 (from Level 0)
+      const min1 = new Float32Array(numB1);
+      const max1 = new Float32Array(numB1);
+      for (let b = 0; b < numB1; b++) {
+        const start = b * factor1;
+        const end = Math.min(numB0, start + factor1);
+        let minV = min0[start] || 0;
+        let maxV = max0[start] || 0;
+        for (let s = start + 1; s < end; s++) {
+          const mn = min0[s];
+          const mx = max0[s];
+          if (mn < minV) minV = mn;
+          if (mx > maxV) maxV = mx;
+        }
+        min1[b] = minV;
+        max1[b] = maxV;
+      }
+
+      // 3. Compute Level 2 (from Level 1)
+      const min2 = new Float32Array(numB2);
+      const max2 = new Float32Array(numB2);
+      for (let b = 0; b < numB2; b++) {
+        const start = b * factor1;
+        const end = Math.min(numB1, start + factor1);
+        let minV = min1[start] || 0;
+        let maxV = max1[start] || 0;
+        for (let s = start + 1; s < end; s++) {
+          const mn = min1[s];
+          const mx = max1[s];
+          if (mn < minV) minV = mn;
+          if (mx > maxV) maxV = mx;
+        }
+        min2[b] = minV;
+        max2[b] = maxV;
+      }
+
+      computedPyramids.push({
+        levels: [
+          { blockSize: b0Size, min: min0, max: max0 },
+          { blockSize: b0Size * 16, min: min1, max: max1 },
+          { blockSize: b0Size * 256, min: min2, max: max2 },
+        ],
+      });
+
+      // Provide minimap overview array (Level 1 or 2)
+      computedPeaks.push({ min: min1, max: max1 });
     }
 
+    pyramidsRef.current = computedPyramids;
     peaksRef.current = computedPeaks;
   }, [audioBuffer, numChannels]);
 
@@ -346,17 +413,48 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         }
         ctx.stroke();
       } else {
-        // Vertical min/max bars with fade attenuation
+        // Vertical min/max bars with fade attenuation (O(1) lookups via Multi-Level Peak Pyramid)
         ctx.fillStyle = '#059669'; // Emerald wave
+        const pyramid = pyramidsRef.current[c];
+        const hasPyramid = pyramid && pyramid.levels && pyramid.levels.length > 0;
+
+        // Choose appropriate pyramid LOD based on samplesPerPixel
+        let lvl: PeakLevel | null = null;
+        if (hasPyramid) {
+          if (samplesPerPixel > 8192 && pyramid.levels[2]) {
+            lvl = pyramid.levels[2]; // Level 2: blockSize 65536
+          } else if (samplesPerPixel > 512 && pyramid.levels[1]) {
+            lvl = pyramid.levels[1]; // Level 1: blockSize 4096
+          } else {
+            lvl = pyramid.levels[0]; // Level 0: blockSize 256
+          }
+        }
+
         for (let x = 0; x < width; x++) {
           const sStart = Math.floor(startSample + x * samplesPerPixel);
           const sEnd = Math.min(chData.length, Math.floor(startSample + (x + 1) * samplesPerPixel));
           let minV = 0;
           let maxV = 0;
-          for (let s = sStart; s < sEnd; s++) {
-            const val = chData[s];
-            if (val < minV) minV = val;
-            if (val > maxV) maxV = val;
+
+          if (lvl) {
+            const bSize = lvl.blockSize;
+            const bStart = Math.max(0, Math.floor(sStart / bSize));
+            const bEnd = Math.min(lvl.min.length, Math.max(bStart + 1, Math.ceil(sEnd / bSize)));
+
+            minV = lvl.min[bStart] || 0;
+            maxV = lvl.max[bStart] || 0;
+            for (let b = bStart + 1; b < bEnd; b++) {
+              const mn = lvl.min[b];
+              const mx = lvl.max[b];
+              if (mn < minV) minV = mn;
+              if (mx > maxV) maxV = mx;
+            }
+          } else {
+            for (let s = sStart; s < sEnd; s++) {
+              const val = chData[s];
+              if (val < minV) minV = val;
+              if (val > maxV) maxV = val;
+            }
           }
 
           const t = xToTime(x, width);
@@ -1356,16 +1454,34 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   };
 
   // Native Wheel Event Listener for smooth Scrollwheel Zooming:
-  // - Non-passive listener so e.preventDefault() prevents whole page scrolling
-  // - Scroll Up (deltaY < 0): Zoom In
-  // - Scroll Down (deltaY > 0): Zoom Out
-  // - Zooms centered precisely around the mouse cursor position
+  // - Holding Ctrl or Alt (or trackpad pinch): Zooms centered on mouse cursor
+  // - Holding Shift: Pans waveform left/right
+  // - Without Ctrl/Alt/Shift: Passes through naturally so the user can scroll the page!
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const onNativeWheel = (e: WheelEvent) => {
-      // Intercept wheel event and stop page from scrolling
+      // 1. Shift + Wheel: Horizontal pan
+      if (e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const currentZoom = zoomRef.current;
+        const currentOffset = viewOffsetRef.current;
+        const currentVisible = duration / Math.max(1, currentZoom);
+        const panTime = (e.deltaY / 100) * (currentVisible * 0.1);
+        const newOffset = Math.max(0, Math.min(duration - currentVisible, currentOffset + panTime));
+        onViewOffsetChange(newOffset);
+        return;
+      }
+
+      // 2. Only zoom when Ctrl, Alt, or Meta is held (or trackpad pinch zoom which sets ctrlKey: true)
+      // This prevents accidental zooming when simply scrolling past the waveform on the page!
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+        return;
+      }
+
+      // Intercept wheel event and perform smooth cursor-centered zoom
       e.preventDefault();
       e.stopPropagation();
 
