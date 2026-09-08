@@ -200,14 +200,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const computedPyramids: ChannelPyramid[] = [];
     const computedPeaks: { min: Float32Array; max: Float32Array }[] = [];
 
-    // Level 0: base decimated peaks (blockSize = 256)
-    const b0Size = 256;
+    // Level 0: base decimated peaks (blockSize = 64 samples ~1.45ms)
+    const b0Size = 64;
     const numB0 = Math.ceil(totalSamples / b0Size);
-    // Level 1: blockSize = 4096 (16x Level 0)
-    const factor1 = 16;
+    // Level 1: blockSize = 512 samples (~11.6ms, 8x Level 0)
+    const factor1 = 8;
     const numB1 = Math.ceil(numB0 / factor1);
-    // Level 2: blockSize = 65536 (16x Level 1)
-    const numB2 = Math.ceil(numB1 / factor1);
+    // Level 2: blockSize = 2048 samples (~46.4ms, 4x Level 1)
+    const factor2 = 4;
+    const numB2 = Math.ceil(numB1 / factor2);
 
     for (let c = 0; c < numChannels; c++) {
       const data = channelsData[c];
@@ -251,8 +252,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const min2 = new Float32Array(numB2);
       const max2 = new Float32Array(numB2);
       for (let b = 0; b < numB2; b++) {
-        const start = b * factor1;
-        const end = Math.min(numB1, start + factor1);
+        const start = b * factor2;
+        const end = Math.min(numB1, start + factor2);
         let minV = min1[start] || 0;
         let maxV = max1[start] || 0;
         for (let s = start + 1; s < end; s++) {
@@ -268,12 +269,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       computedPyramids.push({
         levels: [
           { blockSize: b0Size, min: min0, max: max0 },
-          { blockSize: b0Size * 16, min: min1, max: max1 },
-          { blockSize: b0Size * 256, min: min2, max: max2 },
+          { blockSize: b0Size * factor1, min: min1, max: max1 },
+          { blockSize: b0Size * factor1 * factor2, min: min2, max: max2 },
         ],
       });
 
-      // Provide minimap overview array (Level 1 or 2)
+      // Provide minimap overview array (Level 1 for crisp, high-res overview)
       computedPeaks.push({ min: min1, max: max1 });
     }
 
@@ -414,21 +415,30 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.stroke();
       } else {
         // Vertical min/max bars with fade attenuation (O(1) lookups via Multi-Level Peak Pyramid)
-        ctx.fillStyle = '#059669'; // Emerald wave
         const pyramid = pyramidsRef.current[c];
         const hasPyramid = pyramid && pyramid.levels && pyramid.levels.length > 0;
 
         // Choose appropriate pyramid LOD based on samplesPerPixel
         let lvl: PeakLevel | null = null;
         if (hasPyramid) {
-          if (samplesPerPixel > 8192 && pyramid.levels[2]) {
-            lvl = pyramid.levels[2]; // Level 2: blockSize 65536
-          } else if (samplesPerPixel > 512 && pyramid.levels[1]) {
-            lvl = pyramid.levels[1]; // Level 1: blockSize 4096
-          } else {
-            lvl = pyramid.levels[0]; // Level 0: blockSize 256
+          if (samplesPerPixel > 1024 && pyramid.levels[2]) {
+            lvl = pyramid.levels[2]; // Level 2: blockSize 2048 (~46ms)
+          } else if (samplesPerPixel > 128 && pyramid.levels[1]) {
+            lvl = pyramid.levels[1]; // Level 1: blockSize 512 (~11ms)
+          } else if (samplesPerPixel > 16 && pyramid.levels[0]) {
+            lvl = pyramid.levels[0]; // Level 0: blockSize 64 (~1.4ms)
           }
         }
+
+        // Luminous DAW-grade gradient: crisp crests with depth in the body
+        const chTopPos = waveAreaTop + c * channelHeight;
+        const waveGrad = ctx.createLinearGradient(0, chTopPos, 0, chTopPos + channelHeight);
+        waveGrad.addColorStop(0, '#34d399');    // bright emerald-400 at crests
+        waveGrad.addColorStop(0.3, '#10b981');  // emerald-500
+        waveGrad.addColorStop(0.5, '#059669');  // deeper emerald-600 towards center
+        waveGrad.addColorStop(0.7, '#10b981');  // emerald-500
+        waveGrad.addColorStop(1, '#34d399');    // bright emerald-400 at trough
+        ctx.fillStyle = waveGrad;
 
         for (let x = 0; x < width; x++) {
           const sStart = Math.floor(startSample + x * samplesPerPixel);
@@ -1059,16 +1069,33 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, width, height);
 
-    // Peaks summary
+    // Peaks summary (multi-resolution decimation without aliasing)
     if (peaksRef.current.length > 0) {
       const peakData = peaksRef.current[0];
       const count = peakData.max.length;
-      ctx.fillStyle = '#059669';
+
+      const miniGrad = ctx.createLinearGradient(0, 0, 0, height);
+      miniGrad.addColorStop(0, '#34d399');
+      miniGrad.addColorStop(0.5, '#059669');
+      miniGrad.addColorStop(1, '#34d399');
+      ctx.fillStyle = miniGrad;
+
       for (let i = 0; i < width; i++) {
-        const pIdx = Math.floor((i / width) * count);
-        const maxV = peakData.max[pIdx] || 0;
-        const barH = Math.max(1, maxV * height * 0.85);
-        ctx.fillRect(i, (height - barH) / 2, 1, barH);
+        const startIdx = Math.floor((i / width) * count);
+        const endIdx = Math.min(count, Math.max(startIdx + 1, Math.ceil(((i + 1) / width) * count)));
+        let maxV = 0;
+        let minV = 0;
+        for (let p = startIdx; p < endIdx; p++) {
+          const mx = peakData.max[p] || 0;
+          const mn = peakData.min[p] || 0;
+          if (mx > maxV) maxV = mx;
+          if (mn < minV) minV = mn;
+        }
+        const midY = height / 2;
+        const yTop = midY - maxV * (height * 0.44);
+        const yBottom = midY - minV * (height * 0.44);
+        const barH = Math.max(1, yBottom - yTop);
+        ctx.fillRect(i, yTop, 1, barH);
       }
     }
 
