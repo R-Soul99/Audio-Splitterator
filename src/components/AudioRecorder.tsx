@@ -45,6 +45,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(false);
   const [monitoringAudioOutput, setMonitoringAudioOutput] = useState<boolean>(false);
   const [monitorVolume, setMonitorVolume] = useState<number>(0.7);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
 
   // Metering state
   const [leftPeakDb, setLeftPeakDb] = useState<number>(-60);
@@ -91,9 +92,18 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   // Load audio input devices
   const loadDevices = useCallback(async () => {
     try {
+      if (!navigator?.mediaDevices?.enumerateDevices) {
+        return;
+      }
       // Prompt permissions if needed to get friendly device names
-      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
-      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      let tempStream: MediaStream | null = null;
+      try {
+        tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        // Permission not yet granted or no input device present
+      }
+
+      const allDevices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
       if (tempStream) {
         tempStream.getTracks().forEach((t) => t.stop());
       }
@@ -107,13 +117,20 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         }));
 
       setDevices(audioInputs);
-      if (audioInputs.length > 0 && !selectedDeviceId) {
-        setSelectedDeviceId(audioInputs[0].deviceId);
+      if (audioInputs.length > 0) {
+        setSelectedDeviceId((prev) => {
+          if (prev && audioInputs.some((d) => d.deviceId === prev)) {
+            return prev;
+          }
+          return audioInputs[0].deviceId;
+        });
+      } else {
+        setSelectedDeviceId('');
       }
-    } catch (err) {
-      console.warn('Failed to enumerate audio devices:', err);
+    } catch {
+      // Gracefully handle device enumeration issues
     }
-  }, [selectedDeviceId]);
+  }, []);
 
   useEffect(() => {
     loadDevices();
@@ -264,6 +281,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   // Initialize or start live input monitoring stream
   const startMonitoringStream = useCallback(
     async (deviceId?: string, mode?: 'stereo' | 'mono') => {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        setIsMonitoringActive(false);
+        setDeviceError('Audio input not supported');
+        return;
+      }
+
       try {
         const devId = deviceId !== undefined ? deviceId : selectedDeviceId;
         const chMode = mode !== undefined ? mode : channelMode;
@@ -275,18 +298,39 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           mediaStreamRef.current = null;
         }
 
-        const constraints: MediaStreamConstraints = {
-          audio: {
-            deviceId: devId ? { exact: devId } : undefined,
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-            channelCount: isStereo ? 2 : 1,
-          },
-        };
+        let stream: MediaStream | null = null;
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        // Try preferred device and stereo constraints first
+        try {
+          const constraints: MediaStreamConstraints = {
+            audio: {
+              deviceId: devId ? { ideal: devId } : undefined,
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              channelCount: isStereo ? 2 : 1,
+            },
+          };
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch {
+          // If preferred device or advanced constraints fail, fallback to generic audio input
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch {
+            // No audio input device present or permission denied
+            setIsMonitoringActive(false);
+            setDeviceError('No audio input device detected or access denied.');
+            return;
+          }
+        }
+
+        if (!stream) {
+          setIsMonitoringActive(false);
+          return;
+        }
+
         mediaStreamRef.current = stream;
+        setDeviceError(null);
 
         // Initialize AudioContext if needed
         let audioCtx = audioContextRef.current;
@@ -297,7 +341,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         }
 
         if (audioCtx.state === 'suspended') {
-          await audioCtx.resume();
+          await audioCtx.resume().catch(() => {});
         }
 
         const source = audioCtx.createMediaStreamSource(stream);
@@ -340,9 +384,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         if (!animationFrameRef.current) {
           animationFrameRef.current = requestAnimationFrame(updateMeterLoop);
         }
-      } catch (err) {
-        console.error('Failed to initialize live monitoring:', err);
+      } catch {
         setIsMonitoringActive(false);
+        setDeviceError('Could not start live monitoring');
       }
     },
     [selectedDeviceId, channelMode, monitoringAudioOutput, monitorVolume, updateMeterLoop]
@@ -615,10 +659,15 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 >
                   {isPaused ? 'Paused' : 'Recording'}
                 </span>
-              ) : (
+              ) : isMonitoringActive ? (
                 <span className="text-[11px] px-2 py-0.5 rounded font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
                   <Activity className="w-3 h-3 text-emerald-400 animate-pulse" />
                   <span>Live Input Monitoring Active</span>
+                </span>
+              ) : (
+                <span className="text-[11px] px-2 py-0.5 rounded font-mono font-medium bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 text-amber-400" />
+                  <span>{deviceError || 'Input Monitoring Standby'}</span>
                 </span>
               )}
             </h2>
