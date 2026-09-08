@@ -114,6 +114,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     | { type: 'marker'; id: string }
     | { type: 'pan'; startX: number; startOffset: number }
     | { type: 'minimapWindow'; startX: number; startOffset: number }
+    | { type: 'minimapLeftEdge'; originalOffset: number; originalVisible: number }
+    | { type: 'minimapRightEdge'; originalOffset: number; originalVisible: number }
     | { type: 'potentialDrag'; startX: number; startY: number; originTime: number }
     | { type: 'selectionCreate'; originTime: number }
     | { type: 'selectionStart'; currentEnd: number }
@@ -122,6 +124,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     | null;
 
   const [activeDrag, setActiveDrag] = useState<DragTarget>(null);
+  const [minimapCursor, setMinimapCursor] = useState<string>('pointer');
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
   const [hoveredElement, setHoveredElement] = useState<string | null>(null);
@@ -991,12 +994,29 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     // Viewport window box
     const viewStartX = (safeViewOffset / duration) * width;
-    const viewWidth = (visibleDuration / duration) * width;
+    const viewWidth = Math.max(8, (visibleDuration / duration) * width);
+    const viewEndX = viewStartX + viewWidth;
+
+    // Interior shading
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.18)';
+    ctx.fillRect(viewStartX, 1, viewWidth, height - 2);
+
+    // Box outline
     ctx.strokeStyle = '#38bdf8';
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(viewStartX, 1, Math.max(6, viewWidth), height - 2);
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
-    ctx.fillRect(viewStartX, 1, Math.max(6, viewWidth), height - 2);
+    ctx.strokeRect(viewStartX, 1, viewWidth, height - 2);
+
+    // Draggable Left Edge Handle Bar & Pip
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(viewStartX - 1.5, 1, 3, height - 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(viewStartX - 0.5, height / 2 - 3, 1.5, 6);
+
+    // Draggable Right Edge Handle Bar & Pip
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(viewEndX - 1.5, 1, 3, height - 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(viewEndX - 0.5, height / 2 - 3, 1.5, 6);
 
     // Playhead on minimap
     const miniPlayX = (currentTime / duration) * width;
@@ -1416,38 +1436,129 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
   };
 
-  // Minimap click or drag to jump viewport
+  // Minimap click, edge-resize to zoom, or window-drag to pan viewport
   const handleMinimapPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const mini = minimapRef.current;
     if (!mini) return;
     const rect = mini.getBoundingClientRect();
     const x = e.clientX - rect.left;
+    const viewStartX = (safeViewOffset / duration) * rect.width;
+    const viewWidth = Math.max(8, (visibleDuration / duration) * rect.width);
+    const viewEndX = viewStartX + viewWidth;
+    const edgeHitDist = 8; // 8px hit-target for resizing overview edges
+
+    mini.setPointerCapture(e.pointerId);
+
+    // 1. Hit-test Left Edge of overview box -> Resize left edge to zoom in/out
+    if (Math.abs(x - viewStartX) <= edgeHitDist) {
+      setActiveDrag({
+        type: 'minimapLeftEdge',
+        originalOffset: safeViewOffset,
+        originalVisible: visibleDuration,
+      });
+      setMinimapCursor('ew-resize');
+      return;
+    }
+
+    // 2. Hit-test Right Edge of overview box -> Resize right edge to zoom in/out
+    if (Math.abs(x - viewEndX) <= edgeHitDist) {
+      setActiveDrag({
+        type: 'minimapRightEdge',
+        originalOffset: safeViewOffset,
+        originalVisible: visibleDuration,
+      });
+      setMinimapCursor('ew-resize');
+      return;
+    }
+
+    // 3. Inside overview box -> Slide/pan viewport window
+    if (x >= viewStartX && x <= viewEndX) {
+      setActiveDrag({ type: 'minimapWindow', startX: x, startOffset: safeViewOffset });
+      setMinimapCursor('grabbing');
+      return;
+    }
+
+    // 4. Clicked outside overview box -> Center viewport on clicked timestamp
     const frac = x / rect.width;
     const targetCenterTime = frac * duration;
     const newOffset = Math.max(0, Math.min(maxOffset, targetCenterTime - visibleDuration / 2));
     onViewOffsetChange(newOffset);
     setActiveDrag({ type: 'minimapWindow', startX: x, startOffset: newOffset });
-    mini.setPointerCapture(e.pointerId);
+    setMinimapCursor('grabbing');
   };
 
   const handleMinimapPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!activeDrag || activeDrag.type !== 'minimapWindow') return;
     const mini = minimapRef.current;
     if (!mini) return;
     const rect = mini.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const frac = x / rect.width;
-    const targetCenterTime = frac * duration;
-    const newOffset = Math.max(0, Math.min(maxOffset, targetCenterTime - visibleDuration / 2));
-    onViewOffsetChange(newOffset);
+
+    // A. Active drag actions
+    if (activeDrag) {
+      if (activeDrag.type === 'minimapLeftEdge') {
+        const timeAtCursor = (x / rect.width) * duration;
+        const rightEdgeTime = activeDrag.originalOffset + activeDrag.originalVisible;
+        const minVisible = duration / 50; // max zoom 50x
+        const maxVisible = duration; // 1x
+        const newOffset = Math.max(0, Math.min(rightEdgeTime - minVisible, timeAtCursor));
+        const newVisible = Math.max(minVisible, Math.min(maxVisible, rightEdgeTime - newOffset));
+        const newZoom = Math.max(1, Math.min(50, duration / newVisible));
+        onZoomChange(newZoom);
+        onViewOffsetChange(newOffset);
+        setMinimapCursor('ew-resize');
+        return;
+      }
+
+      if (activeDrag.type === 'minimapRightEdge') {
+        const timeAtCursor = (x / rect.width) * duration;
+        const leftEdgeTime = safeViewOffset;
+        const minVisible = duration / 50;
+        const maxVisible = duration - leftEdgeTime;
+        const newVisible = Math.max(minVisible, Math.min(maxVisible, timeAtCursor - leftEdgeTime));
+        const newZoom = Math.max(1, Math.min(50, duration / newVisible));
+        onZoomChange(newZoom);
+        setMinimapCursor('ew-resize');
+        return;
+      }
+
+      if (activeDrag.type === 'minimapWindow') {
+        const deltaPixels = x - activeDrag.startX;
+        const deltaTime = (deltaPixels / rect.width) * duration;
+        const newOffset = Math.max(0, Math.min(maxOffset, activeDrag.startOffset + deltaTime));
+        onViewOffsetChange(newOffset);
+        setMinimapCursor('grabbing');
+        return;
+      }
+      return;
+    }
+
+    // B. Hover state: dynamically switch cursor between ew-resize, grab, and pointer
+    const viewStartX = (safeViewOffset / duration) * rect.width;
+    const viewWidth = Math.max(8, (visibleDuration / duration) * rect.width);
+    const viewEndX = viewStartX + viewWidth;
+    const edgeHitDist = 8;
+
+    if (Math.abs(x - viewStartX) <= edgeHitDist || Math.abs(x - viewEndX) <= edgeHitDist) {
+      setMinimapCursor('ew-resize');
+    } else if (x > viewStartX && x < viewEndX) {
+      setMinimapCursor('grab');
+    } else {
+      setMinimapCursor('pointer');
+    }
   };
 
   const handleMinimapPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (minimapRef.current && minimapRef.current.hasPointerCapture(e.pointerId)) {
       minimapRef.current.releasePointerCapture(e.pointerId);
     }
-    if (activeDrag && activeDrag.type === 'minimapWindow') {
+    if (
+      activeDrag &&
+      (activeDrag.type === 'minimapWindow' ||
+        activeDrag.type === 'minimapLeftEdge' ||
+        activeDrag.type === 'minimapRightEdge')
+    ) {
       setActiveDrag(null);
+      setMinimapCursor('pointer');
     }
   };
 
@@ -1790,7 +1901,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 title="Cut / delete this selected section from the audio and splice the rest"
               >
                 <Scissors className="w-3.5 h-3.5" />
-                <span>Cut Out Selection</span>
+                <span>Cut Selection</span>
               </button>
             )}
 
@@ -1874,8 +1985,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onPointerDown={handleMinimapPointerDown}
           onPointerMove={handleMinimapPointerMove}
           onPointerUp={handleMinimapPointerUp}
-          className="w-full h-6.5 rounded bg-slate-950 cursor-pointer border border-slate-800"
-          title="Click or drag window to pan viewport"
+          className="w-full h-6.5 rounded bg-slate-950 border border-slate-800"
+          style={{ cursor: minimapCursor }}
+          title="Drag edges to zoom in/out • Drag inside to slide • Click to jump"
         />
         <div className="text-[10px] font-mono text-slate-400 shrink-0">
           {zoom.toFixed(1)}x zoom • {formatTime(visibleDuration)} visible
