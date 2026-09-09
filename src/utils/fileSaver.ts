@@ -40,6 +40,60 @@ export function isRunningInIframe(): boolean {
 }
 
 /**
+ * Resolves directory segments from FolderStructureOptions
+ * e.g. ['Artist', 'Album'] or ['Artist', '1977 - Rumours'] or custom pattern
+ */
+export function resolveFolderSegments(opts?: FolderStructureOptions): string[] {
+  if (!opts || !opts.enabled) return [];
+
+  const artist = opts.artist?.trim() || '';
+  const album = opts.album?.trim() || '';
+  const year = opts.year?.trim() || '';
+  const genre = opts.genre?.trim() || '';
+  const type = opts.type || 'artist_album';
+
+  if (opts.customFolderPattern) {
+    // Custom folder pattern like "{artist}/{album}" or "{genre}/{artist}/({year}) {album}"
+    const resolved = opts.customFolderPattern
+      .replace(/\{artist\}/gi, artist || 'Unknown Artist')
+      .replace(/\{album\}/gi, album || 'Unknown Album')
+      .replace(/\{year\}/gi, year || '')
+      .replace(/\{genre\}/gi, genre || '')
+      .replace(/\{albumArtist\}/gi, artist || 'Unknown Artist');
+    
+    return resolved
+      .split(/[/\\\\]+/)
+      .map((seg) => sanitizeFolderName(seg))
+      .filter((seg) => seg.length > 0);
+  }
+
+  const segments: string[] = [];
+
+  switch (type) {
+    case 'album_only':
+      if (album) segments.push(sanitizeFolderName(album));
+      break;
+    case 'artist_year_album':
+      if (artist) segments.push(sanitizeFolderName(artist));
+      if (year && album) {
+        segments.push(sanitizeFolderName(`${year} - ${album}`));
+      } else if (album) {
+        segments.push(sanitizeFolderName(album));
+      }
+      break;
+    case 'flat':
+      break;
+    case 'artist_album':
+    default:
+      if (artist) segments.push(sanitizeFolderName(artist));
+      if (album) segments.push(sanitizeFolderName(album));
+      break;
+  }
+
+  return segments;
+}
+
+/**
  * Saves multiple files as separate individual files (one file at a time)
  * or packaged in a folder-structured archive.
  * 
@@ -61,10 +115,8 @@ export async function saveFilesPrompt(
 
   const mode: ExportMode = opts.mode || 'individual';
   const zipName = opts.zipDefaultName || 'audio-splits.zip';
-  const folderOpts = opts.folderStructure;
-
-  const artistFolder = folderOpts?.enabled && folderOpts.artist ? sanitizeFolderName(folderOpts.artist) : '';
-  const albumFolder = folderOpts?.enabled && folderOpts.album ? sanitizeFolderName(folderOpts.album) : '';
+  const folderSegments = resolveFolderSegments(opts.folderStructure);
+  const folderPathDisplay = folderSegments.join(' / ');
 
   // 1. If user explicitly selected ZIP mode OR when zip is needed:
   if (mode === 'zip') {
@@ -72,12 +124,8 @@ export async function saveFilesPrompt(
 
     // Determine subfolder path inside zip
     let subfolderZip: JSZip = zip;
-    if (artistFolder && albumFolder) {
-      subfolderZip = zip.folder(artistFolder)?.folder(albumFolder) || zip;
-    } else if (artistFolder) {
-      subfolderZip = zip.folder(artistFolder) || zip;
-    } else if (albumFolder) {
-      subfolderZip = zip.folder(albumFolder) || zip;
+    for (const segment of folderSegments) {
+      subfolderZip = subfolderZip.folder(segment) || subfolderZip;
     }
 
     for (let i = 0; i < files.length; i++) {
@@ -89,7 +137,6 @@ export async function saveFilesPrompt(
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     triggerDownload(zipBlob, zipName);
 
-    const folderPathDisplay = [artistFolder, albumFolder].filter(Boolean).join(' / ');
     return {
       method: 'zip',
       count: files.length,
@@ -111,17 +158,10 @@ export async function saveFilesPrompt(
         startIn: 'music',
       });
 
-      // Automatically create / navigate to [Artist] / [Album Title] subfolders if requested
+      // Automatically create / navigate through subfolder segments
       let targetDir = rootDirHandle;
-      const pathParts: string[] = [];
-
-      if (artistFolder) {
-        targetDir = await targetDir.getDirectoryHandle(artistFolder, { create: true });
-        pathParts.push(artistFolder);
-      }
-      if (albumFolder) {
-        targetDir = await targetDir.getDirectoryHandle(albumFolder, { create: true });
-        pathParts.push(albumFolder);
+      for (const seg of folderSegments) {
+        targetDir = await targetDir.getDirectoryHandle(seg, { create: true });
       }
 
       let savedCount = 0;
@@ -135,7 +175,7 @@ export async function saveFilesPrompt(
         savedCount++;
       }
 
-      const folderDisplay = pathParts.length > 0 ? pathParts.join(' / ') : 'selected folder';
+      const folderDisplay = folderPathDisplay || 'selected folder';
       return {
         method: 'directory',
         count: savedCount,

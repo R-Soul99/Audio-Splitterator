@@ -8,6 +8,7 @@ import {
   FlacBitDepth,
   FlacCompressionLevel,
   ExportMode,
+  FolderHierarchyType,
   NamingPattern,
   FadeSettings,
   AudioMetadata,
@@ -15,10 +16,18 @@ import {
 import { formatTime, extractSlice, resampleAudioBuffer } from '../utils/audioProcessing';
 import { encodeWav, encodeMp3, encodeFlac } from '../utils/audioEncoder';
 import { parseArtistTitle } from '../utils/tagParser';
-import { saveFilesPrompt, triggerDownload, isRunningInIframe, FileToSave } from '../utils/fileSaver';
+import {
+  saveFilesPrompt,
+  triggerDownload,
+  isRunningInIframe,
+  FileToSave,
+  resolveFolderSegments,
+} from '../utils/fileSaver';
 import {
   Download,
   FolderDown,
+  Folder,
+  FolderOpen,
   Play,
   Pause,
   Tag,
@@ -82,7 +91,10 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const [startTrackNumber, setStartTrackNumber] = useState<number>(1);
   const [padTrackNumbers, setPadTrackNumbers] = useState<boolean>(true);
   const [namingPattern, setNamingPattern] = useState<NamingPattern>('track_title');
-  const [createSubfolders, setCreateSubfolders] = useState<boolean>(true); // Auto-create [Artist] / [Album] hierarchy
+  const [createSubfolders, setCreateSubfolders] = useState<boolean>(true); // Auto-create nested folder hierarchy
+  const [folderHierarchyType, setFolderHierarchyType] = useState<FolderHierarchyType>('artist_album');
+  const [customFolderPattern, setCustomFolderPattern] = useState<string>('{artist}/{album}');
+  const [showTreePreview, setShowTreePreview] = useState<boolean>(false);
 
   // Track data dictionary keyed by split ID
   const [tracksData, setTracksData] = useState<{ [splitId: string]: TrackCustomData }>({});
@@ -428,14 +440,20 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
           : mainFileName || 'audio_splits'
       }.zip`;
 
+      const currentFolderOptions = {
+        enabled: createSubfolders && folderHierarchyType !== 'flat',
+        type: folderHierarchyType,
+        artist: albumArtist,
+        album: albumTitle,
+        year: albumYear,
+        genre: albumGenre,
+        customFolderPattern: folderHierarchyType === 'custom' ? customFolderPattern : undefined,
+      };
+
       const result = await saveFilesPrompt(filesToSave, {
         mode: exportMode,
         zipDefaultName: defaultArchiveName,
-        folderStructure: {
-          enabled: createSubfolders,
-          artist: albumArtist,
-          album: albumTitle,
-        },
+        folderStructure: currentFolderOptions,
         onProgress: (cur, tot, fName) => {
           setSaveProgress({
             current: cur,
@@ -480,9 +498,13 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
       mode: 'zip',
       zipDefaultName: defaultArchiveName,
       folderStructure: {
-        enabled: createSubfolders,
+        enabled: createSubfolders && folderHierarchyType !== 'flat',
+        type: folderHierarchyType,
         artist: albumArtist,
         album: albumTitle,
+        year: albumYear,
+        genre: albumGenre,
+        customFolderPattern: folderHierarchyType === 'custom' ? customFolderPattern : undefined,
       },
     });
     setFallbackModalData((prev) => ({ ...prev, isOpen: false }));
@@ -491,12 +513,34 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
   const isResampling = sampleRate !== 0 && sampleRate !== sourceBuffer.sampleRate;
 
-  const folderPathPreview = [
-    createSubfolders && albumArtist.trim() ? albumArtist.trim() : null,
-    createSubfolders && albumTitle.trim() ? albumTitle.trim() : null,
-  ]
-    .filter(Boolean)
-    .join(' / ');
+  const resolvedFolderSegments = resolveFolderSegments({
+    enabled: createSubfolders,
+    type: folderHierarchyType,
+    artist: albumArtist,
+    album: albumTitle,
+    year: albumYear,
+    genre: albumGenre,
+    customFolderPattern: folderHierarchyType === 'custom' ? customFolderPattern : undefined,
+  });
+
+  const folderPathPreview = resolvedFolderSegments.join(' / ');
+
+  // Compute sample preview track names for the interactive directory tree
+  const previewSampleTracks = splits.slice(0, 3).map((split, i) => {
+    const tr = tracksData[split.id];
+    const trNum = tr?.trackNumber ?? (startTrackNumber + i);
+    const trArtist = tr?.artist || albumArtist || '';
+    const trTitle = tr?.title || split.name || `Track ${trNum}`;
+    const baseName = constructFileName(
+      trNum,
+      trArtist,
+      trTitle,
+      albumTitle,
+      namingPattern,
+      padTrackNumbers
+    );
+    return `${baseName}.${format}`;
+  });
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md space-y-4">
@@ -820,28 +864,197 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
               </div>
             </div>
 
-            {/* Folder Organization Options & Preview */}
-            <div className="bg-slate-900/90 p-3 rounded-lg border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <label className="flex items-center space-x-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  id="create-subfolders-checkbox"
-                  checked={createSubfolders}
-                  onChange={(e) => setCreateSubfolders(e.target.checked)}
-                  className="rounded accent-emerald-500 w-4 h-4 cursor-pointer"
-                />
-                <span className="text-slate-200 font-medium flex items-center gap-1.5">
-                  <FolderTree className="w-3.5 h-3.5 text-emerald-400" />
-                  Auto-create folder hierarchy: <span className="text-emerald-400 font-mono">[Artist] / [Album Title] / [Tracks]</span>
-                </span>
-              </label>
+            {/* Folder Organization Options & Tree Preview */}
+            <div className="bg-slate-900/95 p-3 rounded-lg border border-slate-800 space-y-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center space-x-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      id="create-subfolders-checkbox"
+                      checked={createSubfolders}
+                      onChange={(e) => setCreateSubfolders(e.target.checked)}
+                      className="rounded accent-emerald-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span className="text-slate-200 font-semibold flex items-center gap-1.5 text-xs">
+                      <FolderTree className="w-4 h-4 text-emerald-400" />
+                      Organize into Subfolders
+                    </span>
+                  </label>
 
-              <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1.5">
-                <span className="text-slate-500">Destination:</span>
-                <span className="text-slate-300 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                  📁 {folderPathPreview ? `${folderPathPreview} /` : 'Chosen Folder /'} 🎵 01 - ...
+                  {createSubfolders && (
+                    <div className="flex items-center space-x-1.5">
+                      <select
+                        id="folder-hierarchy-type-select"
+                        value={folderHierarchyType}
+                        onChange={(e) => setFolderHierarchyType(e.target.value as FolderHierarchyType)}
+                        className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 font-medium focus:outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        <option value="artist_album">[Artist] / [Album] (Standard Library)</option>
+                        <option value="artist_year_album">[Artist] / [Year - Album] (Chronological)</option>
+                        <option value="album_only">[Album] / [Tracks] (Album Only)</option>
+                        <option value="custom">Custom Hierarchy Pattern...</option>
+                        <option value="flat">Flat (Direct in Target Folder)</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    id="toggle-tree-preview-btn"
+                    onClick={() => setShowTreePreview((prev) => !prev)}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium flex items-center gap-1.5 transition cursor-pointer border ${
+                      showTreePreview
+                        ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
+                        : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
+                    }`}
+                    title="Toggle visual directory tree preview"
+                  >
+                    <FolderTree className="w-3 h-3 text-emerald-400" />
+                    <span>{showTreePreview ? 'Hide Layout Tree' : 'Preview Layout Tree'}</span>
+                    {showTreePreview ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Custom Pattern Input if custom selected */}
+              {createSubfolders && folderHierarchyType === 'custom' && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-slate-400 text-[11px] shrink-0">Pattern:</span>
+                    <input
+                      type="text"
+                      id="custom-folder-pattern-input"
+                      value={customFolderPattern}
+                      onChange={(e) => setCustomFolderPattern(e.target.value)}
+                      placeholder="{artist}/{album}"
+                      className="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400 flex-wrap">
+                    <span>Click token to add:</span>
+                    {['{artist}', '{album}', '{year}', '{genre}'].map((token) => (
+                      <button
+                        key={token}
+                        type="button"
+                        onClick={() => setCustomFolderPattern((prev) => (prev ? `${prev}/${token}` : token))}
+                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-mono transition cursor-pointer"
+                      >
+                        +{token}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Destination Path Preview Line */}
+              <div className="text-[11px] text-slate-400 font-mono flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                <div className="flex items-center gap-1.5 truncate">
+                  <span className="text-slate-500 shrink-0">Target Path:</span>
+                  <span className="text-slate-300 bg-slate-950 px-2 py-0.5 rounded border border-slate-800 truncate">
+                    📁 [Selected Directory] {folderPathPreview ? `/ 📁 ${folderPathPreview}` : ''} / 🎵 01 - ...
+                  </span>
+                </div>
+                <span className="text-slate-500 text-[10px] shrink-0">
+                  {resolvedFolderSegments.length > 0
+                    ? `${resolvedFolderSegments.length} subfolder level${resolvedFolderSegments.length > 1 ? 's' : ''}`
+                    : 'Direct root export'}
                 </span>
               </div>
+
+              {/* Visual Tree Preview */}
+              {showTreePreview && (
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-xs text-slate-300 space-y-1">
+                  <div className="flex items-center gap-1.5 text-slate-400 font-semibold text-[11px] mb-1.5 pb-1 border-b border-slate-800">
+                    <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Visual Disk & Archive Layout Preview:</span>
+                  </div>
+
+                  <div className="text-slate-400 flex items-center gap-1.5">
+                    <Folder className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-slate-300">[Target Export Folder]</span>
+                  </div>
+
+                  {resolvedFolderSegments.length === 0 && (
+                    <div className="pl-4 space-y-0.5 text-slate-400">
+                      {previewSampleTracks.map((tName, idx) => (
+                        <div key={idx} className="flex items-center gap-1.5">
+                          <span className="text-slate-600">{idx === previewSampleTracks.length - 1 && splits.length <= 3 ? '└──' : '├──'}</span>
+                          <span className="text-emerald-400">🎵</span>
+                          <span className="text-slate-200">{tName}</span>
+                        </div>
+                      ))}
+                      {splits.length > 3 && (
+                        <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
+                          <span className="text-slate-600">└──</span>
+                          <span>... and {splits.length - 3} more tracks</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {resolvedFolderSegments.length === 1 && (
+                    <div className="pl-4 space-y-0.5">
+                      <div className="flex items-center gap-1.5 text-slate-300">
+                        <span className="text-slate-600">└──</span>
+                        <Folder className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="text-amber-300 font-semibold">{resolvedFolderSegments[0]}</span>
+                      </div>
+                      <div className="pl-8 space-y-0.5 text-slate-400">
+                        {previewSampleTracks.map((tName, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5">
+                            <span className="text-slate-600">{idx === previewSampleTracks.length - 1 && splits.length <= 3 ? '└──' : '├──'}</span>
+                            <span className="text-emerald-400">🎵</span>
+                            <span className="text-slate-200">{tName}</span>
+                          </div>
+                        ))}
+                        {splits.length > 3 && (
+                          <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
+                            <span className="text-slate-600">└──</span>
+                            <span>... and {splits.length - 3} more tracks</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {resolvedFolderSegments.length >= 2 && (
+                    <div className="pl-4 space-y-0.5">
+                      <div className="flex items-center gap-1.5 text-slate-300">
+                        <span className="text-slate-600">└──</span>
+                        <Folder className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="text-amber-300 font-semibold">{resolvedFolderSegments[0]}</span>
+                      </div>
+                      <div className="pl-8 space-y-0.5">
+                        <div className="flex items-center gap-1.5 text-slate-300">
+                          <span className="text-slate-600">└──</span>
+                          <Folder className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="text-amber-200 font-semibold">
+                            {resolvedFolderSegments.slice(1).join(' / ')}
+                          </span>
+                        </div>
+                        <div className="pl-8 space-y-0.5 text-slate-400">
+                          {previewSampleTracks.map((tName, idx) => (
+                            <div key={idx} className="flex items-center gap-1.5">
+                              <span className="text-slate-600">{idx === previewSampleTracks.length - 1 && splits.length <= 3 ? '└──' : '├──'}</span>
+                              <span className="text-emerald-400">🎵</span>
+                              <span className="text-slate-200">{tName}</span>
+                            </div>
+                          ))}
+                          {splits.length > 3 && (
+                            <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
+                              <span className="text-slate-600">└──</span>
+                              <span>... and {splits.length - 3} more tracks</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Track Numbering & Naming Pattern Options */}

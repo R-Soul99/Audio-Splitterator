@@ -12,17 +12,29 @@ export type FlacCompressionLevel = 0 | 5 | 8;
 
 export type ExportMode = 'individual' | 'zip';
 
+export type FolderHierarchyType =
+  | 'artist_album'      // [Artist] / [Album] / [Track]
+  | 'album_only'        // [Album] / [Track]
+  | 'artist_year_album' // [Artist] / [Year - Album] / [Track]
+  | 'custom'            // Custom pattern e.g. {artist}/{year} - {album}
+  | 'flat';             // [Track] (no subfolders)
+
 export interface FolderStructureOptions {
   enabled: boolean;
+  type?: FolderHierarchyType;
   artist?: string;
   album?: string;
+  year?: string;
+  genre?: string;
+  customFolderPattern?: string; // e.g. "{artist}/{album}" or "{artist}/({year}) {album}"
 }
 
 export type NamingPattern =
   | 'track_title'
   | 'track_artist_title'
   | 'artist_title'
-  | 'artist_album_track_title';
+  | 'artist_album_track_title'
+  | 'custom';
 
 export interface AlbumDetails {
   albumArtist: string;
