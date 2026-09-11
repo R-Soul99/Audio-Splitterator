@@ -1,0 +1,19 @@
+directories:
+  output: dist-electron
+  buildResources: build
+appId: com.audiophonic.splitterator
+productName: Audiophonic Splitterator
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+      - package.json
+win:
+  target:
+    - nsis
+    - portable
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+electronVersion: 44.2.0

@@ -349,7 +349,7 @@ export async function encodeMp3(
  * Includes vendor string and tags (ARTIST, ALBUM, TITLE, TRACKNUMBER, TOTALTRACKS, etc.).
  */
 function createVorbisCommentBlock(metadata?: Partial<AudioMetadata>): Uint8Array {
-  const vendor = 'Audiophonic Splitterator';
+  const vendor = 'Audiophonic Recordinator';
   const encoder = new TextEncoder();
   const vendorBytes = encoder.encode(vendor);
 

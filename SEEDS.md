@@ -55,7 +55,7 @@ A shared backlog of roadmap ideas, architectural discussions, and feature seeds.
 - [x] **Performance Fix (Peak Pyramid LOD)**: Waveform rendering accelerated ~50,000x for multi-hour vinyl recordings.
 - [x] **Scroll Protection**: Normal mouse wheel now scrolls the web page safely; zooming the waveform requires `Ctrl + Wheel` or `Alt + Wheel`.
 - [x] Phase 2: Folder Export with Nested Subfolders (`Artist / Album / Track.flac`), Custom Patterns, and Interactive Tree Preview.
-- [ ] Phase 3: Fixed DAW Viewport (100vh) & Tooltip Clutter Cleanup.
+- [x] Phase 3: Fixed DAW Viewport (100vh) & Tooltip Clutter Cleanup.
 - [ ] Phase 4: Vinyl Noise Floor Profiler (auto-detect quiet groove crackle).
 - [ ] Folder for user reference screenshots: `docs/screenshots/`
 - [ ] Custom naming patterns for export (e.g. `{artist} - {album} - {trackNumber} - {title}.flac`).

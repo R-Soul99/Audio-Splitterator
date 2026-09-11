@@ -1,0 +1,9 @@
+1. The whole top banner can go - batch processor is unnecessary, open/record are handled by the record tab now (or should be).
+2. Record, Edit and Save buttons should be more clear, even when not available.  maybe they should be always available even if you haven't got an audio file in there yet?
+3. 
+
+Record panel problems:
+1. Remove text in oscilloscope about peak readout - a simple 'click to reset' text inline with the peak meter readouts will be fine
+2. Meter readout when recording is really choppy - needs to be much higher framerate, preferably not at the cost of performance.
+3. There are no input settings - they should be part of this tab.  let's say input source settings should be down the left hand side of the screen as dropdowns / text entry / toggles / sliders as appropriate (input, preamp, naming field, maybe input format (48 or 44.1?  I'm always converting them to 44.1 anyway, wouldn't it be easier to just record at that format?).
+Meters should remain central but fill more of that space.

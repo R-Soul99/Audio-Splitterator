@@ -1,0 +1,56 @@
+> no, i've just looked and don't like it.  
+
+(a) without it being fullscreen i am required to scroll - there should be no scrolling required at any point (apart from scrolling left/right in the waveform if it's zoomed)
+(b) the screen completely changes when an audio file is loaded or recording is finished - i don't like this behaviour (see (d)).  
+(c)there are still too many over-explained buttons and controls onscreen, which would work better as a simple toolbar with icons.  
+(d) a recording should occupy a child window, with simple 'play/pause/stop' buttons along the bottom.
+(e) recording name should be set during the pre-record period.  here the user can enter the album/recording name, which will be used to populate the post record panel's naming section.
+   
+Other changes:
+
+- All meters should be squared off, or very slightly rounded - currently they look a bit like a child's toy with their rounding on the corners.
+- As mentioned before, pre-record settings should appear only when needed (press a button on toolbar for a 'new recording'.   
+
+this pre-recording window should contain everything currently in the 'Live Soundcard Recording Console' (just call it 'recording console'), with the following modifications:
+1. remove text "High-fidelity direct PCM capture with continuous level metering prior to recording" (this is too much information)
+2. remove text "Live Input Monitoring Active" (this will be covered by the monitoring on/off switch, represented as a simple radio button or vertical flip-switch)
+3. Channel mode should be a simple switch for Stereo or Mono (don't need text "2 Ch" - we all know what Stereo means)
+4. Input Boost/Preamp section - this is mostly good, but no need for "0.0db (Unity)", i don't really understand what that's for or means anyway.  Remove text "Turntable Preamp"
+5. Headphone Monitor - i don't use this or know what it's for, i haven't needed to use it so we don't need it.
+6. Live oscilloscope Monitor - we can keep this, it looks good and gives another indicator that sound is being received.
+7. Input Meters - as mentioned before, these need squaring up a bit so they're not so rounded and toy-like, need to look more professional.  No need to explain 'click meter to reset' twice.  in fact the text explaining this should be next to the peak readouts and just say 'click to reset'.
+8. What does 'signal nominal' even mean?  I don't think we need it if it's not serving a purpose apart from trying to sound clever.
+9. Start Recording button can remain part of this pre-recording panel, but shouldn't have a pulsing dot next to it when waiting.  In fact, let's just have it say 'Record'.  We don't need the 'mute live meters' button, this should be handled by the monitor on/off switch.
+10. remove text "Levels monitored in real time • Stop generates editable waveform & fades" - it's just more unnecessary explanation taking up screen real-estate.
+
+Post-record behaviour:
+Waveform occupies child window with simple controls.
+Below this child window we need a toolbar that can easily handle all of the functions currently contained in the bottom section of the current app's post record area.
+We need to lose all of the explanatory text, and instead have simple buttons which display an explanatory tooltip when hovered for 0.5 seconds (so it's not constantly popping up when moving cursor around the screen)
+
+
+- Toolbar buttons / information we don't actually need:
+1. Smart Tool (this is just the default mode, no need to explain)
+2. section saying "Wheel: Zoom"
+3. IN CROP/OUT CROP section (unnecessary, can be handled better - in fact lose that whole row)
+4. Clear Recording - we won't need this, closing the child window will automatically clear the recording (need a prompt in case of accidental click that would wipe a recording).
+
+- Toolbar buttons we do need - single buttons with icons instead of text, with aforementioned tooltips for info:
+1. Curve - i like this feature, but could be one button that when clicked folds out the 3 different fade curve options
+2. Audition on click on/off (light up toggle button)
+3. Marker Tool (light up toggle button)
+4. Zero Crossing (light up toggle button, when 'on' it puts the cursor at the closest zero-crossing to the cursor)
+5. Follow Playhead (light up toggle button) - i don't think we need the 'Playhead' time display, maybe this information should be displayed at the bottom of the waveform itself.
+6. Normalise (please spell like this in uk english).  This should have the option to set the peak normalised level, not just -0.5).
+
+Now, on to the track naming section.  This needs to be handled much better.  I propose that once a recording is complete and markers have been set, there should be a resizeable pop up panel that shows a list of the split tracks as they currently stand, in tabular format.  Table columns should be:
+
+1. Artist (populated with the name set during pre-record by default, but editable)
+2. Title (blank, ready for user input)
+3. Duration
+4. Time Span
+in-line Play/pause button and download should have buttons at the end, like we currently have.
+
+There can also be section at the top of this panel to edit the album/recording name, which can be applied to the 'Album' tag, and also replace the pre-recording Album name that was set earlier.  a button to 'Apply Artist to all' would populate the Artist column of the table in case the name applied earlier isn't appropriate or user changes their mind.
+
+We can also lose that 'resampling' bit, i don't like it and it's unnecessary.
