@@ -9,7 +9,7 @@ function createWindow() {
     height: 850,
     minWidth: 980,
     minHeight: 650,
-    title: 'Audiophonic Splitterator',
+    title: 'Audiophonic Recordinator',
     backgroundColor: '#020617', // slate-950 to prevent white flash
     webPreferences: {
       nodeIntegration: false,

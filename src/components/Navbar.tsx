@@ -30,15 +30,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div>
             <div className="flex items-center space-x-2">
               <h1 className="text-base font-semibold text-slate-100 tracking-tight">
-                Audiophonic Splitterator
+                Audiophonic Recordinator
               </h1>
               <span className="text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
                 Studio Edition
               </span>
             </div>
-            <p className="text-xs text-slate-400 hidden sm:block">
-              Soundcard capture • Zero-crossing fades • FLAC / WAV / MP3 export & tags
-            </p>
           </div>
         </div>
 
@@ -57,16 +54,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </a>
           )}
 
-          {/* Open Audio File Button */}
-          <button
-            type="button"
-            onClick={onOpenFile}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 transition shadow-sm cursor-pointer"
-            title="Open existing audio file (WAV, FLAC, MP3, etc.) to crop, split, or apply fades"
-          >
-            <FolderOpen className="w-4 h-4 text-emerald-400" />
-            <span>Open Audio</span>
-          </button>
+
 
           {/* Navigation View Toggle */}
           <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">

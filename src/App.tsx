@@ -2,37 +2,32 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Navbar } from './components/Navbar';
 import { AudioRecorder } from './components/AudioRecorder';
 import { WaveformCanvas } from './components/WaveformCanvas';
-import { TransportControls } from './components/TransportControls';
 import { SplitsManager } from './components/SplitsManager';
 import { BatchProcessor } from './components/BatchProcessor';
-import {
-  Marker,
-  SplitSegment,
-  FadeSettings,
-  TimeSelection,
-} from './types';
-import {
-  detectSilenceSplits,
-  formatTime,
-  cropAudioBuffer,
-  cutAudioBuffer,
-} from './utils/audioProcessing';
+import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
+import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
 import {
   Mic,
   Music,
   Scissors,
   BookmarkPlus,
-  HelpCircle,
   FolderOpen,
   Layers,
-  Sparkles,
   Trash2,
-  PlusCircle,
   Zap,
+  Play,
+  Pause,
+  Square,
+  Tag,
+  CheckCircle2,
 } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'editor' | 'batch'>('editor');
+  
+  // 3-Workflow sequential tabs state based on mockup (Record -> Edit -> Save)
+  const [workflowTab, setWorkflowTab] = useState<'record' | 'edit' | 'save'>('record');
+
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [mainFileName, setMainFileName] = useState<string>('Recording_01');
   const [isRecordingActive, setIsRecordingActive] = useState<boolean>(false);
@@ -56,7 +51,15 @@ export default function App() {
   const [zoom, setZoom] = useState<number>(1);
   const [viewOffsetSec, setViewOffsetSec] = useState<number>(0);
 
-  // Visual Draggable Fade Settings (sculpted directly on waveform)
+  // Pre-Record metadata cache
+  const [preRecordArtist, setPreRecordArtist] = useState<string>('');
+  const [preRecordAlbum, setPreRecordAlbum] = useState<string>('');
+
+  // Silence Detection Parameters
+  const [silenceThreshold, setSilenceThreshold] = useState<number>(-42);
+  const [silenceDuration, setSilenceDuration] = useState<number>(1.2);
+
+  // Visual Draggable Fade Settings
   const [fadeSettings, setFadeSettings] = useState<FadeSettings>({
     fadeInEnabled: true,
     fadeInMs: 75,
@@ -76,7 +79,7 @@ export default function App() {
   const animationFrameRef = useRef<number | null>(null);
   const isPlayingRef = useRef<boolean>(false);
 
-  // Synced refs for state accessed inside the continuous real-time animation loop
+  // Synced refs
   const audioBufferRef = useRef<AudioBuffer | null>(null);
   const cropStartRef = useRef<number>(0);
   const cropEndRef = useRef<number>(0);
@@ -120,7 +123,7 @@ export default function App() {
     return audioCtxRef.current;
   }, []);
 
-  // Stop active playback safely without race conditions
+  // Stop active playback safely
   const stopPlayback = useCallback(() => {
     isPlayingRef.current = false;
     if (sourceNodeRef.current) {
@@ -141,7 +144,7 @@ export default function App() {
     setIsPlaying(false);
   }, []);
 
-  // Real-time animation frame loop to track playhead continuously and smoothly
+  // Real-time animation frame loop to track playhead smoothly
   const startPlayheadLoop = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -193,7 +196,6 @@ export default function App() {
     animationFrameRef.current = requestAnimationFrame(tick);
   }, [stopPlayback]);
 
-  // Clean up audio nodes & animation frames on unmount only
   useEffect(() => {
     return () => {
       if (animationFrameRef.current) {
@@ -293,7 +295,7 @@ export default function App() {
     [startPlayback]
   );
 
-  // Instant audition / preview when clicking anywhere on the waveform
+  // Instant audition / preview
   const handlePreviewStart = useCallback(
     (newTime: number) => {
       currentTimeRef.current = newTime;
@@ -303,8 +305,8 @@ export default function App() {
     [startPlayback]
   );
 
-  // Load new audio buffer (from recording or opened file)
-  const loadAudio = (buffer: AudioBuffer, fileName: string) => {
+  // Load new audio buffer (recording finished or imported file)
+  const loadAudio = (buffer: AudioBuffer, fileName: string, artist?: string, album?: string) => {
     stopPlayback();
     audioBufferRef.current = buffer;
     cropStartRef.current = 0;
@@ -313,6 +315,8 @@ export default function App() {
 
     setAudioBuffer(buffer);
     setMainFileName(fileName);
+    if (artist) setPreRecordArtist(artist);
+    if (album) setPreRecordAlbum(album);
     setCropStart(0);
     setCropEnd(buffer.duration);
     setSelection(null);
@@ -320,28 +324,35 @@ export default function App() {
     setMarkers([]);
     setZoom(1);
     setViewOffsetSec(0);
+
+    // Switch workflow to EDIT tab automatically
+    setWorkflowTab('edit');
   };
 
-  // Clear current recording for a clean slate to record again
   const handleClearRecording = () => {
-    stopPlayback();
-    audioBufferRef.current = null;
-    cropStartRef.current = 0;
-    cropEndRef.current = 0;
-    currentTimeRef.current = 0;
+    if (confirm("Are you sure you want to discard this recording? Any unsaved splits or fades will be lost.")) {
+      stopPlayback();
+      audioBufferRef.current = null;
+      cropStartRef.current = 0;
+      cropEndRef.current = 0;
+      currentTimeRef.current = 0;
 
-    setAudioBuffer(null);
-    setMainFileName('Recording_01');
-    setCropStart(0);
-    setCropEnd(0);
-    setSelection(null);
-    setCurrentTime(0);
-    setMarkers([]);
-    setZoom(1);
-    setViewOffsetSec(0);
+      setAudioBuffer(null);
+      setMainFileName('Recording_01');
+      setCropStart(0);
+      setCropEnd(0);
+      setSelection(null);
+      setCurrentTime(0);
+      setMarkers([]);
+      setZoom(1);
+      setViewOffsetSec(0);
+      setPreRecordArtist('');
+      setPreRecordAlbum('');
+      setWorkflowTab('record'); // reset back to record tab
+    }
   };
 
-  // Crop to Selection Brace: keeps ONLY the selected region, discards the rest
+  // Crop to Selection Brace
   const handleCropToSelection = (startSec: number, endSec: number) => {
     if (!audioBuffer) return;
     const s = Math.max(0, Math.min(startSec, endSec));
@@ -352,7 +363,6 @@ export default function App() {
 
     const cropped = cropAudioBuffer(audioBuffer, s, e);
 
-    // Adjust existing markers inside the kept range
     const updatedMarkers = markers
       .filter((m) => m.time >= s && m.time <= e)
       .map((m) => ({
@@ -360,7 +370,6 @@ export default function App() {
         time: m.time - s,
       }));
 
-    // Synchronously sync engine refs
     audioBufferRef.current = cropped;
     cropStartRef.current = 0;
     cropEndRef.current = cropped.duration;
@@ -376,7 +385,7 @@ export default function App() {
     setViewOffsetSec(0);
   };
 
-  // Cut / Delete Selection Brace: removes the selected section, splices the remainder with micro-crossfade
+  // Cut / Delete Selection Brace
   const handleCutSelection = (startSec: number, endSec: number) => {
     if (!audioBuffer) return;
     const s = Math.max(0, Math.min(startSec, endSec));
@@ -388,7 +397,6 @@ export default function App() {
 
     const spliced = cutAudioBuffer(audioBuffer, s, e);
 
-    // Adjust markers around the cut point
     const updatedMarkers = markers
       .filter((m) => m.time < s || m.time > e)
       .map((m) => {
@@ -400,7 +408,6 @@ export default function App() {
 
     const nextTime = Math.min(s, spliced.duration);
 
-    // Synchronously sync engine refs so immediate play uses new spliced buffer
     audioBufferRef.current = spliced;
     cropStartRef.current = 0;
     cropEndRef.current = spliced.duration;
@@ -416,7 +423,7 @@ export default function App() {
     setViewOffsetSec(0);
   };
 
-  // Audition / Play Selection Brace region only
+  // Audition / Play Selection region only
   const handlePlaySelection = useCallback(
     (startSec: number, endSec: number) => {
       const buffer = audioBufferRef.current;
@@ -431,12 +438,12 @@ export default function App() {
         ctx.resume();
       }
 
+      const playDuration = e - s;
       const source = ctx.createBufferSource();
+      const activeSource = source;
       source.buffer = buffer;
       source.connect(ctx.destination);
 
-      const playDuration = e - s;
-      const activeSource = source;
       source.onended = () => {
         if (sourceNodeRef.current === activeSource) {
           stopPlayback();
@@ -460,8 +467,8 @@ export default function App() {
     [getAudioContext, stopPlayback, startPlayheadLoop]
   );
 
-  // Peak Normalize loaded recording or vinyl audio to target peak (-0.5 dBFS)
-  const handleNormalizeAudio = (targetPeakDb = -0.5) => {
+  // Peak Normalise (UK spelling)
+  const handleNormalizeAudio = (targetPeakDb: number) => {
     if (!audioBuffer) return;
 
     let maxPeak = 0;
@@ -478,10 +485,7 @@ export default function App() {
       return;
     }
 
-    const currentPeakDb = 20 * Math.log10(maxPeak);
-    const targetLinear = Math.pow(10, targetPeakDb / 20);
-    const gainMultiplier = targetLinear / maxPeak;
-    const boostDb = targetPeakDb - currentPeakDb;
+    const gainMultiplier = Math.pow(10, targetPeakDb / 20) / maxPeak;
 
     const ctx = new (window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
@@ -538,7 +542,6 @@ export default function App() {
     const clampedTime = Math.max(startLimit, Math.min(endLimit, time));
 
     setMarkers((prev) => {
-      // Avoid duplicate marker very close
       if (prev.some((m) => Math.abs(m.time - clampedTime) < 0.05)) {
         return prev;
       }
@@ -571,21 +574,6 @@ export default function App() {
     setMarkers([]);
   };
 
-  // Auto detect silence to suggest splits
-  const handleAutoDetectSilence = () => {
-    if (!audioBuffer) return;
-    const detected = detectSilenceSplits(audioBuffer, -42, 1.2);
-    if (detected.length === 0) {
-      alert('No silence pauses detected above threshold (-42dB, >1.2s). You can add markers manually.');
-      return;
-    }
-    const newMarkers: Marker[] = detected.map((sec, idx) => ({
-      id: `marker-auto-${idx}-${Date.now()}`,
-      time: sec,
-    }));
-    setMarkers(newMarkers.sort((a, b) => a.time - b.time));
-  };
-
   // Calculate split segments
   const splits = useMemo<SplitSegment[]>(() => {
     if (!audioBuffer) return [];
@@ -593,7 +581,6 @@ export default function App() {
     const effectiveStart = cropStart;
     const effectiveEnd = cropEnd > 0 ? cropEnd : audioBuffer.duration;
 
-    // Filter markers that fall strictly within crop boundaries
     const activeMarkers = markers
       .filter((m) => m.time > effectiveStart + 0.01 && m.time < effectiveEnd - 0.01)
       .sort((a, b) => a.time - b.time);
@@ -622,10 +609,9 @@ export default function App() {
     return segments;
   }, [audioBuffer, cropStart, cropEnd, markers, mainFileName]);
 
-  // Keyboard shortcut listener (Space = play/pause, M = add marker, I = In crop, O = Out crop)
+  // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
@@ -654,7 +640,7 @@ export default function App() {
   }, [handlePlayPause, handleAddMarkerAtPlayhead]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <div className="h-screen max-h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       {/* Hidden file input for opening audio files */}
       <input
         ref={fileInputRef}
@@ -664,7 +650,7 @@ export default function App() {
         className="hidden"
       />
 
-      {/* Top Navigation */}
+      {/* Top Brand Navbar */}
       <Navbar
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
@@ -674,168 +660,272 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 space-y-6">
+      <main className="flex-1 min-h-0 w-full p-4 lg:p-6 lg:pb-4 flex flex-col space-y-4">
         {currentTab === 'editor' ? (
-          <div className="space-y-6">
-            {/* Audio Recorder Section with Live Independent Monitoring & Vertical Meters */}
-            <AudioRecorder
-              onRecordingComplete={(buf, defaultName) => loadAudio(buf, defaultName)}
-              isRecordingActive={isRecordingActive}
-              setIsRecordingActive={setIsRecordingActive}
-              onClearRecording={handleClearRecording}
-              hasLoadedAudio={!!audioBuffer}
-            />
+          <div className="flex-1 flex flex-col min-h-0 relative">
+            
+            {/* 3-Workflow Sequential Tabs from Mockup (Record, Edit, Save) */}
+            <div className="grid grid-cols-3 gap-4 border-b border-slate-900 bg-slate-950/40 p-2 rounded-xl mb-4 flex-shrink-0 select-none">
+              {/* RECORD TAB */}
+              <button
+                type="button"
+                onClick={() => setWorkflowTab('record')}
+                className={`py-3 px-6 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition cursor-pointer ${
+                  workflowTab === 'record'
+                    ? 'border-red-500/80 text-red-500 bg-red-500/5 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
+                    : 'text-slate-500 hover:text-slate-300 border-transparent bg-transparent'
+                }`}
+              >
+                RECORD
+              </button>
 
-            {/* Waveform Editor (Active when audio is loaded) */}
-            {audioBuffer ? (
-              <div className="space-y-5">
-                {/* Active file banner & Quick rename & Clean Slate */}
-                <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-xl">
-                  <div className="flex items-center space-x-2.5">
-                    <Music className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs text-slate-400 font-medium">Active Audio:</span>
-                    <input
-                      type="text"
-                      value={mainFileName}
-                      onChange={(e) => setMainFileName(e.target.value)}
-                      className="bg-slate-950 border border-slate-700/80 rounded px-2.5 py-1 text-xs font-semibold text-slate-200 focus:outline-none focus:border-emerald-500"
-                      placeholder="Project file name..."
-                    />
-                  </div>
+              {/* EDIT TAB */}
+              <button
+                type="button"
+                disabled={!audioBuffer}
+                onClick={() => setWorkflowTab('edit')}
+                className={`py-3 px-6 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition ${
+                  !audioBuffer ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'
+                } ${
+                  workflowTab === 'edit'
+                    ? 'border-amber-500/80 text-amber-500 bg-amber-500/5 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                    : 'text-slate-500 hover:text-slate-300 border-transparent bg-transparent'
+                }`}
+              >
+                EDIT
+              </button>
 
-                  <div className="flex items-center space-x-3 text-xs font-mono text-slate-400">
-                    <span>
-                      Length: <strong className="text-slate-200">{formatTime(audioBuffer.duration)}</strong>
-                    </span>
-                    <span>•</span>
-                    <span>
-                      Rate: <strong className="text-slate-200">{audioBuffer.sampleRate} Hz</strong>
-                    </span>
-                    <span>•</span>
-                    <span>
-                      Channels: <strong className="text-slate-200">{audioBuffer.numberOfChannels === 2 ? 'Stereo' : 'Mono'}</strong>
-                    </span>
+              {/* SAVE TAB */}
+              <button
+                type="button"
+                disabled={!audioBuffer}
+                onClick={() => setWorkflowTab('save')}
+                className={`py-3 px-6 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition ${
+                  !audioBuffer ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'
+                } ${
+                  workflowTab === 'save'
+                    ? 'border-emerald-500/80 text-emerald-450 bg-emerald-500/5 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                    : 'text-slate-500 hover:text-slate-300 border-transparent bg-transparent'
+                }`}
+              >
+                SAVE
+              </button>
+            </div>
 
-                    {/* Normalize Peak button for loaded audio */}
-                    <button
-                      type="button"
-                      onClick={() => handleNormalizeAudio(-0.5)}
-                      className="ml-1 flex items-center space-x-1.5 px-2.5 py-1 rounded bg-slate-800 hover:bg-amber-950/40 text-slate-300 hover:text-amber-300 border border-slate-700 hover:border-amber-800/50 text-xs font-semibold transition cursor-pointer"
-                      title="Peak normalize loaded audio to -0.5 dBFS to boost quiet vinyl/record deck recordings"
-                    >
-                      <Zap className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Normalize (-0.5 dB)</span>
-                    </button>
+            {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
+            <div className="flex-1 relative bg-slate-950/20 border border-slate-900 rounded-2xl overflow-hidden p-4 min-h-0 select-none bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
+              
+              {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
+              {workflowTab === 'record' && (
+                <div className="flex-1 h-full overflow-y-auto pr-1">
+                  <AudioRecorder
+                    onRecordingComplete={(buf, defaultName, art, alb) => {
+                      loadAudio(buf, defaultName, art, alb);
+                    }}
+                    isRecordingActive={isRecordingActive}
+                    setIsRecordingActive={setIsRecordingActive}
+                    onClearRecording={handleClearRecording}
+                    hasLoadedAudio={!!audioBuffer}
+                  />
+                </div>
+              )}
 
-                    {/* Clear Current Recording (Clean Slate) */}
+              {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
+              {workflowTab === 'edit' && audioBuffer && (
+                <div className="flex flex-col h-full space-y-4 min-h-0">
+                  {/* Top: Active Project Rename & Reset banner */}
+                  <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs">
+                    <div className="flex items-center space-x-2.5">
+                      <Music className="w-4 h-4 text-amber-500" />
+                      <span className="text-slate-400 font-medium">Recording Name:</span>
+                      <input
+                        type="text"
+                        value={mainFileName}
+                        onChange={(e) => setMainFileName(e.target.value)}
+                        className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs font-semibold text-slate-200 focus:outline-none focus:border-amber-500"
+                        placeholder="Project name..."
+                      />
+                    </div>
+                    
                     <button
                       type="button"
                       onClick={handleClearRecording}
-                      className="ml-1 flex items-center space-x-1.5 px-2.5 py-1 rounded bg-slate-800 hover:bg-red-950/40 text-slate-300 hover:text-red-300 border border-slate-700 hover:border-red-800/50 text-xs font-semibold transition cursor-pointer"
-                      title="Discard current recording and reset to a clean slate"
+                      className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-slate-850 hover:bg-red-950/40 text-slate-400 hover:text-red-400 border border-slate-800 hover:border-red-800/40 text-xs font-bold transition cursor-pointer"
                     >
-                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                      <span>Clear Recording</span>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Discard Recording</span>
                     </button>
                   </div>
-                </div>
 
-                {/* Interactive Waveform Canvas with Click Preview, Markers, Zoom, Selection Brace & Visual Draggable Volume Fades */}
-                <WaveformCanvas
-                  audioBuffer={audioBuffer}
-                  currentTime={currentTime}
-                  cropStart={cropStart}
-                  cropEnd={cropEnd}
-                  selection={selection}
-                  markers={markers}
-                  zoom={zoom}
-                  viewOffsetSec={viewOffsetSec}
-                  fadeSettings={fadeSettings}
-                  isPlaying={isPlaying}
-                  onSeek={handleSeek}
-                  onPreviewStart={handlePreviewStart}
-                  onSelectionChange={setSelection}
-                  onCropToSelection={handleCropToSelection}
-                  onCutSelection={handleCutSelection}
-                  onPlaySelection={handlePlaySelection}
-                  onCropChange={(start, end) => {
-                    setCropStart(start);
-                    setCropEnd(end);
-                  }}
-                  onMarkerMove={handleMarkerMove}
-                  onAddMarker={handleAddMarker}
-                  onRemoveMarker={handleRemoveMarker}
-                  onZoomChange={setZoom}
-                  onViewOffsetChange={setViewOffsetSec}
-                  onFadeSettingsChange={setFadeSettings}
-                />
+                  {/* Waveform canvas (Dynamic Height) */}
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    <WaveformCanvas
+                      audioBuffer={audioBuffer}
+                      currentTime={currentTime}
+                      cropStart={cropStart}
+                      cropEnd={cropEnd}
+                      selection={selection}
+                      markers={markers}
+                      zoom={zoom}
+                      viewOffsetSec={viewOffsetSec}
+                      fadeSettings={fadeSettings}
+                      isPlaying={isPlaying}
+                      onSeek={handleSeek}
+                      onPreviewStart={handlePreviewStart}
+                      onSelectionChange={setSelection}
+                      onCropToSelection={handleCropToSelection}
+                      onCutSelection={handleCutSelection}
+                      onPlaySelection={handlePlaySelection}
+                      onCropChange={(start, end) => {
+                        setCropStart(start);
+                        setCropEnd(end);
+                      }}
+                      onMarkerMove={handleMarkerMove}
+                      onAddMarker={handleAddMarker}
+                      onRemoveMarker={handleRemoveMarker}
+                      onZoomChange={setZoom}
+                      onViewOffsetChange={setViewOffsetSec}
+                      onFadeSettingsChange={setFadeSettings}
+                      onNormalise={handleNormalizeAudio}
+                    />
+                  </div>
 
-                {/* Transport & Crop Controls */}
-                <TransportControls
-                  isPlaying={isPlaying}
-                  isLooping={isLooping}
-                  currentTime={currentTime}
-                  totalDuration={audioBuffer.duration}
-                  cropStart={cropStart}
-                  cropEnd={cropEnd}
-                  zoom={zoom}
-                  onPlayPause={handlePlayPause}
-                  onStop={handleStop}
-                  onToggleLoop={() => setIsLooping(!isLooping)}
-                  onZoomChange={setZoom}
-                  onZoomFit={() => {
-                    setZoom(1);
-                    setViewOffsetSec(0);
-                  }}
-                  onSetInToPlayhead={() => setCropStart(currentTime)}
-                  onSetOutToPlayhead={() => setCropEnd(currentTime)}
-                  onResetCrop={() => {
-                    setCropStart(0);
-                    setCropEnd(audioBuffer.duration);
-                  }}
-                  onCropStartChange={setCropStart}
-                  onCropEndChange={setCropEnd}
-                  onAddMarkerAtPlayhead={handleAddMarkerAtPlayhead}
-                  onClearMarkers={handleClearMarkers}
-                  onAutoDetectSilence={handleAutoDetectSilence}
-                />
+                  {/* Bottom: Playback timeline controls */}
+                  <div className="flex items-center justify-between border-t border-slate-900 pt-2.5 flex-shrink-0 select-none">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={handlePlayPause}
+                        className="px-3.5 py-1.5 rounded-lg bg-slate-850 hover:bg-slate-750 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-slate-800"
+                      >
+                        {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                        <span>{isPlaying ? 'Pause' : 'Play'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStop}
+                        className="px-3.5 py-1.5 rounded-lg bg-slate-850 hover:bg-slate-750 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-slate-800"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-current" />
+                        <span>Stop</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsLooping(!isLooping)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                          isLooping
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-slate-850 hover:bg-slate-750 text-slate-300 border-slate-800'
+                        }`}
+                      >
+                        Loop: {isLooping ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
 
-                {/* Splits Management & Export Panel */}
-                <SplitsManager
-                  sourceBuffer={audioBuffer}
-                  splits={splits}
-                  mainFileName={mainFileName}
-                  fadeSettings={fadeSettings}
-                  onSeekTo={handleSeek}
-                />
-              </div>
-            ) : (
-              /* Empty State Prompt */
-              <div className="border border-slate-800 bg-slate-900/40 rounded-2xl p-10 text-center space-y-4">
-                <div className="w-12 h-12 mx-auto rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400">
-                  <Scissors className="w-6 h-6" />
+                    <div className="text-[10px] font-mono text-slate-400">
+                      Length: <strong className="text-slate-200">{formatTime(audioBuffer.duration)}</strong> • Rate: <strong className="text-slate-200">{audioBuffer.sampleRate} Hz</strong>
+                    </div>
+                  </div>
+
+                  {/* Redesigned bottom Split Regions List from Mockup */}
+                  <div className="bg-slate-900/60 border border-slate-800 p-3.5 rounded-xl flex flex-col h-56 min-h-0 flex-shrink-0 select-none">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 flex-shrink-0">
+                      <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
+                        <Layers className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Split Regions List</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-500">
+                        {splits.length} regions detected. Ready for fine-tuning.
+                      </span>
+                    </div>
+
+                    <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1 font-medium">
+                      {splits.length === 0 ? (
+                        <div className="text-center text-slate-500 italic py-6 text-xs">
+                          No split markers set. Double-click on the waveform canvas to place a marker.
+                        </div>
+                      ) : (
+                        splits.map((split, idx) => {
+                          const colors = ['#f87171', '#fb923c', '#4ade80', '#38bdf8', '#c084fc'];
+                          const color = colors[idx % colors.length];
+
+                          return (
+                            <div key={split.id} className="flex items-center justify-between bg-slate-950/60 p-2 rounded border border-slate-850 hover:bg-slate-900/30 transition text-xs">
+                              {/* Left: Name and duration */}
+                              <div className="flex items-center space-x-3 w-40 shrink-0 text-left">
+                                <input type="checkbox" defaultChecked disabled className="rounded accent-emerald-500 w-3.5 h-3.5 flex-shrink-0 cursor-not-allowed opacity-50" />
+                                <div className="truncate">
+                                  <div className="font-bold text-[11px] text-slate-200">{split.name}</div>
+                                  <div className="text-[10px] font-mono text-slate-500">
+                                    {formatTime(split.startTime, false)} • {formatTime(split.duration, false)}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Center: Visual Colored segment block */}
+                              <div className="flex-1 px-4">
+                                <div className="h-4.5 bg-slate-900 rounded border border-slate-850 relative overflow-hidden flex items-center justify-center">
+                                  <div
+                                    className="absolute top-0 bottom-0 opacity-20"
+                                    style={{
+                                      left: `${(split.startTime / audioBuffer.duration) * 100}%`,
+                                      width: `${(split.duration / audioBuffer.duration) * 100}%`,
+                                      backgroundColor: color,
+                                    }}
+                                  />
+                                  <span className="text-[9px] font-mono text-slate-500 z-10 font-bold uppercase tracking-wider">
+                                    Region {split.index}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Right: Seek trigger */}
+                              <div className="flex items-center space-x-1.5 w-24 justify-end shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSeek(split.startTime)}
+                                  className="px-2.5 py-1 bg-slate-900 border border-slate-850 hover:border-slate-700 text-slate-400 hover:text-sky-400 rounded text-[10px] font-mono transition cursor-pointer"
+                                >
+                                  Seek
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePlaySelection(split.startTime, split.endTime)}
+                                  className="p-1 rounded bg-slate-900 border border-slate-850 text-slate-400 hover:text-emerald-400 hover:bg-slate-850 transition cursor-pointer"
+                                >
+                                  <Play className="w-2.5 h-2.5 fill-current" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="max-w-md mx-auto space-y-1">
-                  <h3 className="text-sm font-semibold text-slate-200">No Audio Loaded Yet</h3>
-                  <p className="text-xs text-slate-400">
-                    Record audio above from any soundcard, or open an existing audio file (WAV, FLAC, MP3) to crop, split, and sculpt visual volume fades.
-                  </p>
+              )}
+
+              {/* WORKFLOW VIEW 3: SAVE WORKSPACE (Dual-column Checklist & Quality encoder) */}
+              {workflowTab === 'save' && audioBuffer && (
+                <div className="h-full overflow-hidden">
+                  <SplitsManager
+                    sourceBuffer={audioBuffer}
+                    splits={splits}
+                    mainFileName={mainFileName}
+                    fadeSettings={fadeSettings}
+                    onSeekTo={handleSeek}
+                    preRecordArtist={preRecordArtist}
+                    preRecordAlbum={preRecordAlbum}
+                  />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 cursor-pointer shadow-sm transition"
-                >
-                  <FolderOpen className="w-4 h-4 text-emerald-400" />
-                  <span>Open Existing Audio File</span>
-                </button>
-              </div>
-            )}
+              )}
+
+            </div>
           </div>
         ) : (
-          /* Batch Processing Mode */
-          <div className="space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          /* Batch Processing Mode (Wrapped in full height scrollable viewport) */
+          <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-shrink-0">
               <div>
                 <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
                   <Layers className="w-5 h-5 text-emerald-400" />
@@ -847,12 +937,14 @@ export default function App() {
               </div>
             </div>
 
-            <BatchProcessor
-              onOpenInEditor={(buf, name) => {
-                loadAudio(buf, name);
-                setCurrentTab('editor');
-              }}
-            />
+            <div className="flex-1">
+              <BatchProcessor
+                onOpenInEditor={(buf, name) => {
+                  loadAudio(buf, name);
+                  setCurrentTab('editor');
+                }}
+              />
+            </div>
           </div>
         )}
       </main>

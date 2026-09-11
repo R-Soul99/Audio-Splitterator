@@ -1,5 +1,5 @@
 {
-  "name": "Audiophonic Splitterator",
+  "name": "Audiophonic Recordinator",
   "description": "Precision soundcard audio recording, waveform editing, zero-crossing split markers, and high-fidelity FLAC, WAV, and MP3 batch export.",
   "requestFramePermissions": [
     "microphone"
