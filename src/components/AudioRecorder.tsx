@@ -3,16 +3,7 @@ import {
   Square,
   Pause,
   Play,
-  Volume2,
-  VolumeX,
-  Radio,
   Settings,
-  AlertCircle,
-  CheckCircle2,
-  Activity,
-  Trash2,
-  Zap,
-  RotateCcw,
   Tag,
 } from 'lucide-react';
 import { AudioDeviceOption } from '../types';
@@ -39,6 +30,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [devices, setDevices] = useState<AudioDeviceOption[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [channelMode, setChannelMode] = useState<'stereo' | 'mono'>('stereo');
+  const [recordingSampleRate, setRecordingSampleRate] = useState<number>(44100);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [durationSec, setDurationSec] = useState<number>(0);
@@ -71,6 +63,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const analyserNodeRightRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
+  // Pre-allocated static buffers to avoid Garbage Collection sweeps in requestAnimationFrame
+  const bufferLeftRef = useRef<Float32Array | null>(null);
+  const bufferRightRef = useRef<Float32Array | null>(null);
+
   // Peak hold ref for fast synchronous tracking
   const peakHoldRef = useRef<{ left: number; right: number }>({ left: -60, right: -60 });
 
@@ -86,10 +82,58 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const isRecordingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false);
 
+  // Proportional scaling factor tracking
+  const [scale, setScale] = useState<number>(1);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     isRecordingRef.current = isRecording;
     isPausedRef.current = isPaused;
   }, [isRecording, isPaused]);
+
+  // Handle proportional scale calculations
+  const calculateScale = useCallback(() => {
+    if (containerRef.current) {
+      const parent = containerRef.current.parentElement;
+      if (parent) {
+        const pWidth = parent.clientWidth;
+        const pHeight = parent.clientHeight;
+        
+        // Base pro-audio console design targets (the ideal scale dimensions)
+        const baseWidth = 940;
+        const baseHeight = 735;
+        
+        // Compute the fitting aspect scale ratio
+        const scaleX = pWidth / baseWidth;
+        const scaleY = pHeight / baseHeight;
+        const newScale = Math.min(scaleX, scaleY);
+        
+        setScale(newScale);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('resize', calculateScale);
+    // Initial delay trigger for accurate rendering calculation
+    const t = setTimeout(calculateScale, 60);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (containerRef.current && containerRef.current.parentElement) {
+      resizeObserver = new ResizeObserver(() => {
+        calculateScale();
+      });
+      resizeObserver.observe(containerRef.current.parentElement);
+    }
+
+    return () => {
+      window.removeEventListener('resize', calculateScale);
+      clearTimeout(t);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [calculateScale]);
 
   // Load audio input devices
   const loadDevices = useCallback(async () => {
@@ -137,7 +181,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     };
   }, [loadDevices]);
 
-  // Handle headphone monitoring gain changes
+  // Handle monitoring gain changes
   useEffect(() => {
     if (monitorGainNodeRef.current) {
       monitorGainNodeRef.current.gain.value = monitoringAudioOutput ? monitorVolume : 0;
@@ -178,7 +222,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
     const analyserL = analyserNodeLeftRef.current;
     const analyserR = analyserNodeRightRef.current;
-    const bufferL = new Float32Array(analyserL.fftSize);
+
+    // Reuse pre-allocated Left Buffer
+    if (!bufferLeftRef.current || bufferLeftRef.current.length !== analyserL.fftSize) {
+      bufferLeftRef.current = new Float32Array(analyserL.fftSize);
+    }
+    const bufferL = bufferLeftRef.current;
     analyserL.getFloatTimeDomainData(bufferL);
 
     let maxL = 0;
@@ -189,7 +238,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
     let maxR = maxL;
     if (analyserR) {
-      const bufferR = new Float32Array(analyserR.fftSize);
+      // Reuse pre-allocated Right Buffer
+      if (!bufferRightRef.current || bufferRightRef.current.length !== analyserR.fftSize) {
+        bufferRightRef.current = new Float32Array(analyserR.fftSize);
+      }
+      const bufferR = bufferRightRef.current;
       analyserR.getFloatTimeDomainData(bufferR);
       maxR = 0;
       for (let i = 0; i < bufferR.length; i++) {
@@ -241,10 +294,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         ctx.strokeStyle = isRecordingRef.current ? (isPausedRef.current ? '#f59e0b' : '#ef4444') : '#10b981';
         ctx.beginPath();
 
-        const step = Math.ceil(bufferL.length / width);
+        const len = bufferL.length;
         for (let x = 0; x < width; x++) {
-          const sampleIdx = x * step;
-          const val = sampleIdx < bufferL.length ? bufferL[sampleIdx] : 0;
+          const sampleIdx = Math.floor((x / width) * len);
+          const val = sampleIdx < len ? bufferL[sampleIdx] : 0;
           const y = (0.5 - val * 0.48) * height;
           if (x === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
@@ -264,7 +317,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
   // Initialize live monitoring stream
   const startMonitoringStream = useCallback(
-    async (deviceId?: string, mode?: 'stereo' | 'mono') => {
+    async (deviceId?: string, mode?: 'stereo' | 'mono', sampleRate?: number) => {
       if (!navigator?.mediaDevices?.getUserMedia) {
         setIsMonitoringActive(false);
         setDeviceError('Audio input not supported');
@@ -274,6 +327,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       try {
         const devId = deviceId !== undefined ? deviceId : selectedDeviceId;
         const chMode = mode !== undefined ? mode : channelMode;
+        const targetSampleRate = sampleRate !== undefined ? sampleRate : recordingSampleRate;
         const isStereo = chMode === 'stereo';
 
         if (mediaStreamRef.current) {
@@ -312,9 +366,15 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         setDeviceError(null);
 
         let audioCtx = audioContextRef.current;
-        if (!audioCtx || audioCtx.state === 'closed') {
-          audioCtx = new (window.AudioContext ||
-            (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+        // Dynamically recreate AudioContext if sample rate changed or closed
+        if (!audioCtx || audioCtx.state === 'closed' || audioCtx.sampleRate !== targetSampleRate) {
+          if (audioCtx && audioCtx.state !== 'closed') {
+            await audioCtx.close().catch(() => {});
+          }
+          const CtxClass = window.AudioContext ||
+            (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          
+          audioCtx = new CtxClass({ sampleRate: targetSampleRate });
           audioContextRef.current = audioCtx;
         }
 
@@ -361,7 +421,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         setDeviceError('Could not start live monitoring');
       }
     },
-    [selectedDeviceId, channelMode, monitoringAudioOutput, monitorVolume, updateMeterLoop]
+    [selectedDeviceId, channelMode, recordingSampleRate, monitoringAudioOutput, monitorVolume, updateMeterLoop]
   );
 
   const stopMonitoringStream = () => {
@@ -397,12 +457,17 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
   const handleDeviceChange = (newDeviceId: string) => {
     setSelectedDeviceId(newDeviceId);
-    startMonitoringStream(newDeviceId, channelMode);
+    startMonitoringStream(newDeviceId, channelMode, recordingSampleRate);
   };
 
   const handleModeChange = (newMode: 'stereo' | 'mono') => {
     setChannelMode(newMode);
-    startMonitoringStream(selectedDeviceId, newMode);
+    startMonitoringStream(selectedDeviceId, newMode, recordingSampleRate);
+  };
+
+  const handleSampleRateChange = (newRate: number) => {
+    setRecordingSampleRate(newRate);
+    startMonitoringStream(selectedDeviceId, channelMode, newRate);
   };
 
   const handleResetLeftPeak = (e?: React.MouseEvent) => {
@@ -566,264 +631,381 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   };
 
   return (
-    <div className="flex flex-col items-center justify-center space-y-6 max-w-xl mx-auto py-2 select-none h-full min-h-0">
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative select-none">
       
-      {/* 1. Artist / Album Metadata Fields */}
-      <div className="grid grid-cols-2 gap-3 w-full bg-slate-950/40 p-4 rounded-xl border border-slate-900/60 flex-shrink-0">
-        <div className="space-y-1 text-left">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-            <Tag className="w-3 h-3 text-emerald-400" />
-            <span>Artist Name</span>
-          </label>
-          <input
-            type="text"
-            value={artist}
-            onChange={(e) => setArtist(e.target.value)}
-            disabled={isRecording}
-            className="w-full bg-slate-900 border border-slate-800 focus:border-emerald-500/50 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-200 focus:outline-none placeholder-slate-600 disabled:opacity-40"
-            placeholder="Artist / Band name..."
-          />
-        </div>
-        <div className="space-y-1 text-left">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-            <Tag className="w-3 h-3 text-emerald-400" />
-            <span>Album / Recording Name</span>
-          </label>
-          <input
-            type="text"
-            value={album}
-            onChange={(e) => setAlbum(e.target.value)}
-            disabled={isRecording}
-            className="w-full bg-slate-900 border border-slate-800 focus:border-emerald-500/50 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-200 focus:outline-none placeholder-slate-600 disabled:opacity-40"
-            placeholder="Album / Vinyl side title..."
-          />
-        </div>
-      </div>
-
-      {/* 2. Vertically Centered squared VU meters flanked by sliders */}
-      <div className="flex-1 min-h-0 flex items-center justify-center space-x-6 bg-slate-950/20 p-6 rounded-2xl border border-slate-900/40 w-full select-none">
+      {/* Rigid, centered hardware layout wrapper scaling proportionally with CSS transform scale */}
+      <div
+        className="w-[940px] h-[735px] shrink-0 flex flex-row gap-6 relative"
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: 'center center',
+        }}
+      >
         
-        {/* Left Vertical Boost Slider */}
-        <div className="flex flex-col items-center space-y-1.5 h-44">
-          <span className="text-[9px] font-mono text-slate-500 uppercase">Gain</span>
-          <span className="text-[9px] font-mono font-bold text-amber-400">+{inputBoostDb.toFixed(0)}dB</span>
-          <input
-            type="range"
-            min="0"
-            max="36"
-            step="1"
-            value={inputBoostDb}
-            disabled={isRecording}
-            onChange={(e) => setInputBoostDb(parseFloat(e.target.value))}
-            className="h-28 accent-amber-500 cursor-pointer disabled:opacity-40 [writing-mode:vertical-lr]"
-            style={{ writingMode: 'vertical-lr' }}
-            title="Preamp input boost gain"
-          />
-          <span className="text-[8px] font-mono text-slate-500">BOOST</span>
-        </div>
+        {/* LEFT INPUT SETTINGS RAIL (Fixed position, never moves or collapses) */}
+        <div className="w-80 shrink-0 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col space-y-4">
+          <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
+            <Settings className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Input Configuration</h3>
+          </div>
 
-        {/* Meters Chamber (Squared off) */}
-        <div className="flex items-center gap-3 bg-slate-900/60 p-4 border border-slate-800">
-          {/* L meter */}
-          <div className="flex flex-col items-center space-y-1">
-            <button
-              type="button"
-              onClick={handleResetLeftPeak}
-              className="w-8 py-0.5 text-[9px] font-mono font-bold text-center border bg-slate-950 border-slate-850 hover:border-slate-700 text-slate-300"
-              title="Click peak to reset"
+          {/* 1. Input Soundcard Device Selection */}
+          <div className="space-y-1.5 text-left">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Input Device
+            </label>
+            <select
+              value={selectedDeviceId}
+              onChange={(e) => handleDeviceChange(e.target.value)}
+              disabled={isRecording}
+              className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 font-semibold focus:outline-none focus:border-emerald-500/50 disabled:opacity-50 cursor-pointer"
             >
-              {leftPeakHoldDb >= 0 ? 'CLIP' : leftPeakHoldDb <= -60 ? '-∞' : `${leftPeakHoldDb.toFixed(1)}`}
-            </button>
-            <div className="relative w-6 h-36 bg-slate-950 border border-slate-800 overflow-hidden flex flex-col justify-end p-0.5 rounded-none">
-              <div
-                className="w-full transition-all duration-75 ease-out relative rounded-none"
-                style={{
-                  height: `${dbToHeightPercent(leftPeakDb)}%`,
-                  background:
-                    'linear-gradient(to top, #10b981 0%, #10b981 75%, #f59e0b 75%, #f59e0b 95%, #ef4444 95%, #ef4444 100%)',
-                }}
-              />
-              {leftPeakHoldDb > -60 && (
-                <div
-                  className={`absolute left-0 right-0 h-0.5 z-30 ${leftPeakHoldDb >= 0 ? 'bg-red-400' : 'bg-white'}`}
-                  style={{ bottom: `${Math.min(99, dbToHeightPercent(leftPeakHoldDb))}%` }}
-                />
-              )}
-            </div>
-            <span className="text-[10px] font-bold font-mono text-slate-400">L</span>
+              {devices.length === 0 && <option value="">Default Audio Input</option>}
+              {devices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Central DB Scale labels */}
-          <div className="flex flex-col justify-between h-36 text-[9px] font-mono text-slate-400 text-center px-1 font-semibold leading-none py-1 select-none">
-            <span className="text-red-400 font-bold">+3</span>
-            <span className="text-red-400 font-bold">0</span>
-            <span className="text-amber-400">-3</span>
-            <span className="text-amber-400">-6</span>
-            <span className="text-emerald-400">-12</span>
-            <span className="text-emerald-400">-18</span>
-            <span className="text-slate-500">-24</span>
-            <span className="text-slate-500">-36</span>
-            <span className="text-slate-600">-48</span>
-            <span className="text-slate-700">-60</span>
-          </div>
-
-          {/* R meter */}
-          {channelMode === 'stereo' && (
-            <div className="flex flex-col items-center space-y-1">
+          {/* 2. Channel Mode Toggle (Stereo / Mono) */}
+          <div className="space-y-1.5 text-left">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Channel Mode
+            </label>
+            <div className="flex bg-slate-950 p-0.5 rounded border border-slate-850 text-xs">
               <button
                 type="button"
-                onClick={handleResetRightPeak}
-                className="w-8 py-0.5 text-[9px] font-mono font-bold text-center border bg-slate-950 border-slate-850 hover:border-slate-700 text-slate-300"
-                title="Click peak to reset"
+                disabled={isRecording}
+                onClick={() => handleModeChange('stereo')}
+                className={`flex-1 py-1 px-2.5 rounded font-bold text-center cursor-pointer transition ${
+                  channelMode === 'stereo'
+                    ? 'bg-emerald-500 text-slate-950 shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                } disabled:opacity-50`}
               >
-                {rightPeakHoldDb >= 0 ? 'CLIP' : rightPeakHoldDb <= -60 ? '-∞' : `${rightPeakHoldDb.toFixed(1)}`}
+                Stereo
               </button>
-              <div className="relative w-6 h-36 bg-slate-950 border border-slate-800 overflow-hidden flex flex-col justify-end p-0.5 rounded-none">
-                <div
-                  className="w-full transition-all duration-75 ease-out relative rounded-none"
-                  style={{
-                    height: `${dbToHeightPercent(rightPeakDb)}%`,
-                    background:
-                      'linear-gradient(to top, #10b981 0%, #10b981 75%, #f59e0b 75%, #f59e0b 95%, #ef4444 95%, #ef4444 100%)',
-                  }}
-                />
-                {rightPeakHoldDb > -60 && (
-                  <div
-                    className={`absolute left-0 right-0 h-0.5 z-30 ${rightPeakHoldDb >= 0 ? 'bg-red-400' : 'bg-white'}`}
-                    style={{ bottom: `${Math.min(99, dbToHeightPercent(rightPeakHoldDb))}%` }}
-                  />
-                )}
-              </div>
-              <span className="text-[10px] font-bold font-mono text-slate-400">R</span>
+              <button
+                type="button"
+                disabled={isRecording}
+                onClick={() => handleModeChange('mono')}
+                className={`flex-1 py-1 px-2.5 rounded font-bold text-center cursor-pointer transition ${
+                  channelMode === 'mono'
+                    ? 'bg-emerald-500 text-slate-950 shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                } disabled:opacity-50`}
+              >
+                Mono
+              </button>
             </div>
-          )}
+          </div>
+
+          {/* 3. Direct Sample Rate Capture Format */}
+          <div className="space-y-1.5 text-left">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Capture Format
+            </label>
+            <div className="flex bg-slate-950 p-0.5 rounded border border-slate-850 text-xs">
+              <button
+                type="button"
+                disabled={isRecording}
+                onClick={() => handleSampleRateChange(44100)}
+                className={`flex-1 py-1.5 px-2.5 rounded font-bold text-center cursor-pointer transition ${
+                  recordingSampleRate === 44100
+                    ? 'bg-emerald-500 text-slate-950 shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                } disabled:opacity-50`}
+              >
+                44.1 kHz
+              </button>
+              <button
+                type="button"
+                disabled={isRecording}
+                onClick={() => handleSampleRateChange(48000)}
+                className={`flex-1 py-1.5 px-2.5 rounded font-bold text-center cursor-pointer transition ${
+                  recordingSampleRate === 48000
+                    ? 'bg-emerald-500 text-slate-950 shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                } disabled:opacity-50`}
+              >
+                48.0 kHz
+              </button>
+            </div>
+          </div>
+
+          {/* 4. Preamp Gain Boost Slider */}
+          <div className="space-y-1.5 text-left">
+            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              <span>Preamp Boost</span>
+              <span className="font-mono font-bold text-amber-400">+{inputBoostDb.toFixed(0)} dB</span>
+            </div>
+            <div className="bg-slate-950 p-2 rounded border border-slate-850 flex items-center">
+              <input
+                type="range"
+                min="0"
+                max="36"
+                step="1"
+                value={inputBoostDb}
+                disabled={isRecording}
+                onChange={(e) => setInputBoostDb(parseFloat(e.target.value))}
+                className="w-full accent-amber-500 cursor-pointer disabled:opacity-40"
+                title="Preamp input boost gain"
+              />
+            </div>
+          </div>
+
+          {/* 5. Monitor Control (Rearranged from monitorPanel_rearrange.png) */}
+          <div className="space-y-1.5 text-left">
+            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider select-none shrink-0">
+              <button
+                type="button"
+                disabled={isRecording}
+                onClick={() => isMonitoringActive ? stopMonitoringStream() : startMonitoringStream()}
+                className={`text-[10px] font-extrabold uppercase tracking-wider transition cursor-pointer ${
+                  monitoringAudioOutput
+                    ? 'text-emerald-300 hover:text-emerald-200'
+                    : 'text-red-400 hover:text-red-300'
+                } disabled:opacity-45 disabled:cursor-not-allowed`}
+                title={isMonitoringActive ? "Disable Live Monitor" : "Enable Live Monitor"}
+              >
+                MONITOR
+              </button>
+              <span className="font-mono font-bold text-emerald-450">
+                {monitoringAudioOutput ? `${Math.round(monitorVolume * 100)}%` : 'MUTED'}
+              </span>
+            </div>
+            
+            <div className="bg-slate-950 p-3 rounded border border-slate-850 flex items-center space-x-3 shrink-0">
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={monitorVolume}
+                disabled={!monitoringAudioOutput}
+                onChange={(e) => setMonitorVolume(parseFloat(e.target.value))}
+                className="flex-1 accent-emerald-500 cursor-pointer disabled:opacity-40"
+                title="Monitoring output volume"
+              />
+              <button
+                type="button"
+                onClick={() => setMonitoringAudioOutput(!monitoringAudioOutput)}
+                className={`text-[10px] font-bold px-3 py-1.5 rounded cursor-pointer transition border shrink-0 uppercase tracking-wider font-mono ${
+                  monitoringAudioOutput
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-500'
+                    : 'bg-red-500/20 text-red-400 border-red-500/30'
+                }`}
+              >
+                {monitoringAudioOutput ? 'ON' : 'OFF'}
+              </button>
+            </div>
+          </div>
+
+          {/* 6. Pre-Record Artist/Album Name Metadata Inputs */}
+          <div className="space-y-3 pt-3 border-t border-slate-800 text-left">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <Tag className="w-3 h-3 text-emerald-400" />
+                <span>Artist Name</span>
+              </label>
+              <input
+                type="text"
+                value={artist}
+                onChange={(e) => setArtist(e.target.value)}
+                disabled={isRecording}
+                className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/50 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-200 focus:outline-none placeholder-slate-700 disabled:opacity-40"
+                placeholder="Artist / Band name..."
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <Tag className="w-3 h-3 text-emerald-400" />
+                <span>Album / Record Title</span>
+              </label>
+              <input
+                type="text"
+                value={album}
+                onChange={(e) => setAlbum(e.target.value)}
+                disabled={isRecording}
+                className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/50 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-200 focus:outline-none placeholder-slate-700 disabled:opacity-40"
+                placeholder="Vinyl side title..."
+              />
+            </div>
+          </div>
         </div>
 
-        {/* Right Vertical Monitor fader (Headphone/output monitor, always functional) */}
-        <div className="flex flex-col items-center space-y-1.5 h-44">
-          <span className="text-[9px] font-mono text-slate-500 uppercase">Monitor</span>
-          <span className="text-[9px] font-mono font-bold text-emerald-400">
-            {monitoringAudioOutput ? `${Math.round(monitorVolume * 100)}%` : 'MUTED'}
-          </span>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={monitorVolume}
-            disabled={!monitoringAudioOutput}
-            onChange={(e) => setMonitorVolume(parseFloat(e.target.value))}
-            className="h-28 accent-emerald-500 cursor-pointer disabled:opacity-40 [writing-mode:vertical-lr]"
-            style={{ writingMode: 'vertical-lr' }}
-            title="Monitoring output volume"
-          />
-          <button
-            type="button"
-            onClick={() => setMonitoringAudioOutput(!monitoringAudioOutput)}
-            className={`text-[8px] font-mono px-1 py-0.5 rounded cursor-pointer transition border ${
-              monitoringAudioOutput ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-800 text-slate-400'
-            }`}
-          >
-            {monitoringAudioOutput ? 'ON' : 'OFF'}
-          </button>
+        {/* RIGHT/CENTER CONTENT: MAIN RECORDING CONSOLE (Symmetric, permanently fixed layout) */}
+        <div className="flex-1 bg-slate-900/10 border border-slate-900 rounded-xl p-4 lg:p-6 flex flex-col items-center justify-between min-h-0 relative space-y-4">
+          
+          {/* 1. Large Oscilloscope along the top */}
+          <div className="w-full bg-slate-950 p-3 border border-slate-900 rounded-xl relative flex flex-col justify-between h-56 shrink-0">
+            <canvas ref={liveCanvasRef} width={1000} height={170} className="w-full h-[170px] bg-slate-950 block" />
+            <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-2 px-1 shrink-0">
+              <span className="font-bold tracking-wider">OSCILLOSCOPE SIGNAL FEED</span>
+              <span className="flex items-center gap-1.5 font-bold tracking-wider">
+                <span className={`w-2 h-2 rounded-full ${clipped ? 'bg-red-500 animate-ping' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                <span className={clipped ? 'text-red-400 font-extrabold' : 'text-slate-400'}>{clipped ? 'CLIP' : 'SIGNAL OK'}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* 2. Vertically Centered Meters Chamber (placed underneath) */}
+          <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0">
+            <div className="flex items-center justify-center gap-4 bg-slate-950/80 p-5 border border-slate-900/60 rounded-xl shadow-lg w-full max-w-sm">
+              {/* L meter */}
+              <div className="flex flex-col items-center space-y-1.5">
+                <div
+                  onClick={handleResetLeftPeak}
+                  className={`w-14 h-7 flex items-center justify-center text-[10px] font-mono font-bold text-center border bg-slate-950 rounded cursor-pointer hover:border-slate-500 transition shrink-0 ${
+                    leftPeakHoldDb >= -0.05
+                      ? 'text-red-400 border-red-500/40'
+                      : leftPeakHoldDb > -12
+                      ? 'text-amber-400 border-amber-500/30'
+                      : 'text-emerald-400 border-emerald-500/20'
+                  }`}
+                  title="Click peak to reset"
+                >
+                  {leftPeakHoldDb >= 0 ? 'CLIP' : leftPeakHoldDb <= -60 ? '-∞' : `${leftPeakHoldDb.toFixed(1)}`}
+                </div>
+                <div className="relative w-8 h-36 bg-slate-950 border border-slate-900 overflow-hidden flex flex-col justify-end p-0.5 rounded-sm">
+                  <div
+                    className="w-full transition-all duration-75 ease-out relative rounded-none"
+                    style={{
+                      height: `${dbToHeightPercent(leftPeakDb)}%`,
+                      background:
+                        'linear-gradient(to top, #10b981 0%, #10b981 75%, #f59e0b 75%, #f59e0b 95%, #ef4444 95%, #ef4444 100%)',
+                    }}
+                  />
+                  {leftPeakHoldDb > -60 && (
+                    <div
+                      className={`absolute left-0 right-0 h-0.5 z-30 ${leftPeakHoldDb >= 0 ? 'bg-red-400' : 'bg-white'}`}
+                      style={{ bottom: `${Math.min(99, dbToHeightPercent(leftPeakHoldDb))}%` }}
+                    />
+                  )}
+                </div>
+                <span className="text-[10px] font-bold font-mono text-slate-400 pt-0.5">L</span>
+              </div>
+
+              {/* Central DB Scale labels with single integrated RESET button */}
+              <div className="flex flex-col items-center space-y-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetPeak}
+                  className="w-14 h-7 flex items-center justify-center border border-slate-900 bg-slate-950 text-slate-500 hover:text-slate-355 transition cursor-pointer font-mono font-bold text-[9px] uppercase tracking-wider shrink-0 rounded hover:border-slate-800"
+                  title="Click to reset both peak holds"
+                >
+                  RESET
+                </button>
+                <div className="flex flex-col justify-between py-1 h-36 text-[9px] font-mono text-slate-455 text-center px-2 font-semibold leading-none select-none shrink-0">
+                  <span className="text-red-400 font-bold">+3</span>
+                  <span className="text-red-400 font-bold">0</span>
+                  <span className="text-amber-400">-3</span>
+                  <span className="text-amber-400">-6</span>
+                  <span className="text-emerald-455 font-semibold">-12</span>
+                  <span className="text-emerald-455 font-semibold">-18</span>
+                  <span className="text-slate-550">-24</span>
+                  <span className="text-slate-550 font-bold">-36</span>
+                  <span className="text-slate-655">-48</span>
+                  <span className="text-slate-700">-60</span>
+                </div>
+                <span className="text-[10px] font-bold font-mono text-transparent pt-0.5 select-none pointer-events-none shrink-0">C</span>
+              </div>
+
+              {/* R meter */}
+              {channelMode === 'stereo' && (
+                <div className="flex flex-col items-center space-y-1.5">
+                  <div
+                    onClick={handleResetRightPeak}
+                    className={`w-14 h-7 flex items-center justify-center text-[10px] font-mono font-bold text-center border bg-slate-950 rounded cursor-pointer hover:border-slate-500 transition shrink-0 ${
+                      rightPeakHoldDb >= -0.05
+                        ? 'text-red-400 border-red-500/40'
+                        : rightPeakHoldDb > -12
+                        ? 'text-amber-400 border-amber-500/30'
+                        : 'text-emerald-400 border-emerald-500/20'
+                    }`}
+                    title="Click peak to reset"
+                  >
+                    {rightPeakHoldDb >= 0 ? 'CLIP' : rightPeakHoldDb <= -60 ? '-∞' : `${rightPeakHoldDb.toFixed(1)}`}
+                  </div>
+                  <div className="relative w-8 h-36 bg-slate-950 border border-slate-900 overflow-hidden flex flex-col justify-end p-0.5 rounded-sm">
+                    <div
+                      className="w-full transition-all duration-75 ease-out relative rounded-none"
+                      style={{
+                        height: `${dbToHeightPercent(rightPeakDb)}%`,
+                        background:
+                          'linear-gradient(to top, #10b981 0%, #10b981 75%, #f59e0b 75%, #f59e0b 95%, #ef4444 95%, #ef4444 100%)',
+                      }}
+                    />
+                    {rightPeakHoldDb > -60 && (
+                      <div
+                        className={`absolute left-0 right-0 h-0.5 z-30 ${rightPeakHoldDb >= 0 ? 'bg-red-400' : 'bg-white'}`}
+                        style={{ bottom: `${Math.min(99, dbToHeightPercent(rightPeakHoldDb))}%` }}
+                      />
+                    )}
+                  </div>
+                  <span className="text-[10px] font-bold font-mono text-slate-400 pt-0.5">R</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 3. Centered transport-like recording console controls */}
+          <div className="flex items-center justify-center space-x-8 py-2 shrink-0 w-full">
+            {/* Stop button */}
+            <button
+              type="button"
+              disabled={!isRecording}
+              onClick={stopRecording}
+              className="w-12 h-12 rounded-lg bg-slate-950 border border-slate-855 hover:bg-slate-900 flex flex-col items-center justify-center text-slate-400 hover:text-red-400 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shadow"
+            >
+              <Square className="w-4 h-4 fill-current" />
+              <span className="text-[8px] font-bold font-mono tracking-wider uppercase pt-1">STOP</span>
+            </button>
+
+            {/* Glowing Red RECORD button */}
+            <button
+              type="button"
+              onClick={isRecording ? stopRecording : startRecording}
+              className={`w-20 h-20 rounded-full border-4 border-slate-950 flex items-center justify-center text-white font-bold tracking-widest text-xs uppercase cursor-pointer transition-all duration-300 ${
+                isRecording
+                  ? 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] animate-pulse'
+                  : 'bg-red-600 hover:bg-red-500 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
+              }`}
+              title={isRecording ? "Stop Recording" : "Start Recording"}
+            >
+              <span>RECORD</span>
+            </button>
+
+            {/* Pause/Resume button */}
+            <button
+              type="button"
+              disabled={!isRecording}
+              onClick={togglePause}
+              className={`w-12 h-12 rounded-lg border transition cursor-pointer flex flex-col items-center justify-center shadow ${
+                isPaused
+                  ? 'bg-amber-600/20 border-amber-500/40 text-amber-400 hover:bg-amber-600/30'
+                  : 'bg-slate-950 border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-200'
+              } disabled:opacity-30 disabled:cursor-not-allowed`}
+            >
+              {isPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" />}
+              <span className="text-[8px] font-bold font-mono tracking-wider uppercase pt-1">{isPaused ? 'RESUME' : 'PAUSE'}</span>
+            </button>
+          </div>
+
+          {/* Capturing Status Detail text at the bottom (only visible when recording) */}
+          <div className="text-[10px] font-mono text-slate-400 shrink-0 select-none pb-1 font-medium min-h-[16px]">
+            {isRecording && (
+              <span className="text-red-500 animate-pulse font-bold uppercase tracking-wider flex items-center justify-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-red-500" />
+                CAPTURING: {formatTime(durationSec, true)} @ {recordingSampleRate / 1000} kHz {channelMode === 'stereo' ? 'Stereo' : 'Mono'}
+              </span>
+            )}
+          </div>
+
         </div>
       </div>
-
-      {/* 3. Oscilloscope display */}
-      <div className="w-full bg-slate-950 p-2.5 border border-slate-900 rounded-xl relative flex flex-col justify-between h-[100px] flex-shrink-0 select-none">
-        <canvas ref={liveCanvasRef} width={450} height={70} className="w-full h-[70px] bg-slate-950 block" />
-        <div className="flex items-center justify-between text-[9px] font-mono text-slate-500 pt-1">
-          <span>Click peak readout above to reset clip flags</span>
-          <span className="flex items-center gap-1">
-            <span className={`w-1.5 h-1.5 rounded-full ${clipped ? 'bg-red-500 animate-ping' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
-            <span className={clipped ? 'text-red-400 font-bold' : 'text-slate-400'}>{clipped ? 'CLIP' : 'SIGNAL OK'}</span>
-          </span>
-        </div>
-      </div>
-
-      {/* 4. Giant glowing Record button flanked by Stop and Pause */}
-      <div className="flex items-center justify-center space-x-10 py-2.5 flex-shrink-0 w-full select-none">
-        {/* Stop squared button */}
-        <button
-          type="button"
-          disabled={!isRecording}
-          onClick={stopRecording}
-          className="w-11 h-11 rounded-md bg-slate-950 border border-slate-850 hover:bg-slate-800 flex flex-col items-center justify-center text-slate-400 hover:text-red-400 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shadow"
-        >
-          <Square className="w-4 h-4 fill-current" />
-          <span className="text-[8px] font-bold font-mono tracking-wider uppercase pt-0.5">STOP</span>
-        </button>
-
-        {/* Circular RECORD button */}
-        <button
-          type="button"
-          onClick={isRecording ? stopRecording : startRecording}
-          className={`w-20 h-20 rounded-full border-4 border-slate-950 select-none flex items-center justify-center text-white font-bold tracking-widest text-[10px] uppercase cursor-pointer transition-all duration-300 ${
-            isRecording
-              ? 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] animate-pulse'
-              : 'bg-red-600 hover:bg-red-500 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
-          }`}
-          title={isRecording ? "Stop Recording" : "Start Recording"}
-        >
-          <span>RECORD</span>
-        </button>
-
-        {/* Pause squared button */}
-        <button
-          type="button"
-          disabled={!isRecording}
-          onClick={togglePause}
-          className={`w-11 h-11 rounded-md border transition cursor-pointer flex flex-col items-center justify-center shadow ${
-            isPaused
-              ? 'bg-amber-600/20 border-amber-500/40 text-amber-400 hover:bg-amber-600/30'
-              : 'bg-slate-950 border-slate-850 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-          } disabled:opacity-30 disabled:cursor-not-allowed`}
-        >
-          {isPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" />}
-          <span className="text-[8px] font-bold font-mono tracking-wider uppercase pt-0.5">{isPaused ? 'RESUME' : 'PAUSE'}</span>
-        </button>
-      </div>
-
-      {/* 5. Device select and monitoring toggle */}
-      <div className="flex items-center justify-center space-x-3 text-xs w-full max-w-sm flex-shrink-0 select-none">
-        <select
-          value={selectedDeviceId}
-          onChange={(e) => handleDeviceChange(e.target.value)}
-          disabled={isRecording}
-          className="flex-1 bg-slate-950 border border-slate-850 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 font-semibold focus:outline-none focus:border-emerald-500/50 disabled:opacity-50 cursor-pointer"
-        >
-          {devices.length === 0 && <option value="">Default Audio Input</option>}
-          {devices.map((d) => (
-            <option key={d.deviceId} value={d.deviceId}>
-              Source: {d.label}
-            </option>
-          ))}
-        </select>
-
-        {/* Monitor Toggle Switch */}
-        <label className="flex items-center space-x-2 cursor-pointer bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-850 hover:border-slate-700 transition">
-          <input
-            type="checkbox"
-            checked={isMonitoringActive}
-            disabled={isRecording}
-            onChange={() => isMonitoringActive ? stopMonitoringStream() : startMonitoringStream()}
-            className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer disabled:opacity-40"
-          />
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Monitor Input</span>
-        </label>
-      </div>
-
-      {/* 6. Active Rec status detail text at bottom */}
-      <div className="text-[10px] font-mono text-slate-500 flex items-center justify-center gap-1 flex-shrink-0 select-none">
-        {isRecording ? (
-          <span className="text-red-400 animate-pulse font-semibold uppercase tracking-wider">
-            CAPTURING: {formatTime(durationSec, true)}
-          </span>
-        ) : (
-          <span>Ready to capture direct soundcard audio</span>
-        )}
-      </div>
-
     </div>
   );
 };

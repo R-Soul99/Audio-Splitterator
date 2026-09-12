@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Navbar } from './components/Navbar';
 import { AudioRecorder } from './components/AudioRecorder';
 import { WaveformCanvas } from './components/WaveformCanvas';
 import { SplitsManager } from './components/SplitsManager';
-import { BatchProcessor } from './components/BatchProcessor';
 import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
 import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
 import {
@@ -23,8 +21,6 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'editor' | 'batch'>('editor');
-  
   // 3-Workflow sequential tabs state based on mockup (Record -> Edit -> Save)
   const [workflowTab, setWorkflowTab] = useState<'record' | 'edit' | 'save'>('record');
 
@@ -522,7 +518,7 @@ export default function App() {
 
       const cleanName = file.name.replace(/\.[^/.]+$/, '');
       loadAudio(decoded, cleanName);
-      setCurrentTab('editor');
+      setWorkflowTab('edit');
     } catch (err) {
       console.error('Failed to open audio file:', err);
       alert('Could not decode audio file. Please ensure it is a valid WAV, FLAC, or MP3 file.');
@@ -650,88 +646,122 @@ export default function App() {
         className="hidden"
       />
 
-      {/* Top Brand Navbar */}
-      <Navbar
-        currentTab={currentTab}
-        onSelectTab={setCurrentTab}
-        onOpenFile={() => fileInputRef.current?.click()}
-        isRecording={isRecordingActive}
-        hasAudio={!!audioBuffer}
-      />
+      {/* Global DAW Header (Replaces Navbar and integrates Brand & 3 Workflow Tabs) */}
+      <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-40 flex-shrink-0 select-none">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          {/* Brand & Logo on the Left */}
+          <div className="flex items-center space-x-3 shrink-0">
+            <div>
+              <div className="flex items-center space-x-2">
+                <h1 className="text-base font-bold text-slate-100 tracking-tight">
+                  Audiophonic Recordinator
+                </h1>
+                <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                  Studio Edition
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Centered Workflow Buttons (RECORD, EDIT, SAVE) serving as global header */}
+          <div className="grid grid-cols-3 gap-2 w-full sm:w-[380px] bg-slate-950/80 p-1 rounded-xl border border-slate-800 flex-shrink-0">
+            {/* RECORD TAB */}
+            <button
+              type="button"
+              onClick={() => setWorkflowTab('record')}
+              className={`py-2 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition cursor-pointer ${
+                workflowTab === 'record'
+                  ? 'border-red-500/80 text-red-400 bg-red-500/10 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
+                  : 'text-slate-400 hover:text-slate-200 border-transparent bg-transparent'
+              }`}
+            >
+              RECORD
+            </button>
+
+            {/* EDIT TAB (Always available, but shows empty state if no audio) */}
+            <button
+              type="button"
+              onClick={() => setWorkflowTab('edit')}
+              className={`py-2 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition cursor-pointer ${
+                workflowTab === 'edit'
+                  ? 'border-amber-500/80 text-amber-400 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                  : 'text-slate-400 hover:text-slate-200 border-transparent bg-transparent'
+              }`}
+            >
+              EDIT
+            </button>
+
+            {/* SAVE TAB (Always available, but shows empty state if no audio) */}
+            <button
+              type="button"
+              onClick={() => setWorkflowTab('save')}
+              className={`py-2 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition cursor-pointer ${
+                workflowTab === 'save'
+                  ? 'border-emerald-500/80 text-emerald-450 bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                  : 'text-slate-400 hover:text-slate-200 border-transparent bg-transparent'
+              }`}
+            >
+              SAVE
+            </button>
+          </div>
+
+          {/* Quick File Import Trigger on the Right */}
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-750 border border-slate-700 transition shadow-sm cursor-pointer"
+              title="Import local audio file directly into the editor"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Import Audio</span>
+            </button>
+          </div>
+        </div>
+      </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 min-h-0 w-full p-4 lg:p-6 lg:pb-4 flex flex-col space-y-4">
-        {currentTab === 'editor' ? (
-          <div className="flex-1 flex flex-col min-h-0 relative">
+      <main className="flex-1 min-h-0 w-full p-4 lg:p-6 lg:pb-4 flex flex-col">
+        <div className="flex-1 flex flex-col min-h-0 relative">
+          {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
+          <div className="flex-1 relative bg-slate-950/20 border border-slate-900 rounded-2xl overflow-hidden p-4 min-h-0 select-none bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
             
-            {/* 3-Workflow Sequential Tabs from Mockup (Record, Edit, Save) */}
-            <div className="grid grid-cols-3 gap-4 border-b border-slate-900 bg-slate-950/40 p-2 rounded-xl mb-4 flex-shrink-0 select-none">
-              {/* RECORD TAB */}
-              <button
-                type="button"
-                onClick={() => setWorkflowTab('record')}
-                className={`py-3 px-6 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition cursor-pointer ${
-                  workflowTab === 'record'
-                    ? 'border-red-500/80 text-red-500 bg-red-500/5 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
-                    : 'text-slate-500 hover:text-slate-300 border-transparent bg-transparent'
-                }`}
-              >
-                RECORD
-              </button>
+            {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
+            {workflowTab === 'record' && (
+              <div className="flex-1 h-full overflow-y-auto pr-1">
+                <AudioRecorder
+                  onRecordingComplete={(buf, defaultName, art, alb) => {
+                    loadAudio(buf, defaultName, art, alb);
+                  }}
+                  isRecordingActive={isRecordingActive}
+                  setIsRecordingActive={setIsRecordingActive}
+                  onClearRecording={handleClearRecording}
+                  hasLoadedAudio={!!audioBuffer}
+                />
+              </div>
+            )}
 
-              {/* EDIT TAB */}
-              <button
-                type="button"
-                disabled={!audioBuffer}
-                onClick={() => setWorkflowTab('edit')}
-                className={`py-3 px-6 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition ${
-                  !audioBuffer ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'
-                } ${
-                  workflowTab === 'edit'
-                    ? 'border-amber-500/80 text-amber-500 bg-amber-500/5 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
-                    : 'text-slate-500 hover:text-slate-300 border-transparent bg-transparent'
-                }`}
-              >
-                EDIT
-              </button>
-
-              {/* SAVE TAB */}
-              <button
-                type="button"
-                disabled={!audioBuffer}
-                onClick={() => setWorkflowTab('save')}
-                className={`py-3 px-6 rounded-lg font-mono text-xs tracking-wider uppercase font-bold text-center border transition ${
-                  !audioBuffer ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'
-                } ${
-                  workflowTab === 'save'
-                    ? 'border-emerald-500/80 text-emerald-450 bg-emerald-500/5 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                    : 'text-slate-500 hover:text-slate-300 border-transparent bg-transparent'
-                }`}
-              >
-                SAVE
-              </button>
-            </div>
-
-            {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
-            <div className="flex-1 relative bg-slate-950/20 border border-slate-900 rounded-2xl overflow-hidden p-4 min-h-0 select-none bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
-              
-              {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
-              {workflowTab === 'record' && (
-                <div className="flex-1 h-full overflow-y-auto pr-1">
-                  <AudioRecorder
-                    onRecordingComplete={(buf, defaultName, art, alb) => {
-                      loadAudio(buf, defaultName, art, alb);
-                    }}
-                    isRecordingActive={isRecordingActive}
-                    setIsRecordingActive={setIsRecordingActive}
-                    onClearRecording={handleClearRecording}
-                    hasLoadedAudio={!!audioBuffer}
-                  />
+            {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
+            {workflowTab === 'edit' && (
+              !audioBuffer ? (
+                <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900/20 border border-slate-900/60 rounded-2xl">
+                  {/* Visual empty state icon */}
+                  <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 mb-4 animate-pulse">
+                    <Scissors className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-200 mb-2">No Active Recording Found</h3>
+                  <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
+                    No active recording found. Please complete a recording or import an audio file in the <strong className="text-red-400">RECORD</strong> tab to begin editing.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setWorkflowTab('record')}
+                    className="mt-6 px-4 py-2 bg-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-300 rounded-lg text-xs font-bold transition hover:bg-slate-850 cursor-pointer"
+                  >
+                    Go to RECORD Tab
+                  </button>
                 </div>
-              )}
-
-              {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
-              {workflowTab === 'edit' && audioBuffer && (
+              ) : (
                 <div className="flex flex-col h-full space-y-4 min-h-0">
                   {/* Top: Active Project Rename & Reset banner */}
                   <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs">
@@ -903,10 +933,29 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              )}
+              )
+            )}
 
-              {/* WORKFLOW VIEW 3: SAVE WORKSPACE (Dual-column Checklist & Quality encoder) */}
-              {workflowTab === 'save' && audioBuffer && (
+            {/* WORKFLOW VIEW 3: SAVE WORKSPACE */}
+            {workflowTab === 'save' && (
+              !audioBuffer ? (
+                <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900/20 border border-slate-900/60 rounded-2xl">
+                  <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-4 animate-pulse">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-200 mb-2">No Active Recording Found</h3>
+                  <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
+                    No active recording found. Please complete a recording or import an audio file in the <strong className="text-red-400">RECORD</strong> tab to select regions and save files.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setWorkflowTab('record')}
+                    className="mt-6 px-4 py-2 bg-slate-900 border border-slate-800 hover:border-emerald-500/50 text-slate-300 rounded-lg text-xs font-bold transition hover:bg-slate-850 cursor-pointer"
+                  >
+                    Go to RECORD Tab
+                  </button>
+                </div>
+              ) : (
                 <div className="h-full overflow-hidden">
                   <SplitsManager
                     sourceBuffer={audioBuffer}
@@ -918,35 +967,11 @@ export default function App() {
                     preRecordAlbum={preRecordAlbum}
                   />
                 </div>
-              )}
+              )
+            )}
 
-            </div>
           </div>
-        ) : (
-          /* Batch Processing Mode (Wrapped in full height scrollable viewport) */
-          <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-shrink-0">
-              <div>
-                <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-emerald-400" />
-                  <span>Multi-File Batch Processor</span>
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Process multiple audio files simultaneously: apply customizable fades, zero-crossing detection, format conversion, and tag injection
-                </p>
-              </div>
-            </div>
-
-            <div className="flex-1">
-              <BatchProcessor
-                onOpenInEditor={(buf, name) => {
-                  loadAudio(buf, name);
-                  setCurrentTab('editor');
-                }}
-              />
-            </div>
-          </div>
-        )}
+        </div>
       </main>
     </div>
   );
