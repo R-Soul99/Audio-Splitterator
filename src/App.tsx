@@ -18,6 +18,7 @@ import {
   Square,
   Tag,
   CheckCircle2,
+  RotateCcw,
 } from 'lucide-react';
 
 export default function App() {
@@ -66,6 +67,18 @@ export default function App() {
     zeroCrossing: true,
   });
 
+  // Undo history stack
+  interface UndoState {
+    buffer: AudioBuffer;
+    markers: Marker[];
+    cropStart: number;
+    cropEnd: number;
+    mainFileName: string;
+    actionName: string;
+  }
+  const undoStackRef = useRef<UndoState[]>([]);
+  const [canUndo, setCanUndo] = useState<boolean>(false);
+
   // Audio Context & Playback nodes
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
@@ -81,7 +94,8 @@ export default function App() {
   const cropEndRef = useRef<number>(0);
   const isLoopingRef = useRef<boolean>(false);
   const currentTimeRef = useRef<number>(0);
-  const startPlaybackRef = useRef<(offsetTime: number) => void>(() => {});
+  const selectionRef = useRef<TimeSelection | null>(null);
+  const startPlaybackRef = useRef<(offsetTime: number, forceLoop?: boolean) => void>(() => {});
 
   useEffect(() => {
     audioBufferRef.current = audioBuffer;
@@ -102,6 +116,61 @@ export default function App() {
   useEffect(() => {
     currentTimeRef.current = currentTime;
   }, [currentTime]);
+
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
+
+  const pushUndo = useCallback((actionName: string) => {
+    if (!audioBufferRef.current) return;
+    undoStackRef.current.push({
+      buffer: audioBufferRef.current,
+      markers: [...markers],
+      cropStart: cropStartRef.current,
+      cropEnd: cropEndRef.current,
+      mainFileName,
+      actionName,
+    });
+    if (undoStackRef.current.length > 10) {
+      undoStackRef.current.shift();
+    }
+    setCanUndo(true);
+  }, [markers, mainFileName]);
+
+  const handleUndo = useCallback(() => {
+    const prev = undoStackRef.current.pop();
+    if (!prev) return;
+    setCanUndo(undoStackRef.current.length > 0);
+
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.onended = null;
+        sourceNodeRef.current.stop();
+      } catch {}
+      sourceNodeRef.current = null;
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+
+    audioBufferRef.current = prev.buffer;
+    cropStartRef.current = prev.cropStart;
+    cropEndRef.current = prev.cropEnd;
+    currentTimeRef.current = 0;
+
+    setAudioBuffer(prev.buffer);
+    setMarkers(prev.markers);
+    setCropStart(prev.cropStart);
+    setCropEnd(prev.cropEnd);
+    setMainFileName(prev.mainFileName);
+    setCurrentTime(0);
+    setSelection(null);
+    setZoom(1);
+    setViewOffsetSec(0);
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -153,6 +222,20 @@ export default function App() {
         return;
       }
 
+      const buffer = audioBufferRef.current;
+      if (!buffer) {
+        animationFrameRef.current = null;
+        return;
+      }
+
+      const sel = selectionRef.current;
+      const hasSelection = sel && Math.abs(sel.end - sel.start) > 0.02;
+      const effectiveStart = hasSelection ? Math.min(sel.start, sel.end) : cropStartRef.current;
+      const effectiveEnd = hasSelection
+        ? Math.max(sel.start, sel.end)
+        : (cropEndRef.current > 0 ? cropEndRef.current : buffer.duration);
+      const loopSpan = Math.max(0.01, effectiveEnd - effectiveStart);
+
       let elapsed = 0;
       if (
         audioCtxRef.current &&
@@ -164,23 +247,19 @@ export default function App() {
         elapsed = (performance.now() - playbackWallStartTimeRef.current) / 1000;
       }
 
-      const newTime = playheadStartTimeRef.current + elapsed;
-      const buffer = audioBufferRef.current;
-
-      if (buffer) {
-        const endLimit = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
-
-        if (newTime >= endLimit) {
-          if (isLoopingRef.current) {
-            stopPlayback();
-            startPlaybackRef.current(cropStartRef.current);
-            return;
-          } else {
-            stopPlayback();
-            currentTimeRef.current = endLimit;
-            setCurrentTime(endLimit);
-            return;
-          }
+      if (isLoopingRef.current) {
+        const initialOffset = Math.max(0, playheadStartTimeRef.current - effectiveStart);
+        const loopPos = (initialOffset + elapsed) % loopSpan;
+        const currentT = effectiveStart + loopPos;
+        currentTimeRef.current = currentT;
+        setCurrentTime(currentT);
+      } else {
+        const newTime = playheadStartTimeRef.current + elapsed;
+        if (newTime >= effectiveEnd) {
+          stopPlayback();
+          currentTimeRef.current = effectiveEnd;
+          setCurrentTime(effectiveEnd);
+          return;
         }
         currentTimeRef.current = newTime;
         setCurrentTime(newTime);
@@ -207,9 +286,9 @@ export default function App() {
     };
   }, []);
 
-  // Start playback from a given timestamp
+  // Start playback from a given timestamp with seamless native loop support
   const startPlayback = useCallback(
-    (offsetTime: number) => {
+    (offsetTime: number, forceLoop?: boolean) => {
       const buffer = audioBufferRef.current;
       if (!buffer) return;
       stopPlayback();
@@ -219,25 +298,42 @@ export default function App() {
         ctx.resume();
       }
 
+      const activeLoop = forceLoop !== undefined ? forceLoop : isLoopingRef.current;
+
+      const sel = selectionRef.current;
+      const hasSelection = sel && Math.abs(sel.end - sel.start) > 0.02;
+      const effectiveStart = hasSelection ? Math.min(sel.start, sel.end) : cropStartRef.current;
+      const effectiveEnd = hasSelection
+        ? Math.max(sel.start, sel.end)
+        : (cropEndRef.current > 0 ? cropEndRef.current : buffer.duration);
+
+      const loopSpan = Math.max(0.01, effectiveEnd - effectiveStart);
+      const safeStart = Math.max(effectiveStart, Math.min(effectiveEnd, offsetTime));
+
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(ctx.destination);
 
-      const safeStart = Math.max(0, Math.min(buffer.duration, offsetTime));
-      const endLimit = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
-      const remainingDuration = Math.max(0, endLimit - safeStart);
-
       const activeSource = source;
-      source.onended = () => {
-        if (sourceNodeRef.current === activeSource) {
-          stopPlayback();
-          const resetTime = cropStartRef.current;
-          currentTimeRef.current = resetTime;
-          setCurrentTime(resetTime);
-        }
-      };
 
-      source.start(0, safeStart, remainingDuration > 0 ? remainingDuration : undefined);
+      if (activeLoop && loopSpan > 0.02) {
+        source.loop = true;
+        source.loopStart = effectiveStart;
+        source.loopEnd = effectiveEnd;
+        source.start(0, safeStart);
+      } else {
+        source.loop = false;
+        const playDuration = Math.max(0, effectiveEnd - safeStart);
+        source.onended = () => {
+          if (sourceNodeRef.current === activeSource) {
+            stopPlayback();
+            currentTimeRef.current = effectiveStart;
+            setCurrentTime(effectiveStart);
+          }
+        };
+        source.start(0, safeStart, playDuration > 0 ? playDuration : undefined);
+      }
+
       sourceNodeRef.current = source;
       playheadStartTimeRef.current = safeStart;
       contextStartTimeRef.current = ctx.currentTime;
@@ -349,15 +445,17 @@ export default function App() {
   };
 
   // Crop to Selection Brace
-  const handleCropToSelection = (startSec: number, endSec: number) => {
-    if (!audioBuffer) return;
+  const handleCropToSelection = useCallback((startSec: number, endSec: number) => {
+    const buffer = audioBufferRef.current;
+    if (!buffer) return;
     const s = Math.max(0, Math.min(startSec, endSec));
-    const e = Math.min(audioBuffer.duration, Math.max(startSec, endSec));
+    const e = Math.min(buffer.duration, Math.max(startSec, endSec));
     if (e - s < 0.05) return;
 
+    pushUndo('Crop to Selection');
     stopPlayback();
 
-    const cropped = cropAudioBuffer(audioBuffer, s, e);
+    const cropped = cropAudioBuffer(buffer, s, e);
 
     const updatedMarkers = markers
       .filter((m) => m.time >= s && m.time <= e)
@@ -379,19 +477,21 @@ export default function App() {
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
-  };
+  }, [markers, pushUndo, stopPlayback]);
 
-  // Cut / Delete Selection Brace
-  const handleCutSelection = (startSec: number, endSec: number) => {
-    if (!audioBuffer) return;
+  // Cut / Delete Selection Brace (Splices remaining audio seamlessly)
+  const handleCutSelection = useCallback((startSec: number, endSec: number) => {
+    const buffer = audioBufferRef.current;
+    if (!buffer) return;
     const s = Math.max(0, Math.min(startSec, endSec));
-    const e = Math.min(audioBuffer.duration, Math.max(startSec, endSec));
+    const e = Math.min(buffer.duration, Math.max(startSec, endSec));
     const cutSpan = e - s;
     if (cutSpan < 0.02) return;
 
+    pushUndo('Cut Selection');
     stopPlayback();
 
-    const spliced = cutAudioBuffer(audioBuffer, s, e);
+    const spliced = cutAudioBuffer(buffer, s, e);
 
     const updatedMarkers = markers
       .filter((m) => m.time < s || m.time > e)
@@ -417,50 +517,109 @@ export default function App() {
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
-  };
+  }, [markers, pushUndo, stopPlayback]);
 
-  // Audition / Play Selection region only
-  const handlePlaySelection = useCallback(
+  // Trim Start: Remove unnecessary lead-in audio (from 0:00 up to selection start or playhead)
+  const handleTrimStart = useCallback((targetTime?: number) => {
+    const buffer = audioBufferRef.current;
+    if (!buffer) return;
+
+    let t = targetTime !== undefined ? targetTime : currentTimeRef.current;
+    const sel = selectionRef.current;
+    if (sel && Math.abs(sel.end - sel.start) > 0.02) {
+      t = Math.min(sel.start, sel.end);
+    }
+
+    if (t <= 0.02) return;
+    if (t >= buffer.duration - 0.05) return;
+
+    pushUndo('Trim Start');
+    stopPlayback();
+
+    const cropped = cropAudioBuffer(buffer, t, buffer.duration);
+    const updatedMarkers = markers
+      .filter((m) => m.time >= t)
+      .map((m) => ({
+        ...m,
+        time: m.time - t,
+      }));
+
+    audioBufferRef.current = cropped;
+    cropStartRef.current = 0;
+    cropEndRef.current = cropped.duration;
+    currentTimeRef.current = 0;
+
+    setAudioBuffer(cropped);
+    setCropStart(0);
+    setCropEnd(cropped.duration);
+    setCurrentTime(0);
+    setMarkers(updatedMarkers);
+    setSelection(null);
+    setZoom(1);
+    setViewOffsetSec(0);
+  }, [markers, pushUndo, stopPlayback]);
+
+  // Trim End: Remove unnecessary run-out audio (from selection end or playhead to file end)
+  const handleTrimEnd = useCallback((targetTime?: number) => {
+    const buffer = audioBufferRef.current;
+    if (!buffer) return;
+
+    let t = targetTime !== undefined ? targetTime : currentTimeRef.current;
+    const sel = selectionRef.current;
+    if (sel && Math.abs(sel.end - sel.start) > 0.02) {
+      t = Math.max(sel.start, sel.end);
+    }
+
+    if (t <= 0.05) return;
+    if (t >= buffer.duration - 0.02) return;
+
+    pushUndo('Trim End');
+    stopPlayback();
+
+    const cropped = cropAudioBuffer(buffer, 0, t);
+    const updatedMarkers = markers.filter((m) => m.time <= t);
+
+    audioBufferRef.current = cropped;
+    cropStartRef.current = 0;
+    cropEndRef.current = cropped.duration;
+    currentTimeRef.current = Math.min(currentTimeRef.current, cropped.duration);
+
+    setAudioBuffer(cropped);
+    setCropStart(0);
+    setCropEnd(cropped.duration);
+    setCurrentTime(Math.min(currentTimeRef.current, cropped.duration));
+    setMarkers(updatedMarkers);
+    setSelection(null);
+    setZoom(1);
+    setViewOffsetSec(0);
+  }, [markers, pushUndo, stopPlayback]);
+
+  // Loop Selection: Automatically start looping and play selected section seamlessly
+  const handleLoopSelection = useCallback(
     (startSec: number, endSec: number) => {
       const buffer = audioBufferRef.current;
       if (!buffer) return;
       const s = Math.max(0, Math.min(startSec, endSec));
       const e = Math.min(buffer.duration, Math.max(startSec, endSec));
-      if (e - s <= 0.01) return;
+      if (e - s <= 0.02) return;
 
       stopPlayback();
-      const ctx = getAudioContext();
-      if (ctx.state === 'suspended') {
-        ctx.resume();
-      }
+      setIsLooping(true);
+      isLoopingRef.current = true;
+      setSelection({ start: s, end: e });
+      selectionRef.current = { start: s, end: e };
 
-      const playDuration = e - s;
-      const source = ctx.createBufferSource();
-      const activeSource = source;
-      source.buffer = buffer;
-      source.connect(ctx.destination);
-
-      source.onended = () => {
-        if (sourceNodeRef.current === activeSource) {
-          stopPlayback();
-          currentTimeRef.current = s;
-          setCurrentTime(s);
-        }
-      };
-
-      source.start(0, s, playDuration);
-      sourceNodeRef.current = source;
-      playheadStartTimeRef.current = s;
-      contextStartTimeRef.current = ctx.currentTime;
-      playbackWallStartTimeRef.current = performance.now();
-      isPlayingRef.current = true;
-      currentTimeRef.current = s;
-      setCurrentTime(s);
-      setIsPlaying(true);
-
-      startPlayheadLoop();
+      startPlayback(s, true);
     },
-    [getAudioContext, stopPlayback, startPlayheadLoop]
+    [stopPlayback, startPlayback]
+  );
+
+  // Audition / Play Selection region once or looped
+  const handlePlaySelection = useCallback(
+    (startSec: number, endSec: number) => {
+      handleLoopSelection(startSec, endSec);
+    },
+    [handleLoopSelection]
   );
 
   // Peak Normalise (UK spelling)
@@ -619,6 +778,24 @@ export default function App() {
       if (e.code === 'Space') {
         e.preventDefault();
         handlePlayPause();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        const sel = selectionRef.current;
+        if (sel && Math.abs(sel.end - sel.start) > 0.02) {
+          e.preventDefault();
+          handleCutSelection(sel.start, sel.end);
+        }
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 't' || e.key === 'T')) {
+        const sel = selectionRef.current;
+        if (sel && Math.abs(sel.end - sel.start) > 0.05) {
+          e.preventDefault();
+          handleCropToSelection(sel.start, sel.end);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelection(null);
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
         handleAddMarkerAtPlayhead();
@@ -633,7 +810,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handlePlayPause, handleAddMarkerAtPlayhead]);
+  }, [handlePlayPause, handleAddMarkerAtPlayhead, handleCutSelection, handleCropToSelection, handleUndo]);
 
   return (
     <div className="h-screen max-h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
@@ -800,12 +977,19 @@ export default function App() {
                       viewOffsetSec={viewOffsetSec}
                       fadeSettings={fadeSettings}
                       isPlaying={isPlaying}
+                      isLooping={isLooping}
+                      canUndo={canUndo}
                       onSeek={handleSeek}
                       onPreviewStart={handlePreviewStart}
                       onSelectionChange={setSelection}
+                      onLoopSelection={handleLoopSelection}
                       onCropToSelection={handleCropToSelection}
                       onCutSelection={handleCutSelection}
                       onPlaySelection={handlePlaySelection}
+                      onTrimStart={handleTrimStart}
+                      onTrimEnd={handleTrimEnd}
+                      onUndo={handleUndo}
+                      onToggleLoop={() => setIsLooping(!isLooping)}
                       onCropChange={(start, end) => {
                         setCropStart(start);
                         setCropEnd(end);
@@ -850,6 +1034,17 @@ export default function App() {
                       >
                         Loop: {isLooping ? 'ON' : 'OFF'}
                       </button>
+                      {canUndo && (
+                        <button
+                          type="button"
+                          onClick={handleUndo}
+                          className="px-3 py-1.5 rounded-lg bg-slate-850 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-slate-800"
+                          title="Undo last edit (Ctrl+Z)"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Undo Edit</span>
+                        </button>
+                      )}
                     </div>
 
                     <div className="text-[10px] font-mono text-slate-400">

@@ -13,8 +13,13 @@ import {
   Crop,
   Scissors,
   Play,
+  Pause,
   X,
   SlidersHorizontal,
+  RotateCcw,
+  Repeat,
+  ArrowLeftToLine,
+  ArrowRightFromLine,
 } from 'lucide-react';
 
 interface WaveformCanvasProps {
@@ -28,12 +33,19 @@ interface WaveformCanvasProps {
   viewOffsetSec: number;
   fadeSettings: FadeSettings;
   isPlaying: boolean;
+  isLooping?: boolean;
+  canUndo?: boolean;
   onSeek: (time: number) => void;
   onPreviewStart?: (time: number) => void;
   onSelectionChange?: (selection: TimeSelection | null) => void;
+  onLoopSelection?: (start: number, end: number) => void;
   onCropToSelection?: (start: number, end: number) => void;
   onCutSelection?: (start: number, end: number) => void;
   onPlaySelection?: (start: number, end: number) => void;
+  onTrimStart?: () => void;
+  onTrimEnd?: () => void;
+  onUndo?: () => void;
+  onToggleLoop?: () => void;
   onCropChange?: (start: number, end: number) => void;
   onMarkerMove: (id: string, newTime: number) => void;
   onAddMarker: (time: number) => void;
@@ -116,12 +128,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   viewOffsetSec,
   fadeSettings,
   isPlaying,
+  isLooping = false,
+  canUndo = false,
   onSeek,
   onPreviewStart,
   onSelectionChange,
+  onLoopSelection,
   onCropToSelection,
   onCutSelection,
   onPlaySelection,
+  onTrimStart,
+  onTrimEnd,
+  onUndo,
+  onToggleLoop,
   onCropChange,
   onMarkerMove,
   onAddMarker,
@@ -625,7 +644,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
         onSelectionChange({ start: nextS, end: nextE });
       } else if (activeDrag.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
-        onSelectionChange({ start: activeDrag.startTime, end: time });
+        if (activeDrag.startX !== undefined && Math.abs(x - activeDrag.startX) > 4) {
+          const s = Math.min(activeDrag.startTime, time);
+          const e = Math.max(activeDrag.startTime, time);
+          onSelectionChange?.({ start: s, end: e });
+        }
       }
       return;
     }
@@ -718,13 +741,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         }
         onAddMarker(markerTime);
       } else {
-        // Smart tool seek or drag selection
-        if (autoPreviewOnClick && onPreviewStart) {
-          onPreviewStart(time);
-        } else {
-          onSeek(time);
-        }
-        setActiveDrag({ type: 'selectionCreate', startTime: time });
+        // Smart tool: Record drag start point; don't trigger playback until pointer release
+        setActiveDrag({ type: 'selectionCreate', startTime: time, startX: x });
       }
     }
   };
@@ -737,10 +755,47 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       } catch {}
     }
 
-    if (activeDrag?.type === 'selectionCreate' && selection) {
-      // If selection is too small, clear it to seek playhead
-      if (Math.abs(selection.end - selection.start) < 0.05) {
+    if (activeDrag?.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
+      const rect = canvas?.getBoundingClientRect();
+      const x = rect ? e.clientX - rect.left : (activeDrag.startX ?? 0);
+      const pixelDiff = Math.abs(x - (activeDrag.startX ?? 0));
+      const endTime = xToTime(x, canvasDimensions.width);
+      const timeDiff = Math.abs(endTime - activeDrag.startTime);
+
+      if (pixelDiff <= 5 || timeDiff < 0.05) {
+        // Single Click: Clear selection, seek playhead, preview if enabled
+        const clickTime = activeDrag.startTime;
         onSelectionChange?.(null);
+        if (autoPreviewOnClick && onPreviewStart) {
+          onPreviewStart(clickTime);
+        } else {
+          onSeek(clickTime);
+        }
+      } else {
+        // Drag selection complete!
+        const selStart = Math.min(activeDrag.startTime, endTime);
+        const selEnd = Math.max(activeDrag.startTime, endTime);
+        onSelectionChange?.({ start: selStart, end: selEnd });
+
+        // User requirement: Automatically loop and play that section!
+        if (onLoopSelection) {
+          onLoopSelection(selStart, selEnd);
+        } else if (onPlaySelection) {
+          onPlaySelection(selStart, selEnd);
+        }
+      }
+    } else if (
+      (activeDrag?.type === 'selectionStart' || activeDrag?.type === 'selectionEnd' || activeDrag?.type === 'selectionMove') &&
+      selection
+    ) {
+      if (Math.abs(selection.end - selection.start) > 0.05) {
+        const s = Math.min(selection.start, selection.end);
+        const e = Math.max(selection.start, selection.end);
+        if (onLoopSelection) {
+          onLoopSelection(s, e);
+        } else if (onPlaySelection) {
+          onPlaySelection(s, e);
+        }
       }
     }
 
@@ -827,9 +882,107 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const cursorStyle = activeDrag ? 'cursor-grabbing' : 'cursor-default';
   const minimapCursor = 'cursor-pointer';
 
+  const hasSelection = Boolean(selection && Math.abs(selection.end - selection.start) > 0.02);
+  const selS = selection ? Math.min(selection.start, selection.end) : 0;
+  const selE = selection ? Math.max(selection.start, selection.end) : 0;
+  const selLen = selE - selS;
+
   return (
     <div className="space-y-2 select-none flex flex-col h-full min-h-0" ref={containerRef}>
-      
+      {/* 0. Selection Action HUD (Appears when a region is selected) */}
+      {hasSelection && (
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/95 border border-sky-500/40 px-3 py-1.5 rounded-xl text-xs shadow-lg backdrop-blur-xs flex-shrink-0 animate-fade-in">
+          <div className="flex items-center space-x-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-sky-500/15 text-sky-300 font-mono font-bold text-xs border border-sky-500/30">
+              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+              <span>Selection: {formatTime(selS, true)} – {formatTime(selE, true)}</span>
+              <span className="text-slate-400 font-normal">({formatTime(selLen, true)})</span>
+            </span>
+          </div>
+
+          <div className="flex items-center flex-wrap gap-1.5">
+            {/* Loop Selection */}
+            <button
+              type="button"
+              onClick={() => {
+                if (onLoopSelection) {
+                  onLoopSelection(selS, selE);
+                } else if (onPlaySelection) {
+                  onPlaySelection(selS, selE);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer border ${
+                isLooping && isPlaying
+                  ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/50 shadow-sm'
+                  : 'bg-slate-800 hover:bg-slate-750 text-slate-200 border-slate-700'
+              }`}
+              title="Loop and play this selected region"
+            >
+              <Repeat className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{isLooping && isPlaying ? 'Looping Section' : 'Loop Section'}</span>
+            </button>
+
+            {/* Crop to Selection */}
+            <button
+              type="button"
+              onClick={() => onCropToSelection?.(selS, selE)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition cursor-pointer border border-sky-500 shadow-sm"
+              title="Crop to Selection: Keep this selection and discard outside audio (Ctrl+T)"
+            >
+              <Crop className="w-3.5 h-3.5" />
+              <span>Crop to Selection</span>
+            </button>
+
+            {/* Cut Selection */}
+            <button
+              type="button"
+              onClick={() => onCutSelection?.(selS, selE)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer border border-rose-500 shadow-sm"
+              title="Cut Selection: Delete this section and splice the rest together (Del / Backspace)"
+            >
+              <Scissors className="w-3.5 h-3.5" />
+              <span>Cut Selection</span>
+            </button>
+
+            {/* Trim Start */}
+            {onTrimStart && (
+              <button
+                type="button"
+                onClick={onTrimStart}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold transition cursor-pointer border border-slate-700"
+                title="Trim Start: Delete unnecessary audio from 0:00 up to selection start"
+              >
+                <ArrowLeftToLine className="w-3.5 h-3.5 text-amber-400" />
+                <span>Trim Before Start</span>
+              </button>
+            )}
+
+            {/* Trim End */}
+            {onTrimEnd && (
+              <button
+                type="button"
+                onClick={onTrimEnd}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold transition cursor-pointer border border-slate-700"
+                title="Trim End: Delete unnecessary audio from selection end to track end"
+              >
+                <ArrowRightFromLine className="w-3.5 h-3.5 text-amber-400" />
+                <span>Trim After End</span>
+              </button>
+            )}
+
+            {/* Clear Selection */}
+            <button
+              type="button"
+              onClick={() => onSelectionChange?.(null)}
+              className="p-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 border border-slate-700 transition cursor-pointer"
+              title="Clear Selection (Escape)"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 1. Main Waveform Canvas Container (fills remaining height dynamically) */}
       <div className="flex-1 min-h-0 relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner" ref={canvasContainerRef}>
         <canvas
@@ -897,9 +1050,28 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         </div>
       </div>
 
-      {/* 3. Sleek, Icon-Only DAW Under-Waveform Toolbar (0.5s Hover delayed tooltips) */}
-      <div className="flex items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-3.5 py-1.5 rounded-xl text-xs flex-shrink-0 relative">
-        <div className="flex items-center space-x-2">
+      {/* 3. Sleek, DAW Under-Waveform Toolbar (0.5s Hover delayed tooltips) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs flex-shrink-0 relative">
+        <div className="flex items-center flex-wrap gap-1.5">
+          {/* Zoom Controls */}
+          <TooltipButton
+            onClick={handleZoomIn}
+            icon={<ZoomIn className="w-3.5 h-3.5" />}
+            label="Zoom In Waveform"
+          />
+          <TooltipButton
+            onClick={handleZoomOut}
+            icon={<ZoomOut className="w-3.5 h-3.5" />}
+            label="Zoom Out Waveform"
+          />
+          <TooltipButton
+            onClick={handleZoomFit}
+            icon={<ScanLine className="w-3.5 h-3.5" />}
+            label="Zoom to Fit Entire Audio File"
+          />
+
+          <div className="h-5 w-px bg-slate-800 mx-0.5" />
+
           {/* Curve foldout dropdown */}
           <div className="relative">
             <TooltipButton
@@ -933,7 +1105,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <TooltipButton
             onClick={() => setAutoPreviewOnClick(!autoPreviewOnClick)}
             isActive={autoPreviewOnClick}
-            icon={<Volume2 className="w-4 h-4" />}
+            icon={<Volume2 className="w-3.5 h-3.5" />}
             label={`Audition on Click (${autoPreviewOnClick ? 'ON' : 'OFF'})`}
           />
 
@@ -942,7 +1114,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             onClick={() => setActiveTool(activeTool === 'marker' ? 'smart' : 'marker')}
             isActive={activeTool === 'marker'}
             activeClass="bg-purple-600 text-white border-purple-500 shadow-sm"
-            icon={<BookmarkPlus className="w-4 h-4" />}
+            icon={<BookmarkPlus className="w-3.5 h-3.5" />}
             label="Marker Tool (Click waveform to drop split markers)"
           />
 
@@ -950,7 +1122,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <TooltipButton
             onClick={() => onFadeSettingsChange({ ...fadeSettings, zeroCrossing: !fadeSettings.zeroCrossing })}
             isActive={fadeSettings.zeroCrossing}
-            icon={<Zap className="w-4 h-4" />}
+            icon={<Zap className="w-3.5 h-3.5" />}
             label={`Zero-Crossing Snapping (${fadeSettings.zeroCrossing ? 'Active' : 'OFF'})`}
           />
 
@@ -958,18 +1130,68 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <TooltipButton
             onClick={() => setFollowPlayhead(!followPlayhead)}
             isActive={followPlayhead}
-            icon={<Navigation className="w-4 h-4" />}
+            icon={<Navigation className="w-3.5 h-3.5" />}
             label={`Auto-Scroll Follow Playhead (${followPlayhead ? 'ON' : 'OFF'})`}
           />
+
+          <div className="h-5 w-px bg-slate-800 mx-0.5" />
+
+          {/* Dedicated Trim & Crop Buttons in Toolbar */}
+          {onTrimStart && (
+            <TooltipButton
+              onClick={onTrimStart}
+              icon={<ArrowLeftToLine className="w-3.5 h-3.5 text-amber-400" />}
+              label="Trim Start: Delete unnecessary audio before playhead / selection start"
+            />
+          )}
+
+          {onTrimEnd && (
+            <TooltipButton
+              onClick={onTrimEnd}
+              icon={<ArrowRightFromLine className="w-3.5 h-3.5 text-amber-400" />}
+              label="Trim End: Delete unnecessary audio after playhead / selection end"
+            />
+          )}
+
+          <TooltipButton
+            onClick={() => {
+              if (selection) {
+                onCropToSelection?.(selS, selE);
+              }
+            }}
+            disabled={!hasSelection}
+            icon={<Crop className="w-3.5 h-3.5 text-sky-400" />}
+            label="Crop to Selection (Ctrl+T): Discard audio outside selection"
+          />
+
+          <TooltipButton
+            onClick={() => {
+              if (selection) {
+                onCutSelection?.(selS, selE);
+              }
+            }}
+            disabled={!hasSelection}
+            icon={<Scissors className="w-3.5 h-3.5 text-rose-400" />}
+            label="Cut Selection (Del / Backspace): Remove selected audio and splice"
+          />
+
+          {onUndo && (
+            <TooltipButton
+              onClick={onUndo}
+              disabled={!canUndo}
+              icon={<RotateCcw className="w-3.5 h-3.5 text-slate-300" />}
+              label="Undo Audio Edit (Ctrl+Z)"
+            />
+          )}
         </div>
 
-        {/* Center/Right: Spelled in UK English Normalise popup popover */}
+        {/* Right: Normalise popup popover */}
         <div className="relative">
           <TooltipButton
             onClick={() => setShowNormalisePopover(!showNormalisePopover)}
             isActive={showNormalisePopover}
             activeClass="bg-amber-600 text-white border-amber-500 shadow-sm"
-            icon={<SlidersHorizontal className="w-4 h-4" />}
+            icon={<SlidersHorizontal className="w-3.5 h-3.5" />}
             label="Normalise Peak Gain (UK English)"
           />
           {showNormalisePopover && (

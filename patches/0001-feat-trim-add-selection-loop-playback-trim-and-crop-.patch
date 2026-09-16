@@ -1,0 +1,909 @@
+From 789c488ce1ee63b038ff224e202c51b801afe581 Mon Sep 17 00:00:00 2001
+From: leroy <leroy.bagwell@gmail.com>
+Date: Wed, 16 Sep 2026 09:45:08 +0000
+Subject: [PATCH] feat(trim): add selection loop playback, trim and crop
+ controls, and undo history
+
+---
+ bun.lock                          |   4 +-
+ src/App.tsx                       | 349 +++++++++++++++++++++++-------
+ src/components/WaveformCanvas.tsx | 264 ++++++++++++++++++++--
+ 3 files changed, 517 insertions(+), 100 deletions(-)
+
+diff --git a/bun.lock b/bun.lock
+index 80eeaeb..c956c18 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -25,7 +25,7 @@
+         "autoprefixer": "^10.4.21",
+         "concurrently": "^10.0.5",
+         "cross-env": "^10.1.0",
+-        "electron": "^44.2.0",
++        "electron": "^44.3.0",
+         "electron-builder": "^26.15.3",
+         "esbuild": "^0.25.0",
+         "tailwindcss": "^4.1.14",
+@@ -507,7 +507,7 @@
+ 
+     "ejs": ["ejs@3.1.10", "", { "dependencies": { "jake": "^10.8.5" }, "bin": { "ejs": "bin/cli.js" } }, "sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA=="],
+ 
+-    "electron": ["electron@44.2.0", "", { "dependencies": { "@electron-internal/extract-zip": "^1.0.1", "@electron/get": "^5.0.0", "@types/node": "^24.9.0" }, "bin": { "electron": "cli.js", "install-electron": "install.js" } }, "sha512-oK1icjhapp3xsUZycO9WZaLmd3hJnA7ieobC4mpdtO1pEN+PPGWpA3m1Mgzzuc1wzSD2Wai4zcH4yfpGJqxFMA=="],
++    "electron": ["electron@44.4.1", "", { "dependencies": { "@electron-internal/extract-zip": "^1.0.1", "@electron/get": "^5.0.0", "@types/node": "^24.9.0" }, "bin": { "electron": "cli.js", "install-electron": "install.js" } }, "sha512-gXJarQ2Utfn8G6bp/IqLXvckOSCtrxPWjFqQaqm02Gf4zYn1aP+RN9PKimoLH/DMqjKLfBrNC4C4CviPv0cXnQ=="],
+ 
+     "electron-builder": ["electron-builder@26.15.3", "", { "dependencies": { "app-builder-lib": "26.15.3", "builder-util": "26.15.3", "builder-util-runtime": "9.7.0", "chalk": "^4.1.2", "ci-info": "^4.2.0", "dmg-builder": "26.15.3", "fs-extra": "^10.1.0", "lazy-val": "^1.0.5", "simple-update-notifier": "2.0.0", "yargs": "^17.6.2" }, "bin": { "electron-builder": "./cli.js", "install-app-deps": "./install-app-deps.js" } }, "sha512-a1KM5heqS3gQCZzizXEI8RjJy3QVogULPdeSknt76uLDpBIW/HDGsMg/XgP0riP6PI9COsRvFITKKGDqA8fJxA=="],
+ 
+diff --git a/src/App.tsx b/src/App.tsx
+index 9e87526..34b8507 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -18,6 +18,7 @@ import {
+   Square,
+   Tag,
+   CheckCircle2,
++  RotateCcw,
+ } from 'lucide-react';
+ 
+ export default function App() {
+@@ -66,6 +67,18 @@ export default function App() {
+     zeroCrossing: true,
+   });
+ 
++  // Undo history stack
++  interface UndoState {
++    buffer: AudioBuffer;
++    markers: Marker[];
++    cropStart: number;
++    cropEnd: number;
++    mainFileName: string;
++    actionName: string;
++  }
++  const undoStackRef = useRef<UndoState[]>([]);
++  const [canUndo, setCanUndo] = useState<boolean>(false);
++
+   // Audio Context & Playback nodes
+   const audioCtxRef = useRef<AudioContext | null>(null);
+   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+@@ -81,7 +94,8 @@ export default function App() {
+   const cropEndRef = useRef<number>(0);
+   const isLoopingRef = useRef<boolean>(false);
+   const currentTimeRef = useRef<number>(0);
+-  const startPlaybackRef = useRef<(offsetTime: number) => void>(() => {});
++  const selectionRef = useRef<TimeSelection | null>(null);
++  const startPlaybackRef = useRef<(offsetTime: number, forceLoop?: boolean) => void>(() => {});
+ 
+   useEffect(() => {
+     audioBufferRef.current = audioBuffer;
+@@ -103,6 +117,61 @@ export default function App() {
+     currentTimeRef.current = currentTime;
+   }, [currentTime]);
+ 
++  useEffect(() => {
++    selectionRef.current = selection;
++  }, [selection]);
++
++  const pushUndo = useCallback((actionName: string) => {
++    if (!audioBufferRef.current) return;
++    undoStackRef.current.push({
++      buffer: audioBufferRef.current,
++      markers: [...markers],
++      cropStart: cropStartRef.current,
++      cropEnd: cropEndRef.current,
++      mainFileName,
++      actionName,
++    });
++    if (undoStackRef.current.length > 10) {
++      undoStackRef.current.shift();
++    }
++    setCanUndo(true);
++  }, [markers, mainFileName]);
++
++  const handleUndo = useCallback(() => {
++    const prev = undoStackRef.current.pop();
++    if (!prev) return;
++    setCanUndo(undoStackRef.current.length > 0);
++
++    if (sourceNodeRef.current) {
++      try {
++        sourceNodeRef.current.onended = null;
++        sourceNodeRef.current.stop();
++      } catch {}
++      sourceNodeRef.current = null;
++    }
++    if (animationFrameRef.current) {
++      cancelAnimationFrame(animationFrameRef.current);
++      animationFrameRef.current = null;
++    }
++    isPlayingRef.current = false;
++    setIsPlaying(false);
++
++    audioBufferRef.current = prev.buffer;
++    cropStartRef.current = prev.cropStart;
++    cropEndRef.current = prev.cropEnd;
++    currentTimeRef.current = 0;
++
++    setAudioBuffer(prev.buffer);
++    setMarkers(prev.markers);
++    setCropStart(prev.cropStart);
++    setCropEnd(prev.cropEnd);
++    setMainFileName(prev.mainFileName);
++    setCurrentTime(0);
++    setSelection(null);
++    setZoom(1);
++    setViewOffsetSec(0);
++  }, []);
++
+   const fileInputRef = useRef<HTMLInputElement | null>(null);
+ 
+   // Initialize or resume shared AudioContext safely
+@@ -153,6 +222,20 @@ export default function App() {
+         return;
+       }
+ 
++      const buffer = audioBufferRef.current;
++      if (!buffer) {
++        animationFrameRef.current = null;
++        return;
++      }
++
++      const sel = selectionRef.current;
++      const hasSelection = sel && Math.abs(sel.end - sel.start) > 0.02;
++      const effectiveStart = hasSelection ? Math.min(sel.start, sel.end) : cropStartRef.current;
++      const effectiveEnd = hasSelection
++        ? Math.max(sel.start, sel.end)
++        : (cropEndRef.current > 0 ? cropEndRef.current : buffer.duration);
++      const loopSpan = Math.max(0.01, effectiveEnd - effectiveStart);
++
+       let elapsed = 0;
+       if (
+         audioCtxRef.current &&
+@@ -164,23 +247,19 @@ export default function App() {
+         elapsed = (performance.now() - playbackWallStartTimeRef.current) / 1000;
+       }
+ 
+-      const newTime = playheadStartTimeRef.current + elapsed;
+-      const buffer = audioBufferRef.current;
+-
+-      if (buffer) {
+-        const endLimit = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
+-
+-        if (newTime >= endLimit) {
+-          if (isLoopingRef.current) {
+-            stopPlayback();
+-            startPlaybackRef.current(cropStartRef.current);
+-            return;
+-          } else {
+-            stopPlayback();
+-            currentTimeRef.current = endLimit;
+-            setCurrentTime(endLimit);
+-            return;
+-          }
++      if (isLoopingRef.current) {
++        const initialOffset = Math.max(0, playheadStartTimeRef.current - effectiveStart);
++        const loopPos = (initialOffset + elapsed) % loopSpan;
++        const currentT = effectiveStart + loopPos;
++        currentTimeRef.current = currentT;
++        setCurrentTime(currentT);
++      } else {
++        const newTime = playheadStartTimeRef.current + elapsed;
++        if (newTime >= effectiveEnd) {
++          stopPlayback();
++          currentTimeRef.current = effectiveEnd;
++          setCurrentTime(effectiveEnd);
++          return;
+         }
+         currentTimeRef.current = newTime;
+         setCurrentTime(newTime);
+@@ -207,9 +286,9 @@ export default function App() {
+     };
+   }, []);
+ 
+-  // Start playback from a given timestamp
++  // Start playback from a given timestamp with seamless native loop support
+   const startPlayback = useCallback(
+-    (offsetTime: number) => {
++    (offsetTime: number, forceLoop?: boolean) => {
+       const buffer = audioBufferRef.current;
+       if (!buffer) return;
+       stopPlayback();
+@@ -219,25 +298,42 @@ export default function App() {
+         ctx.resume();
+       }
+ 
++      const activeLoop = forceLoop !== undefined ? forceLoop : isLoopingRef.current;
++
++      const sel = selectionRef.current;
++      const hasSelection = sel && Math.abs(sel.end - sel.start) > 0.02;
++      const effectiveStart = hasSelection ? Math.min(sel.start, sel.end) : cropStartRef.current;
++      const effectiveEnd = hasSelection
++        ? Math.max(sel.start, sel.end)
++        : (cropEndRef.current > 0 ? cropEndRef.current : buffer.duration);
++
++      const loopSpan = Math.max(0.01, effectiveEnd - effectiveStart);
++      const safeStart = Math.max(effectiveStart, Math.min(effectiveEnd, offsetTime));
++
+       const source = ctx.createBufferSource();
+       source.buffer = buffer;
+       source.connect(ctx.destination);
+ 
+-      const safeStart = Math.max(0, Math.min(buffer.duration, offsetTime));
+-      const endLimit = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
+-      const remainingDuration = Math.max(0, endLimit - safeStart);
+-
+       const activeSource = source;
+-      source.onended = () => {
+-        if (sourceNodeRef.current === activeSource) {
+-          stopPlayback();
+-          const resetTime = cropStartRef.current;
+-          currentTimeRef.current = resetTime;
+-          setCurrentTime(resetTime);
+-        }
+-      };
+ 
+-      source.start(0, safeStart, remainingDuration > 0 ? remainingDuration : undefined);
++      if (activeLoop && loopSpan > 0.02) {
++        source.loop = true;
++        source.loopStart = effectiveStart;
++        source.loopEnd = effectiveEnd;
++        source.start(0, safeStart);
++      } else {
++        source.loop = false;
++        const playDuration = Math.max(0, effectiveEnd - safeStart);
++        source.onended = () => {
++          if (sourceNodeRef.current === activeSource) {
++            stopPlayback();
++            currentTimeRef.current = effectiveStart;
++            setCurrentTime(effectiveStart);
++          }
++        };
++        source.start(0, safeStart, playDuration > 0 ? playDuration : undefined);
++      }
++
+       sourceNodeRef.current = source;
+       playheadStartTimeRef.current = safeStart;
+       contextStartTimeRef.current = ctx.currentTime;
+@@ -349,15 +445,17 @@ export default function App() {
+   };
+ 
+   // Crop to Selection Brace
+-  const handleCropToSelection = (startSec: number, endSec: number) => {
+-    if (!audioBuffer) return;
++  const handleCropToSelection = useCallback((startSec: number, endSec: number) => {
++    const buffer = audioBufferRef.current;
++    if (!buffer) return;
+     const s = Math.max(0, Math.min(startSec, endSec));
+-    const e = Math.min(audioBuffer.duration, Math.max(startSec, endSec));
++    const e = Math.min(buffer.duration, Math.max(startSec, endSec));
+     if (e - s < 0.05) return;
+ 
++    pushUndo('Crop to Selection');
+     stopPlayback();
+ 
+-    const cropped = cropAudioBuffer(audioBuffer, s, e);
++    const cropped = cropAudioBuffer(buffer, s, e);
+ 
+     const updatedMarkers = markers
+       .filter((m) => m.time >= s && m.time <= e)
+@@ -379,19 +477,21 @@ export default function App() {
+     setSelection(null);
+     setZoom(1);
+     setViewOffsetSec(0);
+-  };
++  }, [markers, pushUndo, stopPlayback]);
+ 
+-  // Cut / Delete Selection Brace
+-  const handleCutSelection = (startSec: number, endSec: number) => {
+-    if (!audioBuffer) return;
++  // Cut / Delete Selection Brace (Splices remaining audio seamlessly)
++  const handleCutSelection = useCallback((startSec: number, endSec: number) => {
++    const buffer = audioBufferRef.current;
++    if (!buffer) return;
+     const s = Math.max(0, Math.min(startSec, endSec));
+-    const e = Math.min(audioBuffer.duration, Math.max(startSec, endSec));
++    const e = Math.min(buffer.duration, Math.max(startSec, endSec));
+     const cutSpan = e - s;
+     if (cutSpan < 0.02) return;
+ 
++    pushUndo('Cut Selection');
+     stopPlayback();
+ 
+-    const spliced = cutAudioBuffer(audioBuffer, s, e);
++    const spliced = cutAudioBuffer(buffer, s, e);
+ 
+     const updatedMarkers = markers
+       .filter((m) => m.time < s || m.time > e)
+@@ -417,50 +517,109 @@ export default function App() {
+     setSelection(null);
+     setZoom(1);
+     setViewOffsetSec(0);
+-  };
++  }, [markers, pushUndo, stopPlayback]);
+ 
+-  // Audition / Play Selection region only
+-  const handlePlaySelection = useCallback(
++  // Trim Start: Remove unnecessary lead-in audio (from 0:00 up to selection start or playhead)
++  const handleTrimStart = useCallback((targetTime?: number) => {
++    const buffer = audioBufferRef.current;
++    if (!buffer) return;
++
++    let t = targetTime !== undefined ? targetTime : currentTimeRef.current;
++    const sel = selectionRef.current;
++    if (sel && Math.abs(sel.end - sel.start) > 0.02) {
++      t = Math.min(sel.start, sel.end);
++    }
++
++    if (t <= 0.02) return;
++    if (t >= buffer.duration - 0.05) return;
++
++    pushUndo('Trim Start');
++    stopPlayback();
++
++    const cropped = cropAudioBuffer(buffer, t, buffer.duration);
++    const updatedMarkers = markers
++      .filter((m) => m.time >= t)
++      .map((m) => ({
++        ...m,
++        time: m.time - t,
++      }));
++
++    audioBufferRef.current = cropped;
++    cropStartRef.current = 0;
++    cropEndRef.current = cropped.duration;
++    currentTimeRef.current = 0;
++
++    setAudioBuffer(cropped);
++    setCropStart(0);
++    setCropEnd(cropped.duration);
++    setCurrentTime(0);
++    setMarkers(updatedMarkers);
++    setSelection(null);
++    setZoom(1);
++    setViewOffsetSec(0);
++  }, [markers, pushUndo, stopPlayback]);
++
++  // Trim End: Remove unnecessary run-out audio (from selection end or playhead to file end)
++  const handleTrimEnd = useCallback((targetTime?: number) => {
++    const buffer = audioBufferRef.current;
++    if (!buffer) return;
++
++    let t = targetTime !== undefined ? targetTime : currentTimeRef.current;
++    const sel = selectionRef.current;
++    if (sel && Math.abs(sel.end - sel.start) > 0.02) {
++      t = Math.max(sel.start, sel.end);
++    }
++
++    if (t <= 0.05) return;
++    if (t >= buffer.duration - 0.02) return;
++
++    pushUndo('Trim End');
++    stopPlayback();
++
++    const cropped = cropAudioBuffer(buffer, 0, t);
++    const updatedMarkers = markers.filter((m) => m.time <= t);
++
++    audioBufferRef.current = cropped;
++    cropStartRef.current = 0;
++    cropEndRef.current = cropped.duration;
++    currentTimeRef.current = Math.min(currentTimeRef.current, cropped.duration);
++
++    setAudioBuffer(cropped);
++    setCropStart(0);
++    setCropEnd(cropped.duration);
++    setCurrentTime(Math.min(currentTimeRef.current, cropped.duration));
++    setMarkers(updatedMarkers);
++    setSelection(null);
++    setZoom(1);
++    setViewOffsetSec(0);
++  }, [markers, pushUndo, stopPlayback]);
++
++  // Loop Selection: Automatically start looping and play selected section seamlessly
++  const handleLoopSelection = useCallback(
+     (startSec: number, endSec: number) => {
+       const buffer = audioBufferRef.current;
+       if (!buffer) return;
+       const s = Math.max(0, Math.min(startSec, endSec));
+       const e = Math.min(buffer.duration, Math.max(startSec, endSec));
+-      if (e - s <= 0.01) return;
++      if (e - s <= 0.02) return;
+ 
+       stopPlayback();
+-      const ctx = getAudioContext();
+-      if (ctx.state === 'suspended') {
+-        ctx.resume();
+-      }
+-
+-      const playDuration = e - s;
+-      const source = ctx.createBufferSource();
+-      const activeSource = source;
+-      source.buffer = buffer;
+-      source.connect(ctx.destination);
+-
+-      source.onended = () => {
+-        if (sourceNodeRef.current === activeSource) {
+-          stopPlayback();
+-          currentTimeRef.current = s;
+-          setCurrentTime(s);
+-        }
+-      };
++      setIsLooping(true);
++      isLoopingRef.current = true;
++      setSelection({ start: s, end: e });
++      selectionRef.current = { start: s, end: e };
+ 
+-      source.start(0, s, playDuration);
+-      sourceNodeRef.current = source;
+-      playheadStartTimeRef.current = s;
+-      contextStartTimeRef.current = ctx.currentTime;
+-      playbackWallStartTimeRef.current = performance.now();
+-      isPlayingRef.current = true;
+-      currentTimeRef.current = s;
+-      setCurrentTime(s);
+-      setIsPlaying(true);
++      startPlayback(s, true);
++    },
++    [stopPlayback, startPlayback]
++  );
+ 
+-      startPlayheadLoop();
++  // Audition / Play Selection region once or looped
++  const handlePlaySelection = useCallback(
++    (startSec: number, endSec: number) => {
++      handleLoopSelection(startSec, endSec);
+     },
+-    [getAudioContext, stopPlayback, startPlayheadLoop]
++    [handleLoopSelection]
+   );
+ 
+   // Peak Normalise (UK spelling)
+@@ -619,6 +778,24 @@ export default function App() {
+       if (e.code === 'Space') {
+         e.preventDefault();
+         handlePlayPause();
++      } else if (e.key === 'Delete' || e.key === 'Backspace') {
++        const sel = selectionRef.current;
++        if (sel && Math.abs(sel.end - sel.start) > 0.02) {
++          e.preventDefault();
++          handleCutSelection(sel.start, sel.end);
++        }
++      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
++        e.preventDefault();
++        handleUndo();
++      } else if ((e.ctrlKey || e.metaKey) && (e.key === 't' || e.key === 'T')) {
++        const sel = selectionRef.current;
++        if (sel && Math.abs(sel.end - sel.start) > 0.05) {
++          e.preventDefault();
++          handleCropToSelection(sel.start, sel.end);
++        }
++      } else if (e.key === 'Escape') {
++        e.preventDefault();
++        setSelection(null);
+       } else if (e.key === 'm' || e.key === 'M') {
+         e.preventDefault();
+         handleAddMarkerAtPlayhead();
+@@ -633,7 +810,7 @@ export default function App() {
+ 
+     window.addEventListener('keydown', handleKeyDown);
+     return () => window.removeEventListener('keydown', handleKeyDown);
+-  }, [handlePlayPause, handleAddMarkerAtPlayhead]);
++  }, [handlePlayPause, handleAddMarkerAtPlayhead, handleCutSelection, handleCropToSelection, handleUndo]);
+ 
+   return (
+     <div className="h-screen max-h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+@@ -800,12 +977,19 @@ export default function App() {
+                       viewOffsetSec={viewOffsetSec}
+                       fadeSettings={fadeSettings}
+                       isPlaying={isPlaying}
++                      isLooping={isLooping}
++                      canUndo={canUndo}
+                       onSeek={handleSeek}
+                       onPreviewStart={handlePreviewStart}
+                       onSelectionChange={setSelection}
++                      onLoopSelection={handleLoopSelection}
+                       onCropToSelection={handleCropToSelection}
+                       onCutSelection={handleCutSelection}
+                       onPlaySelection={handlePlaySelection}
++                      onTrimStart={handleTrimStart}
++                      onTrimEnd={handleTrimEnd}
++                      onUndo={handleUndo}
++                      onToggleLoop={() => setIsLooping(!isLooping)}
+                       onCropChange={(start, end) => {
+                         setCropStart(start);
+                         setCropEnd(end);
+@@ -850,6 +1034,17 @@ export default function App() {
+                       >
+                         Loop: {isLooping ? 'ON' : 'OFF'}
+                       </button>
++                      {canUndo && (
++                        <button
++                          type="button"
++                          onClick={handleUndo}
++                          className="px-3 py-1.5 rounded-lg bg-slate-850 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-slate-800"
++                          title="Undo last edit (Ctrl+Z)"
++                        >
++                          <RotateCcw className="w-3 h-3" />
++                          <span>Undo Edit</span>
++                        </button>
++                      )}
+                     </div>
+ 
+                     <div className="text-[10px] font-mono text-slate-400">
+diff --git a/src/components/WaveformCanvas.tsx b/src/components/WaveformCanvas.tsx
+index 4eb4bc6..f4932a4 100644
+--- a/src/components/WaveformCanvas.tsx
++++ b/src/components/WaveformCanvas.tsx
+@@ -13,8 +13,13 @@ import {
+   Crop,
+   Scissors,
+   Play,
++  Pause,
+   X,
+   SlidersHorizontal,
++  RotateCcw,
++  Repeat,
++  ArrowLeftToLine,
++  ArrowRightFromLine,
+ } from 'lucide-react';
+ 
+ interface WaveformCanvasProps {
+@@ -28,12 +33,19 @@ interface WaveformCanvasProps {
+   viewOffsetSec: number;
+   fadeSettings: FadeSettings;
+   isPlaying: boolean;
++  isLooping?: boolean;
++  canUndo?: boolean;
+   onSeek: (time: number) => void;
+   onPreviewStart?: (time: number) => void;
+   onSelectionChange?: (selection: TimeSelection | null) => void;
++  onLoopSelection?: (start: number, end: number) => void;
+   onCropToSelection?: (start: number, end: number) => void;
+   onCutSelection?: (start: number, end: number) => void;
+   onPlaySelection?: (start: number, end: number) => void;
++  onTrimStart?: () => void;
++  onTrimEnd?: () => void;
++  onUndo?: () => void;
++  onToggleLoop?: () => void;
+   onCropChange?: (start: number, end: number) => void;
+   onMarkerMove: (id: string, newTime: number) => void;
+   onAddMarker: (time: number) => void;
+@@ -116,12 +128,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+   viewOffsetSec,
+   fadeSettings,
+   isPlaying,
++  isLooping = false,
++  canUndo = false,
+   onSeek,
+   onPreviewStart,
+   onSelectionChange,
++  onLoopSelection,
+   onCropToSelection,
+   onCutSelection,
+   onPlaySelection,
++  onTrimStart,
++  onTrimEnd,
++  onUndo,
++  onToggleLoop,
+   onCropChange,
+   onMarkerMove,
+   onAddMarker,
+@@ -625,7 +644,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+ 
+         onSelectionChange({ start: nextS, end: nextE });
+       } else if (activeDrag.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
+-        onSelectionChange({ start: activeDrag.startTime, end: time });
++        if (activeDrag.startX !== undefined && Math.abs(x - activeDrag.startX) > 4) {
++          const s = Math.min(activeDrag.startTime, time);
++          const e = Math.max(activeDrag.startTime, time);
++          onSelectionChange?.({ start: s, end: e });
++        }
+       }
+       return;
+     }
+@@ -718,13 +741,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+         }
+         onAddMarker(markerTime);
+       } else {
+-        // Smart tool seek or drag selection
+-        if (autoPreviewOnClick && onPreviewStart) {
+-          onPreviewStart(time);
+-        } else {
+-          onSeek(time);
+-        }
+-        setActiveDrag({ type: 'selectionCreate', startTime: time });
++        // Smart tool: Record drag start point; don't trigger playback until pointer release
++        setActiveDrag({ type: 'selectionCreate', startTime: time, startX: x });
+       }
+     }
+   };
+@@ -737,10 +755,47 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+       } catch {}
+     }
+ 
+-    if (activeDrag?.type === 'selectionCreate' && selection) {
+-      // If selection is too small, clear it to seek playhead
+-      if (Math.abs(selection.end - selection.start) < 0.05) {
++    if (activeDrag?.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
++      const rect = canvas?.getBoundingClientRect();
++      const x = rect ? e.clientX - rect.left : (activeDrag.startX ?? 0);
++      const pixelDiff = Math.abs(x - (activeDrag.startX ?? 0));
++      const endTime = xToTime(x, canvasDimensions.width);
++      const timeDiff = Math.abs(endTime - activeDrag.startTime);
++
++      if (pixelDiff <= 5 || timeDiff < 0.05) {
++        // Single Click: Clear selection, seek playhead, preview if enabled
++        const clickTime = activeDrag.startTime;
+         onSelectionChange?.(null);
++        if (autoPreviewOnClick && onPreviewStart) {
++          onPreviewStart(clickTime);
++        } else {
++          onSeek(clickTime);
++        }
++      } else {
++        // Drag selection complete!
++        const selStart = Math.min(activeDrag.startTime, endTime);
++        const selEnd = Math.max(activeDrag.startTime, endTime);
++        onSelectionChange?.({ start: selStart, end: selEnd });
++
++        // User requirement: Automatically loop and play that section!
++        if (onLoopSelection) {
++          onLoopSelection(selStart, selEnd);
++        } else if (onPlaySelection) {
++          onPlaySelection(selStart, selEnd);
++        }
++      }
++    } else if (
++      (activeDrag?.type === 'selectionStart' || activeDrag?.type === 'selectionEnd' || activeDrag?.type === 'selectionMove') &&
++      selection
++    ) {
++      if (Math.abs(selection.end - selection.start) > 0.05) {
++        const s = Math.min(selection.start, selection.end);
++        const e = Math.max(selection.start, selection.end);
++        if (onLoopSelection) {
++          onLoopSelection(s, e);
++        } else if (onPlaySelection) {
++          onPlaySelection(s, e);
++        }
+       }
+     }
+ 
+@@ -827,9 +882,107 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+   const cursorStyle = activeDrag ? 'cursor-grabbing' : 'cursor-default';
+   const minimapCursor = 'cursor-pointer';
+ 
++  const hasSelection = Boolean(selection && Math.abs(selection.end - selection.start) > 0.02);
++  const selS = selection ? Math.min(selection.start, selection.end) : 0;
++  const selE = selection ? Math.max(selection.start, selection.end) : 0;
++  const selLen = selE - selS;
++
+   return (
+     <div className="space-y-2 select-none flex flex-col h-full min-h-0" ref={containerRef}>
+-      
++      {/* 0. Selection Action HUD (Appears when a region is selected) */}
++      {hasSelection && (
++        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/95 border border-sky-500/40 px-3 py-1.5 rounded-xl text-xs shadow-lg backdrop-blur-xs flex-shrink-0 animate-fade-in">
++          <div className="flex items-center space-x-2">
++            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-sky-500/15 text-sky-300 font-mono font-bold text-xs border border-sky-500/30">
++              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
++              <span>Selection: {formatTime(selS, true)} – {formatTime(selE, true)}</span>
++              <span className="text-slate-400 font-normal">({formatTime(selLen, true)})</span>
++            </span>
++          </div>
++
++          <div className="flex items-center flex-wrap gap-1.5">
++            {/* Loop Selection */}
++            <button
++              type="button"
++              onClick={() => {
++                if (onLoopSelection) {
++                  onLoopSelection(selS, selE);
++                } else if (onPlaySelection) {
++                  onPlaySelection(selS, selE);
++                }
++              }}
++              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer border ${
++                isLooping && isPlaying
++                  ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/50 shadow-sm'
++                  : 'bg-slate-800 hover:bg-slate-750 text-slate-200 border-slate-700'
++              }`}
++              title="Loop and play this selected region"
++            >
++              <Repeat className="w-3.5 h-3.5 text-emerald-400" />
++              <span>{isLooping && isPlaying ? 'Looping Section' : 'Loop Section'}</span>
++            </button>
++
++            {/* Crop to Selection */}
++            <button
++              type="button"
++              onClick={() => onCropToSelection?.(selS, selE)}
++              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition cursor-pointer border border-sky-500 shadow-sm"
++              title="Crop to Selection: Keep this selection and discard outside audio (Ctrl+T)"
++            >
++              <Crop className="w-3.5 h-3.5" />
++              <span>Crop to Selection</span>
++            </button>
++
++            {/* Cut Selection */}
++            <button
++              type="button"
++              onClick={() => onCutSelection?.(selS, selE)}
++              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer border border-rose-500 shadow-sm"
++              title="Cut Selection: Delete this section and splice the rest together (Del / Backspace)"
++            >
++              <Scissors className="w-3.5 h-3.5" />
++              <span>Cut Selection</span>
++            </button>
++
++            {/* Trim Start */}
++            {onTrimStart && (
++              <button
++                type="button"
++                onClick={onTrimStart}
++                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold transition cursor-pointer border border-slate-700"
++                title="Trim Start: Delete unnecessary audio from 0:00 up to selection start"
++              >
++                <ArrowLeftToLine className="w-3.5 h-3.5 text-amber-400" />
++                <span>Trim Before Start</span>
++              </button>
++            )}
++
++            {/* Trim End */}
++            {onTrimEnd && (
++              <button
++                type="button"
++                onClick={onTrimEnd}
++                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold transition cursor-pointer border border-slate-700"
++                title="Trim End: Delete unnecessary audio from selection end to track end"
++              >
++                <ArrowRightFromLine className="w-3.5 h-3.5 text-amber-400" />
++                <span>Trim After End</span>
++              </button>
++            )}
++
++            {/* Clear Selection */}
++            <button
++              type="button"
++              onClick={() => onSelectionChange?.(null)}
++              className="p-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 border border-slate-700 transition cursor-pointer"
++              title="Clear Selection (Escape)"
++            >
++              <X className="w-3.5 h-3.5" />
++            </button>
++          </div>
++        </div>
++      )}
++
+       {/* 1. Main Waveform Canvas Container (fills remaining height dynamically) */}
+       <div className="flex-1 min-h-0 relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner" ref={canvasContainerRef}>
+         <canvas
+@@ -897,9 +1050,28 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+         </div>
+       </div>
+ 
+-      {/* 3. Sleek, Icon-Only DAW Under-Waveform Toolbar (0.5s Hover delayed tooltips) */}
+-      <div className="flex items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-3.5 py-1.5 rounded-xl text-xs flex-shrink-0 relative">
+-        <div className="flex items-center space-x-2">
++      {/* 3. Sleek, DAW Under-Waveform Toolbar (0.5s Hover delayed tooltips) */}
++      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs flex-shrink-0 relative">
++        <div className="flex items-center flex-wrap gap-1.5">
++          {/* Zoom Controls */}
++          <TooltipButton
++            onClick={handleZoomIn}
++            icon={<ZoomIn className="w-3.5 h-3.5" />}
++            label="Zoom In Waveform"
++          />
++          <TooltipButton
++            onClick={handleZoomOut}
++            icon={<ZoomOut className="w-3.5 h-3.5" />}
++            label="Zoom Out Waveform"
++          />
++          <TooltipButton
++            onClick={handleZoomFit}
++            icon={<ScanLine className="w-3.5 h-3.5" />}
++            label="Zoom to Fit Entire Audio File"
++          />
++
++          <div className="h-5 w-px bg-slate-800 mx-0.5" />
++
+           {/* Curve foldout dropdown */}
+           <div className="relative">
+             <TooltipButton
+@@ -933,7 +1105,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+           <TooltipButton
+             onClick={() => setAutoPreviewOnClick(!autoPreviewOnClick)}
+             isActive={autoPreviewOnClick}
+-            icon={<Volume2 className="w-4 h-4" />}
++            icon={<Volume2 className="w-3.5 h-3.5" />}
+             label={`Audition on Click (${autoPreviewOnClick ? 'ON' : 'OFF'})`}
+           />
+ 
+@@ -942,7 +1114,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+             onClick={() => setActiveTool(activeTool === 'marker' ? 'smart' : 'marker')}
+             isActive={activeTool === 'marker'}
+             activeClass="bg-purple-600 text-white border-purple-500 shadow-sm"
+-            icon={<BookmarkPlus className="w-4 h-4" />}
++            icon={<BookmarkPlus className="w-3.5 h-3.5" />}
+             label="Marker Tool (Click waveform to drop split markers)"
+           />
+ 
+@@ -950,7 +1122,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+           <TooltipButton
+             onClick={() => onFadeSettingsChange({ ...fadeSettings, zeroCrossing: !fadeSettings.zeroCrossing })}
+             isActive={fadeSettings.zeroCrossing}
+-            icon={<Zap className="w-4 h-4" />}
++            icon={<Zap className="w-3.5 h-3.5" />}
+             label={`Zero-Crossing Snapping (${fadeSettings.zeroCrossing ? 'Active' : 'OFF'})`}
+           />
+ 
+@@ -958,18 +1130,68 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+           <TooltipButton
+             onClick={() => setFollowPlayhead(!followPlayhead)}
+             isActive={followPlayhead}
+-            icon={<Navigation className="w-4 h-4" />}
++            icon={<Navigation className="w-3.5 h-3.5" />}
+             label={`Auto-Scroll Follow Playhead (${followPlayhead ? 'ON' : 'OFF'})`}
+           />
++
++          <div className="h-5 w-px bg-slate-800 mx-0.5" />
++
++          {/* Dedicated Trim & Crop Buttons in Toolbar */}
++          {onTrimStart && (
++            <TooltipButton
++              onClick={onTrimStart}
++              icon={<ArrowLeftToLine className="w-3.5 h-3.5 text-amber-400" />}
++              label="Trim Start: Delete unnecessary audio before playhead / selection start"
++            />
++          )}
++
++          {onTrimEnd && (
++            <TooltipButton
++              onClick={onTrimEnd}
++              icon={<ArrowRightFromLine className="w-3.5 h-3.5 text-amber-400" />}
++              label="Trim End: Delete unnecessary audio after playhead / selection end"
++            />
++          )}
++
++          <TooltipButton
++            onClick={() => {
++              if (selection) {
++                onCropToSelection?.(selS, selE);
++              }
++            }}
++            disabled={!hasSelection}
++            icon={<Crop className="w-3.5 h-3.5 text-sky-400" />}
++            label="Crop to Selection (Ctrl+T): Discard audio outside selection"
++          />
++
++          <TooltipButton
++            onClick={() => {
++              if (selection) {
++                onCutSelection?.(selS, selE);
++              }
++            }}
++            disabled={!hasSelection}
++            icon={<Scissors className="w-3.5 h-3.5 text-rose-400" />}
++            label="Cut Selection (Del / Backspace): Remove selected audio and splice"
++          />
++
++          {onUndo && (
++            <TooltipButton
++              onClick={onUndo}
++              disabled={!canUndo}
++              icon={<RotateCcw className="w-3.5 h-3.5 text-slate-300" />}
++              label="Undo Audio Edit (Ctrl+Z)"
++            />
++          )}
+         </div>
+ 
+-        {/* Center/Right: Spelled in UK English Normalise popup popover */}
++        {/* Right: Normalise popup popover */}
+         <div className="relative">
+           <TooltipButton
+             onClick={() => setShowNormalisePopover(!showNormalisePopover)}
+             isActive={showNormalisePopover}
+             activeClass="bg-amber-600 text-white border-amber-500 shadow-sm"
+-            icon={<SlidersHorizontal className="w-4 h-4" />}
++            icon={<SlidersHorizontal className="w-3.5 h-3.5" />}
+             label="Normalise Peak Gain (UK English)"
+           />
+           {showNormalisePopover && (
+-- 
+2.34.1
+
