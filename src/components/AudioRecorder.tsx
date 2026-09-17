@@ -4,7 +4,8 @@ import {
   Pause,
   Play,
   Settings,
-  Tag,
+  MicOff,
+  Radio,
 } from 'lucide-react';
 import { AudioDeviceOption } from '../types';
 import { formatTime } from '../utils/audioProcessing';
@@ -15,6 +16,8 @@ interface AudioRecorderProps {
   setIsRecordingActive: (active: boolean) => void;
   onClearRecording?: () => void;
   hasLoadedAudio?: boolean;
+  isStandbyMode?: boolean;
+  onWakeAudioEngine?: () => void;
 }
 
 export const AudioRecorder: React.FC<AudioRecorderProps> = ({
@@ -23,10 +26,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   setIsRecordingActive,
   onClearRecording,
   hasLoadedAudio = false,
+  isStandbyMode = false,
+  onWakeAudioEngine,
 }) => {
-  const [artist, setArtist] = useState<string>('');
-  const [album, setAlbum] = useState<string>('');
-
   const [devices, setDevices] = useState<AudioDeviceOption[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [channelMode, setChannelMode] = useState<'stereo' | 'mono'>('stereo');
@@ -142,9 +144,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         return;
       }
       let tempStream: MediaStream | null = null;
-      try {
-        tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch {}
+      if (!isStandbyMode) {
+        try {
+          tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch {}
+      }
 
       const allDevices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
       if (tempStream) {
@@ -318,6 +322,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   // Initialize live monitoring stream
   const startMonitoringStream = useCallback(
     async (deviceId?: string, mode?: 'stereo' | 'mono', sampleRate?: number) => {
+      if (isStandbyMode) {
+        setIsMonitoringActive(false);
+        return;
+      }
+
       if (!navigator?.mediaDevices?.getUserMedia) {
         setIsMonitoringActive(false);
         setDeviceError('Audio input not supported');
@@ -421,7 +430,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         setDeviceError('Could not start live monitoring');
       }
     },
-    [selectedDeviceId, channelMode, recordingSampleRate, monitoringAudioOutput, monitorVolume, updateMeterLoop]
+    [selectedDeviceId, channelMode, recordingSampleRate, monitoringAudioOutput, monitorVolume, updateMeterLoop, isStandbyMode]
   );
 
   const stopMonitoringStream = () => {
@@ -452,22 +461,32 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   };
 
   useEffect(() => {
-    startMonitoringStream();
-  }, [startMonitoringStream]);
+    if (isStandbyMode) {
+      stopMonitoringStream();
+    } else {
+      startMonitoringStream();
+    }
+  }, [isStandbyMode, startMonitoringStream]);
 
   const handleDeviceChange = (newDeviceId: string) => {
     setSelectedDeviceId(newDeviceId);
-    startMonitoringStream(newDeviceId, channelMode, recordingSampleRate);
+    if (!isStandbyMode) {
+      startMonitoringStream(newDeviceId, channelMode, recordingSampleRate);
+    }
   };
 
   const handleModeChange = (newMode: 'stereo' | 'mono') => {
     setChannelMode(newMode);
-    startMonitoringStream(selectedDeviceId, newMode, recordingSampleRate);
+    if (!isStandbyMode) {
+      startMonitoringStream(selectedDeviceId, newMode, recordingSampleRate);
+    }
   };
 
   const handleSampleRateChange = (newRate: number) => {
     setRecordingSampleRate(newRate);
-    startMonitoringStream(selectedDeviceId, channelMode, newRate);
+    if (!isStandbyMode) {
+      startMonitoringStream(selectedDeviceId, channelMode, newRate);
+    }
   };
 
   const handleResetLeftPeak = (e?: React.MouseEvent) => {
@@ -614,8 +633,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const defaultName = album.trim() ? album.trim() : `Soundcard_Recording_${timestamp}`;
-    onRecordingComplete(finalBuffer, defaultName, artist, album);
+    const defaultName = `Soundcard_Recording_${timestamp}`;
+    onRecordingComplete(finalBuffer, defaultName, '', '');
   };
 
   const dbToHeightPercent = (db: number) => {
@@ -762,18 +781,32 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               <button
                 type="button"
                 disabled={isRecording}
-                onClick={() => isMonitoringActive ? stopMonitoringStream() : startMonitoringStream()}
+                onClick={() => {
+                  if (isStandbyMode) {
+                    onWakeAudioEngine?.();
+                    return;
+                  }
+                  isMonitoringActive ? stopMonitoringStream() : startMonitoringStream();
+                }}
                 className={`text-[10px] font-extrabold uppercase tracking-wider transition cursor-pointer ${
-                  monitoringAudioOutput
+                  isStandbyMode
+                    ? 'text-amber-400 hover:text-amber-300'
+                    : monitoringAudioOutput
                     ? 'text-emerald-300 hover:text-emerald-200'
                     : 'text-red-400 hover:text-red-300'
                 } disabled:opacity-45 disabled:cursor-not-allowed`}
-                title={isMonitoringActive ? "Disable Live Monitor" : "Enable Live Monitor"}
+                title={
+                  isStandbyMode
+                    ? 'Preview audio is in Standby. Click to wake engine.'
+                    : isMonitoringActive
+                    ? 'Disable Live Monitor'
+                    : 'Enable Live Monitor'
+                }
               >
-                MONITOR
+                {isStandbyMode ? 'MONITOR (STANDBY)' : 'MONITOR'}
               </button>
               <span className="font-mono font-bold text-emerald-450">
-                {monitoringAudioOutput ? `${Math.round(monitorVolume * 100)}%` : 'MUTED'}
+                {isStandbyMode ? 'STANDBY' : monitoringAudioOutput ? `${Math.round(monitorVolume * 100)}%` : 'MUTED'}
               </span>
             </div>
             
@@ -802,51 +835,45 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </button>
             </div>
           </div>
-
-          {/* 6. Pre-Record Artist/Album Name Metadata Inputs */}
-          <div className="space-y-3 pt-3 border-t border-slate-800 text-left">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <Tag className="w-3 h-3 text-emerald-400" />
-                <span>Artist Name</span>
-              </label>
-              <input
-                type="text"
-                value={artist}
-                onChange={(e) => setArtist(e.target.value)}
-                disabled={isRecording}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/50 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-200 focus:outline-none placeholder-slate-700 disabled:opacity-40"
-                placeholder="Artist / Band name..."
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <Tag className="w-3 h-3 text-emerald-400" />
-                <span>Album / Record Title</span>
-              </label>
-              <input
-                type="text"
-                value={album}
-                onChange={(e) => setAlbum(e.target.value)}
-                disabled={isRecording}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/50 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-200 focus:outline-none placeholder-slate-700 disabled:opacity-40"
-                placeholder="Vinyl side title..."
-              />
-            </div>
-          </div>
         </div>
 
         {/* RIGHT/CENTER CONTENT: MAIN RECORDING CONSOLE (Symmetric, permanently fixed layout) */}
         <div className="flex-1 bg-slate-900/10 border border-slate-900 rounded-xl p-4 lg:p-6 flex flex-col items-center justify-between min-h-0 relative space-y-4">
           
           {/* 1. Large Oscilloscope along the top */}
-          <div className="w-full bg-slate-950 p-3 border border-slate-900 rounded-xl relative flex flex-col justify-between h-56 shrink-0">
+          <div className="w-full bg-slate-950 p-3 border border-slate-900 rounded-xl relative flex flex-col justify-between h-56 shrink-0 overflow-hidden">
             <canvas ref={liveCanvasRef} width={1000} height={170} className="w-full h-[170px] bg-slate-950 block" />
+
+            {/* Standby Mode Overlay */}
+            {isStandbyMode && (
+              <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-[3px] flex flex-col items-center justify-center p-4 z-20 text-center select-none border border-amber-500/20">
+                <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-2 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                  <MicOff className="w-5 h-5" />
+                </div>
+                <div className="text-xs font-bold text-slate-200 tracking-wider uppercase mb-1">
+                  Preview Audio Engine in Standby
+                </div>
+                <p className="text-[11px] text-slate-400 max-w-sm mb-3 leading-relaxed">
+                  Microphone inputs and Web Audio outputs are released so this preview won't echo or clash with your local dev app.
+                </p>
+                <button
+                  type="button"
+                  onClick={onWakeAudioEngine}
+                  className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-450 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg"
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                  <span>Wake Audio Engine</span>
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-2 px-1 shrink-0">
               <span className="font-bold tracking-wider">OSCILLOSCOPE SIGNAL FEED</span>
               <span className="flex items-center gap-1.5 font-bold tracking-wider">
-                <span className={`w-2 h-2 rounded-full ${clipped ? 'bg-red-500 animate-ping' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
-                <span className={clipped ? 'text-red-400 font-extrabold' : 'text-slate-400'}>{clipped ? 'CLIP' : 'SIGNAL OK'}</span>
+                <span className={`w-2 h-2 rounded-full ${isStandbyMode ? 'bg-amber-500' : clipped ? 'bg-red-500 animate-ping' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                <span className={isStandbyMode ? 'text-amber-400 font-bold' : clipped ? 'text-red-400 font-extrabold' : 'text-slate-400'}>
+                  {isStandbyMode ? 'STANDBY' : clipped ? 'CLIP' : 'SIGNAL OK'}
+                </span>
               </span>
             </div>
           </div>
@@ -967,15 +994,36 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             {/* Glowing Red RECORD button */}
             <button
               type="button"
-              onClick={isRecording ? stopRecording : startRecording}
-              className={`w-20 h-20 rounded-full border-4 border-slate-950 flex items-center justify-center text-white font-bold tracking-widest text-xs uppercase cursor-pointer transition-all duration-300 ${
-                isRecording
+              onClick={() => {
+                if (isStandbyMode) {
+                  onWakeAudioEngine?.();
+                } else {
+                  if (isRecording) {
+                    stopRecording();
+                  } else {
+                    startRecording();
+                  }
+                }
+              }}
+              className={`w-20 h-20 rounded-full border-4 border-slate-950 flex flex-col items-center justify-center text-white font-bold tracking-widest text-xs uppercase cursor-pointer transition-all duration-300 ${
+                isStandbyMode
+                  ? 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
+                  : isRecording
                   ? 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] animate-pulse'
                   : 'bg-red-600 hover:bg-red-500 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
               }`}
-              title={isRecording ? "Stop Recording" : "Start Recording"}
+              title={
+                isStandbyMode
+                  ? 'Audio engine is sleeping in Standby. Click to wake and record.'
+                  : isRecording
+                  ? 'Stop Recording'
+                  : 'Start Recording'
+              }
             >
-              <span>RECORD</span>
+              <span>{isStandbyMode ? 'WAKE' : 'RECORD'}</span>
+              {isStandbyMode && (
+                <span className="text-[7px] font-mono text-amber-200 uppercase tracking-tight">ENGINE</span>
+              )}
             </button>
 
             {/* Pause/Resume button */}
