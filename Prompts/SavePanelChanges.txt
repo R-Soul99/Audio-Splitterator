@@ -1,0 +1,13 @@
+Read Context doc, then do this:
+
+Save Panel Changes:
+
+this page to be optimised for 1453 x 742px  (I would like to go less wide, but weird things happen to the different onscreen elements below this scale)
+
+Look at the attached mockup (1455x743SavePanel.png).
+
+1. Remove 'Import Audio' button from top bar.  ('Preview: Live' might become a flip switch in future, it can stay there for now)
+2. Optimise the output format and output controls.  flip switches for "write tags" and "auto-apply fades".  Controls centralised, nice big export button.
+3. Although the list of tracks is now perfectly aligned, i find the input fields to be a bit messy, but don't know how to handle them so they're (a) clear and (b) not in the way or having an adverse effect on other window elements.
+
+That's all for now.
