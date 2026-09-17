@@ -1,0 +1,253 @@
+From bb988f9db69dde80df519840200dffa3bf501cb1 Mon Sep 17 00:00:00 2001
+From: leroy <leroy.bagwell@gmail.com>
+Date: Wed, 16 Sep 2026 12:04:36 +0000
+Subject: [PATCH] feat(markers): replace single marker mode with dedicated +
+ and - toggle buttons, with nearest-marker removal on click
+
+---
+ src/components/WaveformCanvas.tsx | 143 +++++++++++++++++++++++-------
+ 1 file changed, 112 insertions(+), 31 deletions(-)
+
+diff --git a/src/components/WaveformCanvas.tsx b/src/components/WaveformCanvas.tsx
+index 995c0fb..909519e 100644
+--- a/src/components/WaveformCanvas.tsx
++++ b/src/components/WaveformCanvas.tsx
+@@ -1,10 +1,11 @@
+-import React, { useRef, useEffect, useState, useCallback } from 'react';
++import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+ import { Marker, FadeSettings, FadeCurve, TimeSelection } from '../types';
+ import { formatTime, calculateFadeGain, findZeroCrossing } from '../utils/audioProcessing';
+ import {
+   ZoomIn,
+   ZoomOut,
+   BookmarkPlus,
++  BookmarkMinus,
+   Zap,
+   Sliders,
+   Volume2,
+@@ -162,7 +163,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+   const minimapRef = useRef<HTMLCanvasElement | null>(null);
+ 
+   const [canvasDimensions, setCanvasDimensions] = useState({ width: 600, height: 180 });
+-  const [activeTool, setActiveTool] = useState<'smart' | 'marker'>('smart');
++  const [markerTool, setMarkerTool] = useState<'none' | 'add' | 'remove'>('none');
+   const [autoPreviewOnClick, setAutoPreviewOnClick] = useState<boolean>(true);
+   const [followPlayhead, setFollowPlayhead] = useState<boolean>(true);
+ 
+@@ -184,6 +185,21 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+   const [hoveredElement, setHoveredElement] = useState<'fadeIn' | 'fadeOut' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
+   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
+ 
++  // Compute nearest marker for cursor when in remove ('-') mode
++  const nearestMarkerId = useMemo(() => {
++    if (markerTool !== 'remove' || hoverTime === null || markers.length === 0) return null;
++    let nearest = markers[0];
++    let minDist = Math.abs(markers[0].time - hoverTime);
++    for (let i = 1; i < markers.length; i++) {
++      const dist = Math.abs(markers[i].time - hoverTime);
++      if (dist < minDist) {
++        minDist = dist;
++        nearest = markers[i];
++      }
++    }
++    return nearest.id;
++  }, [markerTool, hoverTime, markers]);
++
+   // Peak Pyramids
+   interface PeakLevel {
+     blockSize: number;
+@@ -495,22 +511,29 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+       if (mx < 0 || mx > width) return;
+ 
+       const isHovered = hoveredMarkerId === m.id;
++      const isTargetedForRemoval = markerTool === 'remove' && nearestMarkerId === m.id;
+ 
+-      ctx.strokeStyle = isHovered ? '#c084fc' : '#a855f7'; // Purple-400 vs Purple-500
+-      ctx.lineWidth = isHovered ? 2.5 : 1.5;
++      ctx.strokeStyle = isTargetedForRemoval ? '#f43f5e' : isHovered ? '#c084fc' : '#a855f7';
++      ctx.lineWidth = isTargetedForRemoval ? 3 : isHovered ? 2.5 : 1.5;
+       ctx.beginPath();
+       ctx.moveTo(mx, 0);
+       ctx.lineTo(mx, height);
+       ctx.stroke();
+ 
+       // Flag top tag
+-      ctx.fillStyle = isHovered ? '#c084fc' : '#a855f7';
++      ctx.fillStyle = isTargetedForRemoval ? '#f43f5e' : isHovered ? '#c084fc' : '#a855f7';
+       ctx.beginPath();
+       ctx.moveTo(mx - 5, 0);
+       ctx.lineTo(mx + 5, 0);
+       ctx.lineTo(mx, 8);
+       ctx.closePath();
+       ctx.fill();
++
++      // If targeted for removal, draw a crisp "-" symbol at top
++      if (isTargetedForRemoval) {
++        ctx.fillStyle = '#ffffff';
++        ctx.fillRect(mx - 3, 3, 6, 2);
++      }
+     });
+ 
+     // 5. Draw Playhead marker
+@@ -536,16 +559,34 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+     // 6. Hover guide
+     if (hoverPosition && hoverTime !== null) {
+       const hx = hoverPosition.x;
+-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+-      ctx.lineWidth = 0.75;
+-      ctx.setLineDash([2, 2]);
+-      ctx.beginPath();
+-      ctx.moveTo(hx, 0);
+-      ctx.lineTo(hx, height);
+-      ctx.stroke();
+-      ctx.setLineDash([]);
++      if (markerTool === 'add') {
++        // Show purple preview line with top flag where marker will land
++        ctx.strokeStyle = '#a855f7';
++        ctx.lineWidth = 1.5;
++        ctx.beginPath();
++        ctx.moveTo(hx, 0);
++        ctx.lineTo(hx, height);
++        ctx.stroke();
++
++        ctx.fillStyle = '#a855f7';
++        ctx.beginPath();
++        ctx.moveTo(hx - 5, 0);
++        ctx.lineTo(hx + 5, 0);
++        ctx.lineTo(hx, 8);
++        ctx.closePath();
++        ctx.fill();
++      } else {
++        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
++        ctx.lineWidth = 0.75;
++        ctx.setLineDash([2, 2]);
++        ctx.beginPath();
++        ctx.moveTo(hx, 0);
++        ctx.lineTo(hx, height);
++        ctx.stroke();
++        ctx.setLineDash([]);
++      }
+     }
+-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX]);
++  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX, markerTool, nearestMarkerId]);
+ 
+   // Minimap rendering
+   useEffect(() => {
+@@ -735,20 +776,32 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+       setActiveDrag({ type: 'selectionEnd' });
+     } else if (hoveredElement === 'selectionBar' && selection) {
+       setActiveDrag({ type: 'selectionMove', startTime: time, startX: selection.start });
++    } else if (markerTool === 'remove') {
++      // In '-' mode, each click removes the nearest marker to cursor
++      if (markers.length > 0) {
++        let nearest = markers[0];
++        let minDist = Math.abs(markers[0].time - time);
++        for (let i = 1; i < markers.length; i++) {
++          const d = Math.abs(markers[i].time - time);
++          if (d < minDist) {
++            minDist = d;
++            nearest = markers[i];
++          }
++        }
++        onRemoveMarker(nearest.id);
++      }
++    } else if (markerTool === 'add') {
++      // In '+' mode, each click adds a marker
++      let markerTime = time;
++      if (fadeSettings.zeroCrossing) {
++        markerTime = snapToZeroCrossing(markerTime);
++      }
++      onAddMarker(markerTime);
+     } else if (hoveredElement === 'marker' && hoveredMarkerId) {
+       setActiveDrag({ type: 'marker', id: hoveredMarkerId });
+     } else {
+-      // General canvas click
+-      if (activeTool === 'marker') {
+-        let markerTime = time;
+-        if (fadeSettings.zeroCrossing) {
+-          markerTime = snapToZeroCrossing(markerTime);
+-        }
+-        onAddMarker(markerTime);
+-      } else {
+-        // Smart tool: Record drag start point; don't trigger playback until pointer release
+-        setActiveDrag({ type: 'selectionCreate', startTime: time, startX: x });
+-      }
++      // Smart tool: Record drag start point; don't trigger playback until pointer release
++      setActiveDrag({ type: 'selectionCreate', startTime: time, startX: x });
+     }
+   };
+ 
+@@ -808,6 +861,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+   };
+ 
+   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
++    if (markerTool === 'remove') return;
+     const canvas = canvasRef.current;
+     if (!canvas) return;
+     const rect = canvas.getBoundingClientRect();
+@@ -884,7 +938,21 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+     onViewOffsetChange(nextOffset);
+   };
+ 
+-  const cursorStyle = activeDrag ? 'cursor-grabbing' : 'cursor-default';
++  const cursorStyle = activeDrag
++    ? 'cursor-grabbing'
++    : markerTool === 'add'
++    ? 'cursor-crosshair'
++    : markerTool === 'remove'
++    ? 'cursor-pointer'
++    : hoveredElement === 'marker'
++    ? 'cursor-ew-resize'
++    : hoveredElement === 'fadeIn' || hoveredElement === 'fadeOut'
++    ? 'cursor-ew-resize'
++    : hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd'
++    ? 'cursor-col-resize'
++    : hoveredElement === 'selectionBar'
++    ? 'cursor-grab'
++    : 'cursor-default';
+   const minimapCursor = 'cursor-pointer';
+ 
+   const hasSelection = Boolean(selection && Math.abs(selection.end - selection.start) > 0.02);
+@@ -1014,7 +1082,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+             style={{ left: `${hoverPosition.x}px` }}
+           >
+             <span className="text-emerald-400 font-bold">{formatTime(hoverTime, true)}</span>
+-            {hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? (
++            {markerTool === 'add' ? (
++              <span className="text-purple-400 text-[9px] font-sans px-1 bg-purple-500/10 rounded border border-purple-500/20 font-bold">+ Add Marker</span>
++            ) : markerTool === 'remove' ? (
++              <span className="text-rose-400 text-[9px] font-sans px-1 bg-rose-500/10 rounded border border-rose-500/20 font-bold">- Remove Nearest</span>
++            ) : hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? (
+               <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Bracket</span>
+             ) : hoveredElement === 'selectionBar' ? (
+               <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Selection</span>
+@@ -1151,13 +1223,22 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+             label={`Audition on Click (${autoPreviewOnClick ? 'ON' : 'OFF'})`}
+           />
+ 
+-          {/* Marker Tool */}
++          {/* Add Marker (+) Toggle */}
+           <TooltipButton
+-            onClick={() => setActiveTool(activeTool === 'marker' ? 'smart' : 'marker')}
+-            isActive={activeTool === 'marker'}
++            onClick={() => setMarkerTool(markerTool === 'add' ? 'none' : 'add')}
++            isActive={markerTool === 'add'}
+             activeClass="bg-purple-600 text-white border-purple-500 shadow-sm"
+             icon={<BookmarkPlus className="w-3.5 h-3.5" />}
+-            label="Marker Tool (Click waveform to drop split markers)"
++            label="Add Marker (+) Toggle - Click waveform to place split markers"
++          />
++
++          {/* Remove Marker (-) Toggle */}
++          <TooltipButton
++            onClick={() => setMarkerTool(markerTool === 'remove' ? 'none' : 'remove')}
++            isActive={markerTool === 'remove'}
++            activeClass="bg-rose-600 text-white border-rose-500 shadow-sm"
++            icon={<BookmarkMinus className="w-3.5 h-3.5" />}
++            label="Remove Marker (-) Toggle - Click waveform to remove nearest marker to cursor"
+           />
+ 
+           {/* Zero Crossing Snapping Toggle */}
+-- 
+2.34.1
+

@@ -1,0 +1,351 @@
+From 5d0e1783d73c6bf49a20c65822fcb827fdaa3be2 Mon Sep 17 00:00:00 2001
+From: leroy <leroy.bagwell@gmail.com>
+Date: Wed, 16 Sep 2026 11:30:42 +0000
+Subject: [PATCH] feat(layout): move split regions list to right side of
+ window, no scrolling, with play and delete-to-merge controls
+
+---
+ src/App.tsx | 296 ++++++++++++++++++++++++++++++++++------------------
+ 1 file changed, 193 insertions(+), 103 deletions(-)
+
+diff --git a/src/App.tsx b/src/App.tsx
+index d2753c3..87b1a24 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -760,10 +760,45 @@ export default function App() {
+   };
+ 
+   const handleRemoveMarker = (id: string) => {
++    pushUndo('Delete Split Marker');
+     setMarkers((prev) => prev.filter((m) => m.id !== id));
+   };
+ 
++  // Delete a split region by removing its boundary marker (incorporating into previous split)
++  const handleDeleteSplit = useCallback(
++    (splitIndex: number) => {
++      const buffer = audioBufferRef.current;
++      if (!buffer) return;
++
++      const effectiveStart = cropStartRef.current;
++      const effectiveEnd = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
++
++      const activeMarkers = markers
++        .filter((m) => m.time > effectiveStart + 0.01 && m.time < effectiveEnd - 0.01)
++        .sort((a, b) => a.time - b.time);
++
++      if (activeMarkers.length === 0) return;
++
++      pushUndo('Delete Split Marker');
++
++      let markerToRemove: Marker | undefined;
++      if (splitIndex > 0 && splitIndex - 1 < activeMarkers.length) {
++        // Remove the marker that started this split, expanding previous split
++        markerToRemove = activeMarkers[splitIndex - 1];
++      } else if (splitIndex === 0 && activeMarkers.length > 0) {
++        // If first split, remove the marker that ends it
++        markerToRemove = activeMarkers[0];
++      }
++
++      if (markerToRemove) {
++        setMarkers((prev) => prev.filter((m) => m.id !== markerToRemove!.id));
++      }
++    },
++    [markers, pushUndo]
++  );
++
+   const handleClearMarkers = () => {
++    pushUndo('Clear Split Markers');
+     setMarkers([]);
+   };
+ 
+@@ -1028,7 +1063,7 @@ export default function App() {
+                   </button>
+                 </div>
+               ) : (
+-                <div className="flex flex-col h-full space-y-4 min-h-0">
++                <div className="flex flex-col h-full space-y-3 min-h-0">
+                   {/* Top: Active Project Rename & Reset banner */}
+                   <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs">
+                     <div className="flex items-center space-x-2.5">
+@@ -1053,121 +1088,176 @@ export default function App() {
+                     </button>
+                   </div>
+ 
+-                  {/* Waveform canvas (Dynamic Height) */}
+-                  <div className="flex-1 min-h-0 flex flex-col">
+-                    <WaveformCanvas
+-                      audioBuffer={audioBuffer}
+-                      currentTime={currentTime}
+-                      cropStart={cropStart}
+-                      cropEnd={cropEnd}
+-                      selection={selection}
+-                      markers={markers}
+-                      zoom={zoom}
+-                      viewOffsetSec={viewOffsetSec}
+-                      fadeSettings={fadeSettings}
+-                      isPlaying={isPlaying}
+-                      isLooping={isLooping}
+-                      canUndo={canUndo}
+-                      onPlayPause={handlePlayPause}
+-                      onStop={handleStop}
+-                      onSeek={handleSeek}
+-                      onPreviewStart={handlePreviewStart}
+-                      onSelectionChange={setSelection}
+-                      onLoopSelection={handleLoopSelection}
+-                      onCropToSelection={handleCropToSelection}
+-                      onCutSelection={handleCutSelection}
+-                      onPlaySelection={handlePlaySelection}
+-                      onTrimStart={handleTrimStart}
+-                      onTrimEnd={handleTrimEnd}
+-                      onUndo={handleUndo}
+-                      onToggleLoop={() => setIsLooping(!isLooping)}
+-                      onCropChange={(start, end) => {
+-                        setCropStart(start);
+-                        setCropEnd(end);
+-                      }}
+-                      onMarkerMove={handleMarkerMove}
+-                      onAddMarker={handleAddMarker}
+-                      onRemoveMarker={handleRemoveMarker}
+-                      onZoomChange={setZoom}
+-                      onViewOffsetChange={setViewOffsetSec}
+-                      onFadeSettingsChange={setFadeSettings}
+-                      onNormalise={handleNormalizeAudio}
+-                    />
+-                  </div>
+-
+-                  {/* Redesigned bottom Split Regions List from Mockup */}
+-                  <div className="bg-slate-900/60 border border-slate-800 p-3.5 rounded-xl flex flex-col h-56 min-h-0 flex-shrink-0 select-none">
+-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 flex-shrink-0">
+-                      <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
+-                        <Layers className="w-3.5 h-3.5 text-amber-500" />
+-                        <span>Split Regions List</span>
+-                      </div>
+-                      <span className="text-[10px] font-mono text-slate-500">
+-                        {splits.length} regions detected. Ready for fine-tuning.
+-                      </span>
++                  {/* 2-Column Workspace: Waveform on Left, Split Regions List on Right */}
++                  <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3">
++                    {/* Left: Waveform canvas & toolbar (Full dynamic height) */}
++                    <div className="flex-1 min-h-0 flex flex-col">
++                      <WaveformCanvas
++                        audioBuffer={audioBuffer}
++                        currentTime={currentTime}
++                        cropStart={cropStart}
++                        cropEnd={cropEnd}
++                        selection={selection}
++                        markers={markers}
++                        zoom={zoom}
++                        viewOffsetSec={viewOffsetSec}
++                        fadeSettings={fadeSettings}
++                        isPlaying={isPlaying}
++                        isLooping={isLooping}
++                        canUndo={canUndo}
++                        onPlayPause={handlePlayPause}
++                        onStop={handleStop}
++                        onSeek={handleSeek}
++                        onPreviewStart={handlePreviewStart}
++                        onSelectionChange={setSelection}
++                        onLoopSelection={handleLoopSelection}
++                        onCropToSelection={handleCropToSelection}
++                        onCutSelection={handleCutSelection}
++                        onPlaySelection={handlePlaySelection}
++                        onTrimStart={handleTrimStart}
++                        onTrimEnd={handleTrimEnd}
++                        onUndo={handleUndo}
++                        onToggleLoop={() => setIsLooping(!isLooping)}
++                        onCropChange={(start, end) => {
++                          setCropStart(start);
++                          setCropEnd(end);
++                        }}
++                        onMarkerMove={handleMarkerMove}
++                        onAddMarker={handleAddMarker}
++                        onRemoveMarker={handleRemoveMarker}
++                        onZoomChange={setZoom}
++                        onViewOffsetChange={setViewOffsetSec}
++                        onFadeSettingsChange={setFadeSettings}
++                        onNormalise={handleNormalizeAudio}
++                      />
+                     </div>
+ 
+-                    <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1 font-medium">
+-                      {splits.length === 0 ? (
+-                        <div className="text-center text-slate-500 italic py-6 text-xs">
+-                          No split markers set. Double-click on the waveform canvas to place a marker.
++                    {/* Right: Split Regions List (Never a scroll list - all entries visible at all times) */}
++                    <div className="w-full lg:w-80 xl:w-96 flex-shrink-0 bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden">
++                      {/* Header */}
++                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 flex-shrink-0">
++                        <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
++                          <Layers className="w-3.5 h-3.5 text-amber-500" />
++                          <span>Split Regions</span>
+                         </div>
+-                      ) : (
+-                        splits.map((split, idx) => {
+-                          const colors = ['#f87171', '#fb923c', '#4ade80', '#38bdf8', '#c084fc'];
+-                          const color = colors[idx % colors.length];
+-
+-                          return (
+-                            <div key={split.id} className="flex items-center justify-between bg-slate-950/60 p-2 rounded border border-slate-850 hover:bg-slate-900/30 transition text-xs">
+-                              {/* Left: Name and duration */}
+-                              <div className="flex items-center space-x-3 w-40 shrink-0 text-left">
+-                                <input type="checkbox" defaultChecked disabled className="rounded accent-emerald-500 w-3.5 h-3.5 flex-shrink-0 cursor-not-allowed opacity-50" />
+-                                <div className="truncate">
+-                                  <div className="font-bold text-[11px] text-slate-200">{split.name}</div>
+-                                  <div className="text-[10px] font-mono text-slate-500">
+-                                    {formatTime(split.startTime, false)} • {formatTime(split.duration, false)}
+-                                  </div>
+-                                </div>
+-                              </div>
+-
+-                              {/* Center: Visual Colored segment block */}
+-                              <div className="flex-1 px-4">
+-                                <div className="h-4.5 bg-slate-900 rounded border border-slate-850 relative overflow-hidden flex items-center justify-center">
+-                                  <div
+-                                    className="absolute top-0 bottom-0 opacity-20"
+-                                    style={{
+-                                      left: `${(split.startTime / audioBuffer.duration) * 100}%`,
+-                                      width: `${(split.duration / audioBuffer.duration) * 100}%`,
+-                                      backgroundColor: color,
+-                                    }}
+-                                  />
+-                                  <span className="text-[9px] font-mono text-slate-500 z-10 font-bold uppercase tracking-wider">
+-                                    Region {split.index}
+-                                  </span>
+-                                </div>
+-                              </div>
++                        <div className="flex items-center space-x-1.5">
++                          <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
++                            {splits.length} {splits.length === 1 ? 'Track' : 'Tracks'}
++                          </span>
++                        </div>
++                      </div>
+ 
+-                              {/* Right: Seek trigger */}
+-                              <div className="flex items-center space-x-1.5 w-24 justify-end shrink-0">
++                      {/* Entries Container (NO scrollbar, strictly overflow-hidden, dynamically fitted) */}
++                      <div className="flex-1 min-h-0 flex flex-col justify-start gap-1 overflow-hidden">
++                        {splits.length === 0 ? (
++                          <div className="flex-1 flex flex-col items-center justify-center text-center p-4 text-slate-500 text-xs italic">
++                            No split regions detected.
++                          </div>
++                        ) : (
++                          splits.map((split, idx) => {
++                            const colors = ['#f87171', '#fb923c', '#4ade80', '#38bdf8', '#c084fc', '#f43f5e', '#a855f7'];
++                            const color = colors[idx % colors.length];
++                            const isThisPlaying = isPlaying && currentTime >= split.startTime - 0.05 && currentTime <= split.endTime + 0.05;
++                            const isCompact = splits.length > 8;
++                            const isUltraCompact = splits.length > 13;
++
++                            return (
++                              <div
++                                key={split.id}
++                                className={`group flex items-center justify-between bg-slate-950/70 border border-slate-850 hover:border-slate-700 hover:bg-slate-900/60 rounded-lg transition shrink min-h-0 ${
++                                  isUltraCompact
++                                    ? 'py-0.5 px-1.5 text-[10px]'
++                                    : isCompact
++                                    ? 'py-1 px-2 text-[11px]'
++                                    : 'py-2 px-2.5 text-xs'
++                                }`}
++                              >
++                                {/* 1. Play button at the start */}
+                                 <button
+                                   type="button"
+-                                  onClick={() => handleSeek(split.startTime)}
+-                                  className="px-2.5 py-1 bg-slate-900 border border-slate-850 hover:border-slate-700 text-slate-400 hover:text-sky-400 rounded text-[10px] font-mono transition cursor-pointer"
++                                  onClick={() => {
++                                    if (isThisPlaying) {
++                                      handlePlayPause();
++                                    } else {
++                                      handlePlaySelection(split.startTime, split.endTime);
++                                    }
++                                  }}
++                                  className={`rounded-md flex items-center justify-center transition cursor-pointer shrink-0 border ${
++                                    isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
++                                  } ${
++                                    isThisPlaying
++                                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm animate-pulse'
++                                      : 'bg-slate-900 hover:bg-emerald-600/20 text-emerald-400 hover:text-emerald-300 border-slate-800 hover:border-emerald-500/40'
++                                  }`}
++                                  title={isThisPlaying ? 'Pause split preview' : `Play Region ${split.index} (${formatTime(split.duration, false)})`}
+                                 >
+-                                  Seek
++                                  {isThisPlaying ? (
++                                    <Pause className="w-2.5 h-2.5 fill-current" />
++                                  ) : (
++                                    <Play className="w-2.5 h-2.5 fill-current ml-0.5" />
++                                  )}
+                                 </button>
++
++                                {/* 2. Middle: Track number, name, duration, and timestamps */}
++                                <div
++                                  className="flex-1 min-w-0 mx-2 cursor-pointer"
++                                  onClick={() => handleSeek(split.startTime)}
++                                  title="Click to jump playhead to region start"
++                                >
++                                  <div className="flex items-center space-x-1.5">
++                                    <span
++                                      className="font-mono text-[9px] font-bold px-1 rounded shrink-0 leading-none py-0.5"
++                                      style={{
++                                        backgroundColor: `${color}22`,
++                                        color: color,
++                                        border: `1px solid ${color}44`,
++                                      }}
++                                    >
++                                      #{String(split.index).padStart(2, '0')}
++                                    </span>
++                                    <span className="font-bold text-slate-200 truncate leading-tight group-hover:text-amber-400 transition">
++                                      {split.name}
++                                    </span>
++                                  </div>
++                                  {!isUltraCompact && (
++                                    <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 mt-0.5 leading-none">
++                                      <span className="text-slate-300 font-semibold">{formatTime(split.duration, false)}</span>
++                                      <span className="text-slate-700">•</span>
++                                      <span className="text-slate-500 truncate">{formatTime(split.startTime, false)} - {formatTime(split.endTime, false)}</span>
++                                    </div>
++                                  )}
++                                </div>
++
++                                {/* 3. Delete button at the end (removes split marker, merging into previous split) */}
+                                 <button
+                                   type="button"
+-                                  onClick={() => handlePlaySelection(split.startTime, split.endTime)}
+-                                  className="p-1 rounded bg-slate-900 border border-slate-850 text-slate-400 hover:text-emerald-400 hover:bg-slate-850 transition cursor-pointer"
++                                  disabled={markers.length === 0}
++                                  onClick={(e) => {
++                                    e.stopPropagation();
++                                    handleDeleteSplit(idx);
++                                  }}
++                                  className={`rounded-md flex items-center justify-center transition cursor-pointer shrink-0 border ${
++                                    isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
++                                  } ${
++                                    markers.length === 0
++                                      ? 'opacity-20 cursor-not-allowed border-transparent text-slate-600'
++                                      : 'bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border-slate-800 hover:border-rose-800/50'
++                                  }`}
++                                  title={
++                                    markers.length === 0
++                                      ? 'No split marker to delete'
++                                      : idx > 0
++                                      ? `Delete split marker (merge into Region ${idx})`
++                                      : 'Delete split marker (merge with next region)'
++                                  }
+                                 >
+-                                  <Play className="w-2.5 h-2.5 fill-current" />
++                                  <Trash2 className="w-2.5 h-2.5" />
+                                 </button>
+                               </div>
+-                            </div>
+-                          );
+-                        })
+-                      )}
++                            );
++                          })
++                        )}
++                      </div>
+                     </div>
+                   </div>
+                 </div>
+-- 
+2.34.1
+

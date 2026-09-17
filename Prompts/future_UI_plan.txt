@@ -1,0 +1,18 @@
+Context - future plans:
+
+I am planning on skinning this app with proper graphics to look like real hardware.
+With that in mind, ideally all windows should look good at the same scale.
+
+Plan is to go old hardware (lab oscilloscope, with knobs and digital readouts for text fields/values), with signs of wear.
+
+Rec panel and Save panel will have similar central big buttons that do the main thing (Record and Export).  
+Parts will be labelled to simulate the old plastic Dymo sticky labels.
+Tickboxes/toggles will be in the form of flip switches
+Selectors will be knobs
+
+
+For the moment I'd like to remove the dots in the background on all 3 panels, it's a bit distracting at this stage.
+
+
+
+
