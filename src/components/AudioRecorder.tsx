@@ -632,8 +632,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       finalBuffer.copyToChannel(mergedRight, 1);
     }
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const defaultName = `Soundcard_Recording_${timestamp}`;
+    const defaultName = 'Recording';
     onRecordingComplete(finalBuffer, defaultName, '', '');
   };
 
