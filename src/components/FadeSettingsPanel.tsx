@@ -1,5 +1,5 @@
 import React from 'react';
-import { FadeSettings, FadeCurve } from '../types';
+import { FadeSettings } from '../types';
 import { Sliders, ShieldCheck, Zap, HelpCircle } from 'lucide-react';
 
 interface FadeSettingsPanelProps {
@@ -118,27 +118,6 @@ export const FadeSettingsPanel: React.FC<FadeSettingsPanelProps> = ({ settings, 
             />
           </div>
 
-          {/* Curve Type Selector */}
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-900">
-            <span className="text-slate-400">Volume Curve:</span>
-            <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800">
-              {(['scurve', 'logarithmic', 'linear'] as FadeCurve[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => updateSettings({ fadeInCurve: c })}
-                  disabled={!settings.fadeInEnabled}
-                  className={`px-2 py-1 rounded text-xs capitalize transition cursor-pointer ${
-                    settings.fadeInCurve === c
-                      ? 'bg-emerald-500 text-slate-950 font-semibold shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {c === 'scurve' ? 'S-Curve' : c}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Fade Out Column */}
@@ -207,27 +186,6 @@ export const FadeSettingsPanel: React.FC<FadeSettingsPanelProps> = ({ settings, 
             />
           </div>
 
-          {/* Curve Type Selector */}
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-900">
-            <span className="text-slate-400">Volume Curve:</span>
-            <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800">
-              {(['scurve', 'logarithmic', 'linear'] as FadeCurve[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => updateSettings({ fadeOutCurve: c })}
-                  disabled={!settings.fadeOutEnabled}
-                  className={`px-2 py-1 rounded text-xs capitalize transition cursor-pointer ${
-                    settings.fadeOutCurve === c
-                      ? 'bg-emerald-500 text-slate-950 font-semibold shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {c === 'scurve' ? 'S-Curve' : c}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
 
@@ -249,13 +207,7 @@ export const FadeSettingsPanel: React.FC<FadeSettingsPanelProps> = ({ settings, 
             {/* Fade In path */}
             {settings.fadeInEnabled ? (
               <path
-                d={
-                  settings.fadeInCurve === 'linear'
-                    ? 'M 4 20 L 25 4'
-                    : settings.fadeInCurve === 'scurve'
-                    ? 'M 4 20 C 14 20 15 4 25 4'
-                    : 'M 4 20 Q 15 20 25 4'
-                }
+                d={`M 4 20 Q 14 ${20 - settings.fadeInCurveNode * 16} 25 4`}
                 fill="none"
                 stroke="#10b981"
                 strokeWidth="2"
@@ -270,13 +222,7 @@ export const FadeSettingsPanel: React.FC<FadeSettingsPanelProps> = ({ settings, 
             {/* Fade Out path */}
             {settings.fadeOutEnabled ? (
               <path
-                d={
-                  settings.fadeOutCurve === 'linear'
-                    ? 'M 75 4 L 96 20'
-                    : settings.fadeOutCurve === 'scurve'
-                    ? 'M 75 4 C 85 4 86 20 96 20'
-                    : 'M 75 4 Q 85 20 96 20'
-                }
+                d={`M 75 4 Q 86 ${4 + (1 - settings.fadeOutCurveNode) * 16} 96 20`}
                 fill="none"
                 stroke="#10b981"
                 strokeWidth="2"

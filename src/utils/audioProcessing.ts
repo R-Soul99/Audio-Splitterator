@@ -48,17 +48,28 @@ export function findZeroCrossing(
  * Calculate volume multiplier for a fade curve.
  * fraction is from 0.0 (silent) to 1.0 (full volume).
  */
-export function calculateFadeGain(fraction: number, curve: FadeCurve): number {
+export function calculateFadeGain(
+  fraction: number,
+  curve: FadeCurve,
+  curveNode = 0.5,
+  curveNodePosition = 0.5
+): number {
   const clamped = Math.max(0, Math.min(1, fraction));
-  if (curve === 'linear') {
-    return clamped;
+  const node = Math.max(0, Math.min(1, curveNode));
+  const controlX = Math.max(0.05, Math.min(0.95, curveNodePosition));
+  let lower = 0;
+  let upper = 1;
+  for (let iteration = 0; iteration < 20; iteration++) {
+    const parameter = (lower + upper) / 2;
+    const bezierX = 2 * (1 - parameter) * parameter * controlX + parameter * parameter;
+    if (bezierX < clamped) {
+      lower = parameter;
+    } else {
+      upper = parameter;
+    }
   }
-  if (curve === 'scurve') {
-    // S-curve: Raised cosine smoothstep (tangent at 0 and 1) as seen in professional DAWs
-    return 0.5 * (1 - Math.cos(clamped * Math.PI));
-  }
-  // Logarithmic / Perceptual audio curve (equal-power)
-  return Math.sin(clamped * (Math.PI / 2));
+  const parameter = (lower + upper) / 2;
+  return 2 * (1 - parameter) * parameter * node + parameter * parameter;
 }
 
 /**
@@ -80,7 +91,7 @@ export function applyFadesToChannel(
     );
     for (let i = 0; i < fadeInSamples; i++) {
       const fraction = i / fadeInSamples;
-      const gain = calculateFadeGain(fraction, settings.fadeInCurve);
+      const gain = calculateFadeGain(fraction, settings.fadeInCurve, settings.fadeInCurveNode, settings.fadeInCurveNodePosition);
       samples[i] *= gain;
     }
   }
@@ -94,7 +105,7 @@ export function applyFadesToChannel(
     for (let i = 0; i < fadeOutSamples; i++) {
       const sampleIdx = totalSamples - 1 - i;
       const fraction = i / fadeOutSamples;
-      const gain = calculateFadeGain(fraction, settings.fadeOutCurve);
+      const gain = calculateFadeGain(fraction, settings.fadeOutCurve, settings.fadeOutCurveNode, settings.fadeOutCurveNodePosition);
       samples[sampleIdx] *= gain;
     }
   }

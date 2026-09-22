@@ -138,19 +138,27 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
       ? {
           fadeInEnabled: true,
           fadeInMs: 10,
-          fadeInCurve: 'scurve',
+          fadeInCurve: 'custom',
+          fadeInCurveNode: 0.5,
+          fadeInCurveNodePosition: 0.5,
           fadeOutEnabled: true,
           fadeOutMs: 10,
-          fadeOutCurve: 'scurve',
+          fadeOutCurve: 'custom',
+          fadeOutCurveNode: 0.5,
+          fadeOutCurveNodePosition: 0.5,
           zeroCrossing: fadeSettings.zeroCrossing,
         }
       : {
           fadeInEnabled: false,
           fadeInMs: 0,
-          fadeInCurve: 'linear',
+          fadeInCurve: 'custom',
+          fadeInCurveNode: 0.5,
+          fadeInCurveNodePosition: 0.5,
           fadeOutEnabled: false,
           fadeOutMs: 0,
-          fadeOutCurve: 'linear',
+          fadeOutCurve: 'custom',
+          fadeOutCurveNode: 0.5,
+          fadeOutCurveNodePosition: 0.5,
           zeroCrossing: fadeSettings.zeroCrossing,
         };
   };

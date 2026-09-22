@@ -54,10 +54,14 @@ export const BatchProcessor: React.FC<BatchProcessorProps> = ({ onOpenInEditor }
   const [fadeSettings, setFadeSettings] = useState<FadeSettings>({
     fadeInEnabled: true,
     fadeInMs: 25,
-    fadeInCurve: 'logarithmic',
+    fadeInCurve: 'custom',
+    fadeInCurveNode: 0.5,
+    fadeInCurveNodePosition: 0.5,
     fadeOutEnabled: true,
     fadeOutMs: 50,
-    fadeOutCurve: 'logarithmic',
+    fadeOutCurve: 'custom',
+    fadeOutCurveNode: 0.5,
+    fadeOutCurveNodePosition: 0.5,
     zeroCrossing: true,
   });
 

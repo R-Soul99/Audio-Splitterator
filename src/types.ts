@@ -46,15 +46,19 @@ export interface AlbumDetails {
   namingPattern: NamingPattern;
 }
 
-export type FadeCurve = 'scurve' | 'logarithmic' | 'linear';
+export type FadeCurve = 'custom';
 
 export interface FadeSettings {
   fadeInEnabled: boolean;
   fadeInMs: number;
   fadeInCurve: FadeCurve;
+  fadeInCurveNode: number;
+  fadeInCurveNodePosition: number;
   fadeOutEnabled: boolean;
   fadeOutMs: number;
   fadeOutCurve: FadeCurve;
+  fadeOutCurveNode: number;
+  fadeOutCurveNodePosition: number;
   zeroCrossing: boolean;
 }
 

@@ -27,7 +27,7 @@ export default function App() {
   const [workflowTab, setWorkflowTab] = useState<'record' | 'edit' | 'save'>('record');
 
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
-  const [mainFileName, setMainFileName] = useState<string>('Recording_01');
+  const [mainFileName, setMainFileName] = useState<string>('Recording');
   const [isRecordingActive, setIsRecordingActive] = useState<boolean>(false);
 
   // Playback state
@@ -64,10 +64,14 @@ export default function App() {
   const [fadeSettings, setFadeSettings] = useState<FadeSettings>({
     fadeInEnabled: true,
     fadeInMs: 75,
-    fadeInCurve: 'scurve',
+    fadeInCurve: 'custom',
+    fadeInCurveNode: 0.5,
+    fadeInCurveNodePosition: 0.5,
     fadeOutEnabled: true,
     fadeOutMs: 125,
-    fadeOutCurve: 'scurve',
+    fadeOutCurve: 'custom',
+    fadeOutCurveNode: 0.5,
+    fadeOutCurveNodePosition: 0.5,
     zeroCrossing: true,
   });
 
@@ -470,7 +474,7 @@ export default function App() {
       currentTimeRef.current = 0;
 
       setAudioBuffer(null);
-      setMainFileName('Recording_01');
+      setMainFileName('Recording');
       setCropStart(0);
       setCropEnd(0);
       setSelection(null);
@@ -938,9 +942,9 @@ export default function App() {
 
       {/* Global DAW Header (Replaces Navbar and integrates Brand & 3 Workflow Tabs) */}
       <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-40 flex-shrink-0 select-none">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto relative flex flex-col sm:block">
           {/* Brand & Logo on the Left */}
-          <div className="flex items-center space-x-3 shrink-0">
+          <div className="flex items-center space-x-3 shrink-0 sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2">
             <div>
               <div className="flex items-center space-x-2">
                 <h1 className="text-base font-bold text-slate-100 tracking-tight">
@@ -954,7 +958,7 @@ export default function App() {
           </div>
 
           {/* Centered Workflow Buttons (RECORD, EDIT, SAVE) serving as global header */}
-          <div className="grid grid-cols-3 gap-2 w-full sm:w-[380px] bg-slate-950/80 p-1 rounded-xl border border-slate-800 flex-shrink-0">
+          <div className="grid grid-cols-3 gap-2 w-full sm:w-[380px] mx-auto mt-4 sm:mt-0 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
             {/* RECORD TAB */}
             <button
               type="button"
@@ -995,48 +999,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Quick File Import & Engine Controls on the Right */}
-          <div className="flex items-center space-x-2 shrink-0">
-            {/* Standby / Live Audio Engine Toggle for AI Studio Dev */}
-            <button
-              type="button"
-              onClick={toggleStandbyMode}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition shadow-sm cursor-pointer ${
-                isStandbyMode
-                  ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 hover:bg-amber-500/25 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
-                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-750'
-              }`}
-              title={
-                isStandbyMode
-                  ? 'Preview Audio in STANDBY (mic & sound are sleeping to avoid echoing with your local dev app). Click to WAKE.'
-                  : 'Preview Audio is LIVE. Click to put into STANDBY (releases mic to avoid echo with local dev app).'
-              }
-            >
-              {isStandbyMode ? (
-                <>
-                  <MicOff className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Preview: Standby</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                </>
-              ) : (
-                <>
-                  <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                  <span>Preview: Live</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-750 border border-slate-700 transition shadow-sm cursor-pointer"
-              title="Import local audio file directly into the editor"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Import Audio</span>
-            </button>
-          </div>
         </div>
       </header>
 

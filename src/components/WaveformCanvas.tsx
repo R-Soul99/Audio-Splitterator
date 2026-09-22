@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { Marker, FadeSettings, FadeCurve, TimeSelection } from '../types';
+import { Marker, FadeSettings, TimeSelection } from '../types';
 import {
   formatTime,
   calculateFadeGain,
@@ -16,7 +16,6 @@ import {
   BookmarkPlus,
   BookmarkMinus,
   Zap,
-  Spline,
   Volume2,
   Navigation,
   ScanLine,
@@ -34,7 +33,7 @@ import {
   Activity,
   Sparkles,
   Trash2,
-  Disc,
+  AudioWaveform,
   UnfoldVertical,
 } from 'lucide-react';
 
@@ -188,7 +187,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const [followPlayhead, setFollowPlayhead] = useState<boolean>(true);
 
   // Popover States
-  const [showCurveDropdown, setShowCurveDropdown] = useState<boolean>(false);
   const [showNormalisePopover, setShowNormalisePopover] = useState<boolean>(false);
   const [normaliseTargetDb, setNormaliseTargetDb] = useState<number>(-0.5);
 
@@ -209,7 +207,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Dragging States
   const [activeDrag, setActiveDrag] = useState<{
-    type: 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
+    type: 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
     id?: string;
     startX?: number;
     startTime?: number;
@@ -494,14 +492,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 const fadeInSec = fadeSettings.fadeInMs / 1000;
                 if (t < cropStart + fadeInSec) {
                   const pct = Math.max(0, Math.min(1, (t - cropStart) / fadeInSec));
-                  fadeGain *= calculateFadeGain(pct, fadeSettings.fadeInCurve);
+                  fadeGain *= calculateFadeGain(pct, fadeSettings.fadeInCurve, fadeSettings.fadeInCurveNode, fadeSettings.fadeInCurveNodePosition);
                 }
               }
               if (fadeSettings.fadeOutEnabled && fadeSettings.fadeOutMs > 0) {
                 const fadeOutSec = fadeSettings.fadeOutMs / 1000;
                 if (t > cropEnd - fadeOutSec) {
                   const pct = Math.max(0, Math.min(1, (cropEnd - t) / fadeOutSec));
-                  fadeGain *= calculateFadeGain(pct, fadeSettings.fadeOutCurve);
+                  fadeGain *= calculateFadeGain(pct, fadeSettings.fadeOutCurve, fadeSettings.fadeOutCurveNode, fadeSettings.fadeOutCurveNodePosition);
                 }
               }
             }
@@ -598,7 +596,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const fStep = Math.max(1, Math.round((fadeEndX - cropXStart) / 30));
         for (let px = cropXStart; px <= fadeEndX; px += fStep) {
           const pct = (px - cropXStart) / (fadeEndX - cropXStart);
-          const gain = calculateFadeGain(pct, fadeSettings.fadeInCurve);
+          const gain = calculateFadeGain(pct, fadeSettings.fadeInCurve, fadeSettings.fadeInCurveNode, fadeSettings.fadeInCurveNodePosition);
           ctx.lineTo(px, height - gain * height);
         }
         ctx.lineTo(fadeEndX, height);
@@ -614,7 +612,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const fStep = Math.max(1, Math.round((fadeEndX - cropXStart) / 30));
       for (let px = cropXStart; px <= fadeEndX; px += fStep) {
         const pct = (px - cropXStart) / (fadeEndX - cropXStart);
-        const gain = calculateFadeGain(pct, fadeSettings.fadeInCurve);
+        const gain = calculateFadeGain(pct, fadeSettings.fadeInCurve, fadeSettings.fadeInCurveNode, fadeSettings.fadeInCurveNodePosition);
         ctx.lineTo(px, height - gain * height);
       }
       ctx.lineTo(fadeEndX, 0);
@@ -637,6 +635,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(fadeEndX, 10, isHovered ? 6 : 4.5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+
+      const curveNodeX = cropXStart + (fadeEndX - cropXStart) * fadeSettings.fadeInCurveNodePosition;
+      const curveNodeY = height - fadeSettings.fadeInCurveNode * height;
+      ctx.fillStyle = activeDrag?.type === 'fadeInCurve' ? '#ffffff' : '#38bdf8';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(curveNodeX, curveNodeY, activeDrag?.type === 'fadeInCurve' ? 7 : 5, 0, 2 * Math.PI);
       ctx.fill();
       ctx.stroke();
 
@@ -671,7 +679,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const fStep = Math.max(1, Math.round((cropXEnd - fadeStartX) / 30));
         for (let px = fadeStartX; px <= cropXEnd; px += fStep) {
           const pct = (px - fadeStartX) / (cropXEnd - fadeStartX);
-          const gain = calculateFadeGain(1 - pct, fadeSettings.fadeOutCurve);
+          const gain = calculateFadeGain(1 - pct, fadeSettings.fadeOutCurve, fadeSettings.fadeOutCurveNode, fadeSettings.fadeOutCurveNodePosition);
           ctx.lineTo(px, height - gain * height);
         }
         ctx.lineTo(cropXEnd, height);
@@ -687,7 +695,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const fStep = Math.max(1, Math.round((cropXEnd - fadeStartX) / 30));
       for (let px = fadeStartX; px <= cropXEnd; px += fStep) {
         const pct = (px - fadeStartX) / (cropXEnd - fadeStartX);
-        const gain = calculateFadeGain(1 - pct, fadeSettings.fadeOutCurve);
+          const gain = calculateFadeGain(1 - pct, fadeSettings.fadeOutCurve, fadeSettings.fadeOutCurveNode, fadeSettings.fadeOutCurveNodePosition);
         ctx.lineTo(px, height - gain * height);
       }
       ctx.lineTo(cropXEnd, height);
@@ -710,6 +718,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(fadeStartX, 10, isHovered ? 6 : 4.5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+
+      const curveNodeX = fadeStartX + (cropXEnd - fadeStartX) * (1 - fadeSettings.fadeOutCurveNodePosition);
+      const curveNodeY = height - fadeSettings.fadeOutCurveNode * height;
+      ctx.fillStyle = activeDrag?.type === 'fadeOutCurve' ? '#ffffff' : '#f59e0b';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(curveNodeX, curveNodeY, activeDrag?.type === 'fadeOutCurve' ? 7 : 5, 0, 2 * Math.PI);
       ctx.fill();
       ctx.stroke();
 
@@ -848,14 +866,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           const fadeInSec = fadeSettings.fadeInMs / 1000;
           if (t < cropStart + fadeInSec) {
             const pct = Math.max(0, Math.min(1, (t - cropStart) / fadeInSec));
-            fadeGain *= calculateFadeGain(pct, fadeSettings.fadeInCurve);
+            fadeGain *= calculateFadeGain(pct, fadeSettings.fadeInCurve, fadeSettings.fadeInCurveNode, fadeSettings.fadeInCurveNodePosition);
           }
         }
         if (fadeSettings.fadeOutEnabled && fadeSettings.fadeOutMs > 0) {
           const fadeOutSec = fadeSettings.fadeOutMs / 1000;
           if (t > cropEnd - fadeOutSec) {
             const pct = Math.max(0, Math.min(1, (cropEnd - t) / fadeOutSec));
-            fadeGain *= calculateFadeGain(pct, fadeSettings.fadeOutCurve);
+            fadeGain *= calculateFadeGain(pct, fadeSettings.fadeOutCurve, fadeSettings.fadeOutCurveNode, fadeSettings.fadeOutCurveNodePosition);
           }
         }
       }
@@ -932,6 +950,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       } else if (activeDrag.type === 'fadeOut') {
         const nextMs = Math.max(0, Math.round((cropEnd - time) * 1000));
         onFadeSettingsChange({ ...fadeSettings, fadeOutMs: nextMs });
+      } else if (activeDrag.type === 'fadeInCurve') {
+        const fadeEndX = timeToX(cropStart + fadeSettings.fadeInMs / 1000, canvasDimensions.width);
+        const nextPosition = Math.max(0.05, Math.min(0.95, (x - timeToX(cropStart, canvasDimensions.width)) / (fadeEndX - timeToX(cropStart, canvasDimensions.width))));
+        const nextNode = Math.max(0.05, Math.min(0.95, 1 - y / canvasDimensions.height));
+        onFadeSettingsChange({ ...fadeSettings, fadeInCurveNode: nextNode, fadeInCurveNodePosition: nextPosition });
+      } else if (activeDrag.type === 'fadeOutCurve') {
+        const fadeStartX = timeToX(cropEnd - fadeSettings.fadeOutMs / 1000, canvasDimensions.width);
+        const nextPosition = Math.max(0.05, Math.min(0.95, 1 - (x - fadeStartX) / (timeToX(cropEnd, canvasDimensions.width) - fadeStartX)));
+        const nextNode = Math.max(0.05, Math.min(0.95, 1 - y / canvasDimensions.height));
+        onFadeSettingsChange({ ...fadeSettings, fadeOutCurveNode: nextNode, fadeOutCurveNodePosition: nextPosition });
       } else if (activeDrag.type === 'selectionStart' && selection) {
         onSelectionChange({ ...selection, start: Math.max(0, Math.min(duration, time)) });
       } else if (activeDrag.type === 'selectionEnd' && selection) {
@@ -971,6 +999,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (fadeSettings.fadeInEnabled) {
       const cropXStart = timeToX(cropStart, canvasDimensions.width);
       const fEndX = timeToX(cropStart + fadeSettings.fadeInMs / 1000, canvasDimensions.width);
+      const curveX = cropXStart + (fEndX - cropXStart) * fadeSettings.fadeInCurveNodePosition;
+      const curveY = canvasDimensions.height - fadeSettings.fadeInCurveNode * canvasDimensions.height;
+      if (Math.hypot(x - curveX, y - curveY) < 12) {
+        setHoveredElement('fadeIn');
+        return;
+      }
       if ((Math.abs(x - fEndX) < 10 || (Math.abs(x - cropXStart) < 12 && fadeSettings.fadeInMs <= 50)) && y < 28) {
         setHoveredElement('fadeIn');
         return;
@@ -981,6 +1015,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (fadeSettings.fadeOutEnabled) {
       const cropXEnd = timeToX(cropEnd, canvasDimensions.width);
       const fStartX = timeToX(cropEnd - fadeSettings.fadeOutMs / 1000, canvasDimensions.width);
+      const curveX = fStartX + (cropXEnd - fStartX) * (1 - fadeSettings.fadeOutCurveNodePosition);
+      const curveY = canvasDimensions.height - fadeSettings.fadeOutCurveNode * canvasDimensions.height;
+      if (Math.hypot(x - curveX, y - curveY) < 12) {
+        setHoveredElement('fadeOut');
+        return;
+      }
       if ((Math.abs(x - fStartX) < 10 || (Math.abs(x - cropXEnd) < 12 && fadeSettings.fadeOutMs <= 50)) && y < 28) {
         setHoveredElement('fadeOut');
         return;
@@ -1030,6 +1070,28 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const time = xToTime(x, canvasDimensions.width);
+
+    if (fadeSettings.fadeInEnabled) {
+      const cropXStart = timeToX(cropStart, canvasDimensions.width);
+      const fadeEndX = timeToX(cropStart + fadeSettings.fadeInMs / 1000, canvasDimensions.width);
+      const curveX = cropXStart + (fadeEndX - cropXStart) * fadeSettings.fadeInCurveNodePosition;
+      const curveY = canvasDimensions.height - fadeSettings.fadeInCurveNode * canvasDimensions.height;
+      if (Math.hypot(x - curveX, y - curveY) < 14) {
+        setActiveDrag({ type: 'fadeInCurve' });
+        return;
+      }
+    }
+
+    if (fadeSettings.fadeOutEnabled) {
+      const fadeStartX = timeToX(cropEnd - fadeSettings.fadeOutMs / 1000, canvasDimensions.width);
+      const cropXEnd = timeToX(cropEnd, canvasDimensions.width);
+      const curveX = fadeStartX + (cropXEnd - fadeStartX) * (1 - fadeSettings.fadeOutCurveNodePosition);
+      const curveY = canvasDimensions.height - fadeSettings.fadeOutCurveNode * canvasDimensions.height;
+      if (Math.hypot(x - curveX, y - curveY) < 14) {
+        setActiveDrag({ type: 'fadeOutCurve' });
+        return;
+      }
+    }
 
     // Hit actions
     if (
@@ -1513,7 +1575,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-1.5 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs flex-shrink-0 relative">
         <div className="flex items-center flex-wrap gap-1.5">
           {/* Markers Section */}
-          <div className="flex items-center space-x-1 bg-slate-950/60 p-0.5 rounded-lg border border-slate-800/80">
+          <div className="order-1 flex items-center space-x-1 bg-slate-950/60 p-0.5 rounded-lg border border-slate-800/80">
             {/* Add Marker (+) Toggle */}
             <TooltipButton
               onClick={() => setMarkerTool(markerTool === 'add' ? 'none' : 'add')}
@@ -1543,10 +1605,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             )}
           </div>
 
-          <div className="h-5 w-px bg-slate-800 mx-0.5" />
+          <div className="order-2 h-5 w-px bg-slate-800 mx-0.5" />
 
           {/* Noise Floor & Auto-Split Section */}
-          <div className="flex items-center space-x-1.5 bg-slate-950/60 px-2 py-0.5 rounded-lg border border-slate-800/80">
+          <div className="order-8 flex items-center space-x-1.5 bg-slate-950/60 px-2 py-0.5 rounded-lg border border-slate-800/80">
             {/* Sample Noise Floor Button (icon only) */}
             <TooltipButton
               onClick={handleSampleNoiseFloor}
@@ -1637,10 +1699,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             </button>
           </div>
 
-          <div className="h-5 w-px bg-slate-800 mx-0.5" />
+          <div className="order-4 h-5 w-px bg-slate-800 mx-0.5" />
 
           {/* Edit Actions: Crop, Cut, Undo */}
-          <div className="flex items-center space-x-1">
+          <div className="order-3 flex items-center space-x-1">
             <TooltipButton
               onClick={() => {
                 if (selection) {
@@ -1673,17 +1735,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             )}
           </div>
 
-          <div className="h-5 w-px bg-slate-800 mx-0.5" />
+          <div className="order-7 h-5 w-px bg-slate-800 mx-0.5" />
 
           {/* Normalise, Curve, Peak Tamer */}
 
           {/* Normalise Peak Gain */}
-          <div className="relative">
+          <div className="order-5 relative">
             <TooltipButton
               onClick={() => {
                 setShowNormalisePopover(!showNormalisePopover);
                 if (showPeakTamerPopover) setShowPeakTamerPopover(false);
-                if (showCurveDropdown) setShowCurveDropdown(false);
               }}
               isActive={showNormalisePopover}
               activeClass="bg-amber-600 text-white border-amber-500 shadow-sm"
@@ -1719,65 +1780,24 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             )}
           </div>
 
-          {/* Curve foldout dropdown */}
-          <div className="relative">
-            <TooltipButton
-              onClick={() => {
-                const next = !showCurveDropdown;
-                setShowCurveDropdown(next);
-                if (showPeakTamerPopover) setShowPeakTamerPopover(false);
-                if (showNormalisePopover) setShowNormalisePopover(false);
-              }}
-              isActive={showCurveDropdown}
-              icon={<Spline className="w-3.5 h-3.5" />}
-              label={`Fade Curve: ${fadeSettings.fadeInCurve === 'scurve' ? 'S-Curve' : fadeSettings.fadeInCurve === 'logarithmic' ? 'Logarithmic' : 'Linear'}`}
-            />
-            {showCurveDropdown && (
-              <div className="absolute top-full right-0 mt-2 p-1.5 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl flex flex-col space-y-1 z-50 w-36 animate-fade-in select-none">
-                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800/80">
-                  Fade Curve
-                </div>
-                {(['scurve', 'logarithmic', 'linear'] as FadeCurve[]).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => {
-                      onFadeSettingsChange({ ...fadeSettings, fadeInCurve: c, fadeOutCurve: c });
-                      setShowCurveDropdown(false);
-                    }}
-                    className={`px-2.5 py-1.5 text-left text-[11px] font-medium transition cursor-pointer flex items-center justify-between rounded hover:bg-slate-850 ${
-                      fadeSettings.fadeInCurve === c
-                        ? 'text-sky-400 bg-sky-950/40 font-semibold border border-sky-800/40'
-                        : 'text-slate-300 hover:text-white'
-                    }`}
-                  >
-                    <span>{c === 'scurve' ? 'S-Curve' : c === 'logarithmic' ? 'Logarithmic' : 'Linear'}</span>
-                    {fadeSettings.fadeInCurve === c && <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Anomalous Peak Tamer */}
-          <div className="relative">
+          <div className="order-5 relative">
             <TooltipButton
               onClick={() => {
                 const nextState = !showPeakTamerPopover;
                 setShowPeakTamerPopover(nextState);
                 if (showNormalisePopover) setShowNormalisePopover(false);
-                if (showCurveDropdown) setShowCurveDropdown(false);
               }}
               isActive={showPeakTamerPopover}
               activeClass="bg-amber-600 text-white border-amber-500 shadow-sm"
-              icon={<Disc className="w-3.5 h-3.5" />}
+              icon={<AudioWaveform className="w-3.5 h-3.5" />}
               label="Anomalous Peak Tamer (Detect & Reduce Outlier Spikes)"
             />
             {showPeakTamerPopover && (
               <div className="absolute top-full right-0 mt-2 p-3 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl text-xs space-y-2.5 w-80 z-50 animate-fade-in select-none">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                   <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
-                    <Disc className="w-3.5 h-3.5 text-amber-400" />
+                    <AudioWaveform className="w-3.5 h-3.5 text-amber-400" />
                     <span>Anomalous Peak Tamer</span>
                   </div>
                   <button
