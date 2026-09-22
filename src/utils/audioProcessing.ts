@@ -280,6 +280,141 @@ export function cutAudioBuffer(
   return newBuffer;
 }
 
+export interface AnomalousPeakEvent {
+  id: string;
+  timeSec: number;
+  peakDb: number;
+}
+
+export interface AnomalousPeakAnalysis {
+  trueMaxPeakDb: number;
+  nominalProgramPeakDb: number;
+  peaksCount: number;
+  detectedPeaks: AnomalousPeakEvent[];
+}
+
+export function measureNoiseFloorDb(
+  sourceBuffer: AudioBuffer,
+  startSec = 0,
+  endSec = sourceBuffer.duration
+): { peakDb: number; suggestedThresholdDb: number } {
+  const channel = sourceBuffer.getChannelData(0);
+  const start = Math.max(0, Math.floor(startSec * sourceBuffer.sampleRate));
+  const end = Math.min(channel.length, Math.ceil(endSec * sourceBuffer.sampleRate));
+  let peak = 0;
+
+  for (let index = start; index < end; index++) {
+    peak = Math.max(peak, Math.abs(channel[index]));
+  }
+
+  const peakDb = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+  return {
+    peakDb,
+    suggestedThresholdDb: Math.max(-80, peakDb - 12),
+  };
+}
+
+export function analyzeAnomalousPeaks(
+  sourceBuffer: AudioBuffer,
+  thresholdDb: number,
+  scopeRange?: { startSec: number; endSec: number }
+): AnomalousPeakAnalysis {
+  const channel = sourceBuffer.getChannelData(0);
+  const start = Math.max(1, Math.floor((scopeRange?.startSec ?? 0) * sourceBuffer.sampleRate));
+  const end = Math.min(
+    channel.length - 1,
+    Math.ceil((scopeRange?.endSec ?? sourceBuffer.duration) * sourceBuffer.sampleRate)
+  );
+  const threshold = Math.pow(10, thresholdDb / 20);
+  let maxAmplitude = 0;
+  const amplitudes: number[] = [];
+  const detectedPeaks: AnomalousPeakEvent[] = [];
+
+  for (let index = start; index < end; index++) {
+    const amplitude = Math.abs(channel[index]);
+    amplitudes.push(amplitude);
+    maxAmplitude = Math.max(maxAmplitude, amplitude);
+  }
+
+  const sorted = [...amplitudes].sort((left, right) => right - left);
+  const nominalAmplitude = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.1))] ?? 0;
+
+  for (let index = start + 1; index < end - 1; index++) {
+    const amplitude = Math.abs(channel[index]);
+    if (amplitude >= threshold && amplitude >= Math.abs(channel[index - 1]) && amplitude >= Math.abs(channel[index + 1])) {
+      detectedPeaks.push({
+        id: `${index}`,
+        timeSec: index / sourceBuffer.sampleRate,
+        peakDb: 20 * Math.log10(Math.max(amplitude, 1e-10)),
+      });
+    }
+  }
+
+  return {
+    trueMaxPeakDb: maxAmplitude > 0 ? 20 * Math.log10(maxAmplitude) : -Infinity,
+    nominalProgramPeakDb: nominalAmplitude > 0 ? 20 * Math.log10(nominalAmplitude) : -Infinity,
+    peaksCount: detectedPeaks.length,
+    detectedPeaks,
+  };
+}
+
+export function reduceAnomalousPeaks(
+  sourceBuffer: AudioBuffer,
+  options: {
+    thresholdDb: number;
+    targetCeilingDb: number;
+    scopeRange?: { startSec: number; endSec: number };
+    kneeMs?: number;
+  }
+): {
+  repairedBuffer: AudioBuffer;
+  peaksReducedCount: number;
+  originalMaxPeakDb: number;
+  newMaxPeakDb: number;
+  headroomGainedDb: number;
+} {
+  const audioContext = new (window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  const repairedBuffer = audioContext.createBuffer(
+    sourceBuffer.numberOfChannels,
+    sourceBuffer.length,
+    sourceBuffer.sampleRate
+  );
+  const threshold = Math.pow(10, options.thresholdDb / 20);
+  const ceiling = Math.pow(10, options.targetCeilingDb / 20);
+  const start = Math.max(0, Math.floor((options.scopeRange?.startSec ?? 0) * sourceBuffer.sampleRate));
+  const end = Math.min(sourceBuffer.length, Math.ceil((options.scopeRange?.endSec ?? sourceBuffer.duration) * sourceBuffer.sampleRate));
+  let peaksReducedCount = 0;
+  let originalMax = 0;
+  let newMax = 0;
+
+  for (let channelIndex = 0; channelIndex < sourceBuffer.numberOfChannels; channelIndex++) {
+    const source = sourceBuffer.getChannelData(channelIndex);
+    const target = repairedBuffer.getChannelData(channelIndex);
+    target.set(source);
+    for (let index = 0; index < source.length; index++) {
+      const amplitude = Math.abs(source[index]);
+      originalMax = Math.max(originalMax, amplitude);
+      if (index >= start && index < end && amplitude > threshold && amplitude > ceiling) {
+        target[index] = Math.sign(source[index]) * ceiling;
+        if (channelIndex === 0) peaksReducedCount++;
+      }
+      newMax = Math.max(newMax, Math.abs(target[index]));
+    }
+  }
+
+  audioContext.close();
+  const originalMaxPeakDb = originalMax > 0 ? 20 * Math.log10(originalMax) : -Infinity;
+  const newMaxPeakDb = newMax > 0 ? 20 * Math.log10(newMax) : -Infinity;
+  return {
+    repairedBuffer,
+    peaksReducedCount,
+    originalMaxPeakDb,
+    newMaxPeakDb,
+    headroomGainedDb: newMaxPeakDb - originalMaxPeakDb,
+  };
+}
+
 /**
  * Formats time in seconds to mm:ss.ms or hh:mm:ss.ms
  */
@@ -309,11 +444,15 @@ export function formatTime(seconds: number, includeMs = true): string {
 export function detectSilenceSplits(
   audioBuffer: AudioBuffer,
   thresholdDb = -42,
-  minSilenceDurationSec = 1.2
+  minSilenceDurationSec = 1.2,
+  startSec = 0,
+  endSec = audioBuffer.duration
 ): number[] {
   const sampleRate = audioBuffer.sampleRate;
   const numChannels = audioBuffer.numberOfChannels;
   const len = audioBuffer.length;
+  const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+  const endSample = Math.min(len, Math.ceil(endSec * sampleRate));
   const thresholdLinear = Math.pow(10, thresholdDb / 20);
   const minSilenceSamples = Math.round(minSilenceDurationSec * sampleRate);
 
@@ -323,9 +462,9 @@ export function detectSilenceSplits(
   let inSilence = false;
   let silenceStartSample = 0;
 
-  for (let i = 0; i < len; i += windowSize) {
+  for (let i = startSample; i < endSample; i += windowSize) {
     let windowPeak = 0;
-    const end = Math.min(len, i + windowSize);
+    const end = Math.min(endSample, i + windowSize);
     for (let ch = 0; ch < numChannels; ch++) {
       const data = audioBuffer.getChannelData(ch);
       for (let s = i; s < end; s++) {
