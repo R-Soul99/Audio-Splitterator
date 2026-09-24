@@ -5,8 +5,8 @@ let mainWindow = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 850,
+    width: 980,
+    height: 650,
     minWidth: 980,
     minHeight: 650,
     title: 'Audiophonic Recordinator',

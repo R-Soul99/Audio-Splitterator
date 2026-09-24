@@ -28,14 +28,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Radio className="w-5 h-5 animate-pulse" />
           </div>
           <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-base font-semibold text-slate-100 tracking-tight">
-                Audiophonic Recordinator
-              </h1>
-              <span className="text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-                Studio Edition
-              </span>
-            </div>
+            <h1 className="text-base font-semibold text-slate-100 tracking-tight">
+              Audiophonic Recordinator
+            </h1>
           </div>
         </div>
 

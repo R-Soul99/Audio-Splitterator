@@ -946,14 +946,9 @@ export default function App() {
           {/* Brand & Logo on the Left */}
           <div className="flex items-center space-x-3 shrink-0 sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2">
             <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-base font-bold text-slate-100 tracking-tight">
-                  Audiophonic Recordinator
-                </h1>
-                <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-                  Studio Edition
-                </span>
-              </div>
+              <h1 className="text-base font-bold text-slate-100 tracking-tight">
+                Audiophonic Recordinator
+              </h1>
             </div>
           </div>
 
@@ -1025,7 +1020,7 @@ export default function App() {
       <main className="flex-1 min-h-0 w-full p-4 lg:p-6 lg:pb-4 flex flex-col">
         <div className="flex-1 flex flex-col min-h-0 relative">
           {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
-          <div className="flex-1 relative bg-slate-950/20 border border-slate-900 rounded-2xl overflow-hidden p-4 min-h-0 select-none bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
+          <div className="flex-1 flex flex-col relative bg-slate-950/20 border border-slate-900 rounded-2xl overflow-hidden p-4 min-h-0 select-none">
             
             {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
             {workflowTab === 'record' && (
@@ -1065,10 +1060,10 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                <div className="flex flex-col h-full space-y-3 min-h-0">
+                <div className="flex flex-col h-full min-h-0 gap-3 overflow-hidden">
                   {/* Top: Project Metadata Bar */}
-                  <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs">
-                    <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex-shrink-0 h-12 flex items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs overflow-hidden">
+                    <div className="flex items-center gap-4 min-w-0">
                       {/* Artist */}
                       <div className="flex items-center space-x-2">
                         <Tag className="w-3.5 h-3.5 text-emerald-400" />
@@ -1106,9 +1101,9 @@ export default function App() {
                   </div>
 
                   {/* 2-Column Workspace: Waveform on Left, Split Regions List on Right */}
-                  <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3">
+                  <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_320px] gap-3 overflow-hidden">
                     {/* Left: Waveform canvas & toolbar (Full dynamic height) */}
-                    <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+                    <div className="min-w-0 min-h-0 flex flex-col overflow-hidden">
                       <WaveformCanvas
                         audioBuffer={audioBuffer}
                         currentTime={currentTime}
@@ -1153,7 +1148,7 @@ export default function App() {
                     </div>
 
                     {/* Right: Split Regions List (Never a scroll list - all entries visible at all times) */}
-                    <div className="w-full lg:w-80 xl:w-96 flex-shrink-0 bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden">
+                    <div className="w-[320px] min-w-0 bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden">
                       {/* Header */}
                       <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 flex-shrink-0">
                         <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
