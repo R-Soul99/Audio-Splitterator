@@ -28,8 +28,6 @@ import {
   SlidersHorizontal,
   RotateCcw,
   Repeat,
-  ArrowLeftToLine,
-  ArrowRightFromLine,
   Activity,
   Sparkles,
   Trash2,
@@ -81,6 +79,9 @@ interface TooltipButtonProps {
   onClick: (e: React.MouseEvent) => void;
   icon: React.ReactNode;
   label: string;
+  caption?: string;
+  captionAbove?: boolean;
+  compact?: boolean;
   isActive?: boolean;
   activeClass?: string;
   disabled?: boolean;
@@ -90,6 +91,9 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
   onClick,
   icon,
   label,
+  caption,
+  captionAbove = false,
+  compact = false,
   isActive = false,
   activeClass = "bg-emerald-600 text-white border-emerald-500 shadow-sm",
   disabled = false,
@@ -115,18 +119,20 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
   }, []);
 
   return (
-    <div className="relative inline-block" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+    <div className={`relative inline-flex ${captionAbove ? 'flex-col items-center gap-0.5' : ''}`} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      {caption && captionAbove && <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">{caption}</span>}
       <button
         type="button"
         disabled={disabled}
         onClick={onClick}
-        className={`w-9 h-9 flex items-center justify-center rounded-md border text-slate-300 font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+        className={`${compact || captionAbove ? 'w-6 h-6' : caption && !captionAbove ? 'h-9 px-2 gap-1.5' : 'w-9 h-9'} flex items-center justify-center rounded-md border text-slate-300 font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
           isActive
             ? activeClass
             : 'bg-slate-950 hover:bg-slate-800 border-slate-800 hover:border-slate-700'
         }`}
       >
         {icon}
+        {caption && !captionAbove && <span className="text-[9px] font-bold uppercase tracking-wider">{caption}</span>}
       </button>
       {showTooltip && (
         <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2.5 px-2.5 py-1.5 bg-slate-950 text-slate-200 border border-slate-850 text-[10px] font-medium font-sans rounded shadow-2xl whitespace-nowrap z-50 pointer-events-none">
@@ -200,6 +206,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Noise Floor & Auto-Split States
   const [noiseFloorDb, setNoiseFloorDb] = useState<number>(-45.0);
+  const [snapToNoiseFloor, setSnapToNoiseFloor] = useState<boolean>(true);
   const [silenceDurationSec, setSilenceDurationSec] = useState<number>(1.0);
   const [showNoiseFloorPopover, setShowNoiseFloorPopover] = useState<boolean>(false);
   const [measuredPeakDb, setMeasuredPeakDb] = useState<number | null>(null);
@@ -405,6 +412,40 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     return snappedSample / sampleRate;
   }, [audioBuffer]);
 
+  const snapTimeToNoiseFloor = useCallback((time: number): number => {
+    if (!snapToNoiseFloor || !audioBuffer) return time;
+
+    const channel = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    const targetSample = Math.max(0, Math.min(channel.length - 1, Math.round(time * sampleRate)));
+    const searchSamples = Math.round(sampleRate * 0.45);
+    const windowSamples = Math.max(32, Math.round(sampleRate * 0.012));
+    const threshold = Math.pow(10, noiseFloorDb / 20);
+    let bestSample = targetSample;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (let offset = -searchSamples; offset <= searchSamples; offset += windowSamples) {
+      const center = Math.max(0, Math.min(channel.length - 1, targetSample + offset));
+      const start = Math.max(0, center - Math.floor(windowSamples / 2));
+      const end = Math.min(channel.length, start + windowSamples);
+      let sumSquares = 0;
+      for (let i = start; i < end; i++) sumSquares += channel[i] * channel[i];
+      const rms = Math.sqrt(sumSquares / Math.max(1, end - start));
+      if (rms <= threshold && Math.abs(offset) < bestDistance) {
+        bestSample = center;
+        bestDistance = Math.abs(offset);
+      }
+    }
+
+    return bestDistance <= searchSamples ? bestSample / sampleRate : time;
+  }, [audioBuffer, noiseFloorDb, snapToNoiseFloor]);
+
+  const snapEditTime = useCallback((time: number) => {
+    let snapped = snapTimeToNoiseFloor(time);
+    if (fadeSettings.zeroCrossing) snapped = snapToZeroCrossing(snapped);
+    return snapped;
+  }, [fadeSettings.zeroCrossing, snapTimeToNoiseFloor, snapToZeroCrossing]);
+
   // Render Loop: Waveform drawing
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -504,8 +545,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               }
             }
 
-            const yMin = centerY + minVal * fadeGain * (channelHeight * 0.45);
-            const yMax = centerY + maxVal * fadeGain * (channelHeight * 0.45);
+            const visualGain = 1.35;
+            const yMin = centerY + minVal * fadeGain * (channelHeight * 0.45) * visualGain;
+            const yMax = centerY + maxVal * fadeGain * (channelHeight * 0.45) * visualGain;
 
             ctx.moveTo(x, yMin);
             ctx.lineTo(x, yMax);
@@ -800,6 +842,22 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // 6. Hover guide
     if (hoverPosition && hoverTime !== null) {
       const hx = hoverPosition.x;
+      const snappedHoverTime = snapEditTime(hoverTime);
+      const snappedX = timeToX(snappedHoverTime, width);
+      if (snapToNoiseFloor && Math.abs(snappedX - hx) > 2 && snappedX >= 0 && snappedX <= width) {
+        ctx.strokeStyle = '#67e8f9';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.beginPath();
+        ctx.moveTo(snappedX, 0);
+        ctx.lineTo(snappedX, height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#67e8f9';
+        ctx.beginPath();
+        ctx.arc(snappedX, 9, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
       if (markerTool === 'add') {
         // Show purple preview line with top flag where marker will land
         ctx.strokeStyle = '#a855f7';
@@ -827,7 +885,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.setLineDash([]);
       }
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX, markerTool, nearestMarkerId]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX, markerTool, nearestMarkerId, snapEditTime, snapToNoiseFloor]);
 
   // Minimap rendering
   useEffect(() => {
@@ -844,7 +902,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.fillRect(0, 0, width, height);
 
     // Plot full-length mini waveform
-    ctx.fillStyle = '#047857'; // Emerald-700
+    ctx.fillStyle = '#10b981';
     const rawData = audioBuffer.getChannelData(0);
     const step = Math.ceil(rawData.length / width);
     for (let x = 0; x < width; x++) {
@@ -877,8 +935,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           }
         }
       }
-      const yMin = (0.5 - min * fadeGain * 0.48) * height;
-      const yMax = (0.5 - max * fadeGain * 0.48) * height;
+      const yMin = (0.5 - min * fadeGain * 0.8) * height;
+      const yMax = (0.5 - max * fadeGain * 0.8) * height;
       ctx.fillRect(x, yMin, 1.2, Math.max(1, yMax - yMin));
     }
 
@@ -888,22 +946,24 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     const vx = Math.max(0, viewOffsetPct * width);
     const vw = Math.max(8, Math.min(width - vx, viewWidthPct * width));
+    const rightEdge = Math.min(width, vx + vw);
 
     // Viewport fill & outline
-    ctx.fillStyle = minimapDrag ? 'rgba(56, 189, 248, 0.25)' : 'rgba(56, 189, 248, 0.15)';
+    ctx.fillStyle = minimapDrag ? 'rgba(56, 189, 248, 0.2)' : 'rgba(56, 189, 248, 0.08)';
     ctx.fillRect(vx, 0, vw, height);
     ctx.strokeStyle = minimapDrag ? '#38bdf8' : '#0284c7';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(vx, 0, vw, height);
 
     // Left and right resize edge handles / visual grips
-    const handleW = 4;
+    const handleW = 10;
+    const rightHandleX = Math.max(vx, rightEdge - handleW - 2);
     // Left handle
     ctx.fillStyle = minimapHover === 'left' || minimapDrag?.mode === 'resizeLeft' ? '#38bdf8' : '#0369a1';
     ctx.fillRect(vx, 0, handleW, height);
     // Right handle
     ctx.fillStyle = minimapHover === 'right' || minimapDrag?.mode === 'resizeRight' ? '#38bdf8' : '#0369a1';
-    ctx.fillRect(vx + vw - handleW, 0, handleW, height);
+    ctx.fillRect(rightHandleX, 0, handleW, height);
 
     // Inner subtle vertical grip tick marks on edges if viewport is wide enough
     if (vw >= 16) {
@@ -912,8 +972,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.fillRect(vx + 1.5, height / 2 - 4, 1, 3);
       ctx.fillRect(vx + 1.5, height / 2 + 1, 1, 3);
       // Right grip dots
-      ctx.fillRect(vx + vw - 2.5, height / 2 - 4, 1, 3);
-      ctx.fillRect(vx + vw - 2.5, height / 2 + 1, 1, 3);
+      ctx.fillRect(rightHandleX + handleW - 3, height / 2 - 4, 1, 3);
+      ctx.fillRect(rightHandleX + handleW - 3, height / 2 + 1, 1, 3);
     }
   }, [audioBuffer, zoom, currentOffset, visibleDuration, duration, fadeSettings, cropStart, cropEnd, minimapDrag, minimapHover]);
 
@@ -934,15 +994,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (activeDrag) {
       if (activeDrag.type === 'playhead') {
         let nextTime = Math.max(cropStart, Math.min(cropEnd, time));
-        if (fadeSettings.zeroCrossing) {
-          nextTime = snapToZeroCrossing(nextTime);
-        }
+        nextTime = snapEditTime(nextTime);
         onSeek(nextTime);
       } else if (activeDrag.type === 'marker' && activeDrag.id) {
         let nextTime = Math.max(cropStart, Math.min(cropEnd, time));
-        if (fadeSettings.zeroCrossing) {
-          nextTime = snapToZeroCrossing(nextTime);
-        }
+        nextTime = snapEditTime(nextTime);
         onMarkerMove(activeDrag.id, nextTime);
       } else if (activeDrag.type === 'fadeIn') {
         const nextMs = Math.max(0, Math.round((time - cropStart) * 1000));
@@ -961,9 +1017,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const nextNode = Math.max(0.05, Math.min(0.95, 1 - y / canvasDimensions.height));
         onFadeSettingsChange({ ...fadeSettings, fadeOutCurveNode: nextNode, fadeOutCurveNodePosition: nextPosition });
       } else if (activeDrag.type === 'selectionStart' && selection) {
-        onSelectionChange({ ...selection, start: Math.max(0, Math.min(duration, time)) });
+        onSelectionChange({ ...selection, start: Math.max(0, Math.min(duration, snapEditTime(time))) });
       } else if (activeDrag.type === 'selectionEnd' && selection) {
-        onSelectionChange({ ...selection, end: Math.max(0, Math.min(duration, time)) });
+        onSelectionChange({ ...selection, end: Math.max(0, Math.min(duration, snapEditTime(time))) });
       } else if (activeDrag.type === 'selectionMove' && selection && activeDrag.startTime !== undefined && activeDrag.startX !== undefined) {
         const dt = time - activeDrag.startTime;
         const curS = selection.start;
@@ -983,8 +1039,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         onSelectionChange({ start: nextS, end: nextE });
       } else if (activeDrag.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
         if (activeDrag.startX !== undefined && Math.abs(x - activeDrag.startX) > 4) {
-          const s = Math.min(activeDrag.startTime, time);
-          const e = Math.max(activeDrag.startTime, time);
+          const snappedTime = snapEditTime(time);
+          const s = Math.min(activeDrag.startTime, snappedTime);
+          const e = Math.max(activeDrag.startTime, snappedTime);
           onSelectionChange?.({ start: s, end: e });
         }
       }
@@ -1135,15 +1192,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     } else if (markerTool === 'add') {
       // In '+' mode, each click adds a marker
       let markerTime = time;
-      if (fadeSettings.zeroCrossing) {
-        markerTime = snapToZeroCrossing(markerTime);
-      }
+      markerTime = snapEditTime(markerTime);
       onAddMarker(markerTime);
     } else if (hoveredElement === 'marker' && hoveredMarkerId) {
       setActiveDrag({ type: 'marker', id: hoveredMarkerId });
     } else {
       // Smart tool: Record drag start point; don't trigger playback until pointer release
-      setActiveDrag({ type: 'selectionCreate', startTime: time, startX: x });
+      setActiveDrag({ type: 'selectionCreate', startTime: snapEditTime(time), startX: x });
     }
   };
 
@@ -1253,10 +1308,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const vx = Math.max(0, viewOffsetPct * width);
     const vw = Math.max(8, Math.min(width - vx, viewWidthPct * width));
 
-    const edgeTolerance = 6;
+    const edgeTolerance = 24;
     const isNearLeft = Math.abs(x - vx) <= edgeTolerance;
-    const isNearRight = Math.abs(x - (vx + vw)) <= edgeTolerance;
-    const isInside = x >= vx && x <= vx + vw;
+    const rightEdge = Math.min(width, vx + vw);
+    const isNearRight = x >= width - edgeTolerance || Math.abs(x - rightEdge) <= edgeTolerance;
+    const isInside = x >= vx && x <= rightEdge;
 
     if (isNearLeft) {
       setMinimapDrag({
@@ -1351,10 +1407,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const vx = Math.max(0, viewOffsetPct * width);
     const vw = Math.max(8, Math.min(width - vx, viewWidthPct * width));
 
-    const edgeTolerance = 6;
+    const edgeTolerance = 24;
+    const rightEdge = Math.min(width, vx + vw);
     if (Math.abs(x - vx) <= edgeTolerance) {
       setMinimapHover('left');
-    } else if (Math.abs(x - (vx + vw)) <= edgeTolerance) {
+    } else if (x >= width - edgeTolerance || Math.abs(x - rightEdge) <= edgeTolerance) {
       setMinimapHover('right');
     } else if (x >= vx && x <= vx + vw) {
       setMinimapHover('body');
@@ -1406,7 +1463,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const hasSelection = Boolean(selection && Math.abs(selection.end - selection.start) > 0.02);
   const selS = selection ? Math.min(selection.start, selection.end) : 0;
   const selE = selection ? Math.max(selection.start, selection.end) : 0;
-  const selLen = selE - selS;
 
   // Sample Noise Floor from active selection
   const handleSampleNoiseFloor = () => {
@@ -1570,12 +1626,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   }, [showPeakTamerPopover]);
 
   return (
-    <div className="space-y-2 select-none flex flex-col h-full min-h-0" ref={containerRef}>
+    <div className="space-y-2 select-none flex flex-col h-full min-w-0 min-h-0 overflow-hidden" ref={containerRef}>
       {/* 1. Precision Audio Editing Toolbar (placed at top, between Recording Name bar and Waveform) */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs flex-shrink-0 relative">
-        <div className="flex items-center flex-wrap gap-1.5">
+      <div className="order-2 flex items-center justify-between gap-1 bg-slate-900 border border-slate-800 px-2 py-1 rounded-xl text-xs flex-shrink-0 relative overflow-hidden">
+        <div className="flex items-end flex-nowrap gap-1 min-w-0 w-full">
           {/* Markers Section */}
-          <div className="order-1 flex items-center space-x-1 bg-slate-950/60 p-0.5 rounded-lg border border-slate-800/80">
+          <div className="order-4 relative flex items-center space-x-0.5 bg-slate-950/60 p-0.5 rounded-lg border border-slate-800/80 shrink-0 pt-2">
+            <span className="absolute left-1 top-0 text-[7px] font-bold uppercase tracking-wider text-purple-400">Markers</span>
             {/* Add Marker (+) Toggle */}
             <TooltipButton
               onClick={() => setMarkerTool(markerTool === 'add' ? 'none' : 'add')}
@@ -1583,6 +1640,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               activeClass="bg-purple-600 text-white border-purple-500 shadow-sm"
               icon={<BookmarkPlus className="w-3.5 h-3.5" />}
               label="Add Marker (+) Toggle - Click waveform to place split markers"
+              caption="Add"
+              captionAbove
             />
 
             {/* Remove Marker (-) Toggle */}
@@ -1592,6 +1651,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               activeClass="bg-rose-600 text-white border-rose-500 shadow-sm"
               icon={<BookmarkMinus className="w-3.5 h-3.5" />}
               label="Remove Marker (-) Toggle - Click waveform to remove nearest marker to cursor"
+              caption="Remove"
+              captionAbove
             />
 
             {/* Clear All Markers */}
@@ -1601,14 +1662,17 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 disabled={markers.length === 0}
                 icon={<Trash2 className={`w-3.5 h-3.5 ${markers.length > 0 ? 'text-slate-400 hover:text-rose-400' : 'text-slate-600'}`} />}
                 label={markers.length > 0 ? `Clear All Split Markers (${markers.length})` : 'No markers to clear'}
+                caption="Clear"
+                captionAbove
               />
             )}
           </div>
 
-          <div className="order-2 h-5 w-px bg-slate-800 mx-0.5" />
+          <div className="order-4 h-5 w-px bg-slate-800 mx-0.5" />
 
           {/* Noise Floor & Auto-Split Section */}
-          <div className="order-8 flex items-center space-x-1.5 bg-slate-950/60 px-2 py-0.5 rounded-lg border border-slate-800/80">
+          <div className="order-3 relative h-12 flex items-center space-x-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0 pt-2">
+            <span className="absolute left-1 top-0 text-[7px] font-bold uppercase tracking-wider text-amber-400">Detection</span>
             {/* Sample Noise Floor Button (icon only) */}
             <TooltipButton
               onClick={handleSampleNoiseFloor}
@@ -1620,14 +1684,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                   ? 'Click to sample noise floor from active selection'
                   : 'Select a quiet region on the waveform first, then click to sample noise floor'
               }
+              caption="Sample"
+              captionAbove
+              compact
             />
 
             {/* Noise Floor Threshold Pill & Popover */}
-            <div className="relative">
+            <div className="relative flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500">Threshold</span>
               <button
                 type="button"
                 onClick={() => setShowNoiseFloorPopover(!showNoiseFloorPopover)}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono font-bold transition cursor-pointer border ${
+                className={`h-6 flex items-center gap-1 px-2 rounded-md text-[10px] font-mono font-bold transition cursor-pointer border ${
                   showNoiseFloorPopover
                     ? 'bg-amber-600 text-white border-amber-500'
                     : 'bg-slate-800/90 text-amber-400 border-slate-700 hover:border-slate-600'
@@ -1666,13 +1734,30 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               )}
             </div>
 
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500">Snap</span>
+              <button
+                type="button"
+                onClick={() => setSnapToNoiseFloor((enabled) => !enabled)}
+                className={`w-6 h-6 px-1 rounded-md border text-[9px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                  snapToNoiseFloor
+                    ? 'bg-sky-600 text-white border-sky-500'
+                    : 'bg-slate-800/90 text-slate-400 border-slate-700 hover:text-slate-200'
+                }`}
+                title={`Snap manual edits to nearby audio below ${noiseFloorDb.toFixed(1)} dB (${snapToNoiseFloor ? 'on' : 'off'})`}
+                aria-pressed={snapToNoiseFloor}
+              >
+                ON
+              </button>
+            </div>
+
             {/* Silence Duration Dropdown */}
-            <div className="flex items-center space-x-1 pl-1 border-l border-slate-800">
-              <span className="text-[10px] text-slate-400 font-medium">Gap</span>
+            <div className="flex flex-col items-center gap-0.5 pl-1 border-l border-slate-800">
+              <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Gap</span>
               <select
                 value={silenceDurationSec}
                 onChange={(e) => setSilenceDurationSec(parseFloat(e.target.value))}
-                className="bg-slate-800 border border-slate-700 text-slate-200 font-mono text-[11px] rounded px-1.5 py-0.5 cursor-pointer focus:outline-none focus:border-emerald-500"
+                className="h-6 bg-slate-800 border border-slate-700 text-slate-200 font-mono text-[10px] rounded px-1 cursor-pointer focus:outline-none focus:border-emerald-500"
                 title="Minimum duration of silence required to trigger an auto-split marker"
               >
                 <option value="0.3">0.3s</option>
@@ -1688,21 +1773,68 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             </div>
 
             {/* Auto-Split Action Button */}
-            <button
-              type="button"
-              onClick={handleTriggerAutoSplit}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold transition cursor-pointer border border-purple-500/50 shadow-sm"
-              title={`Detect where level drops to ${noiseFloorDb.toFixed(1)} dB for at least ${silenceDurationSec.toFixed(1)}s and place markers`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Auto Split</span>
-            </button>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500">Split</span>
+              <button
+                type="button"
+                onClick={handleTriggerAutoSplit}
+                className="flex items-center justify-center w-6 h-6 rounded-md bg-purple-600 hover:bg-purple-500 text-white transition cursor-pointer border border-purple-500/50 shadow-sm"
+                title={`Detect where level drops to ${noiseFloorDb.toFixed(1)} dB for at least ${silenceDurationSec.toFixed(1)}s and place markers`}
+                aria-label="Run automatic split detection"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
-          <div className="order-4 h-5 w-px bg-slate-800 mx-0.5" />
+          {/* Selection actions: permanent console controls beside detection */}
+          <div className="order-1 relative h-12 flex items-start gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-sky-500/25 shrink-0 pt-2">
+            <div className="flex items-start gap-1 pr-1 border-r border-slate-800">
+              <span className="text-[7px] font-bold uppercase tracking-wider text-sky-400">Selection</span>
+              <span className="text-[9px] font-mono text-slate-400 whitespace-nowrap">
+                {hasSelection ? `${formatTime(selS, true)} - ${formatTime(selE, true)}` : 'None'}
+              </span>
+            </div>
+            <TooltipButton
+              onClick={() => {
+                if (onLoopSelection) onLoopSelection(selS, selE);
+                else if (onPlaySelection) onPlaySelection(selS, selE);
+              }}
+              disabled={!hasSelection}
+              isActive={isLooping && isPlaying}
+              activeClass="bg-emerald-500/25 text-emerald-300 border-emerald-500/50"
+              icon={<Repeat className="w-3.5 h-3.5 text-emerald-400" />}
+              label="Loop and play the selected region"
+              caption="Loop"
+              captionAbove
+              compact
+            />
+            <TooltipButton
+              onClick={() => onCropToSelection?.(selS, selE)}
+              disabled={!hasSelection}
+              activeClass="bg-sky-600 text-white border-sky-500"
+              icon={<Crop className="w-3.5 h-3.5" />}
+              label="Keep the selected region and discard everything outside it"
+              caption="Crop"
+              captionAbove
+              compact
+            />
+            <TooltipButton
+              onClick={() => onCutSelection?.(selS, selE)}
+              disabled={!hasSelection}
+              activeClass="bg-rose-600 text-white border-rose-500"
+              icon={<Scissors className="w-3.5 h-3.5" />}
+              label="Delete the selected region and splice the remaining audio"
+              caption="Cut"
+              captionAbove
+              compact
+            />
+          </div>
+
+          <div className="order-1 h-5 w-px bg-slate-800 mx-0.5" />
 
           {/* Edit Actions: Crop, Cut, Undo */}
-          <div className="order-3 flex items-center space-x-1">
+          <div className="order-2 flex items-center space-x-1">
             <TooltipButton
               onClick={() => {
                 if (selection) {
@@ -1712,6 +1844,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               disabled={!hasSelection}
               icon={<Crop className="w-3.5 h-3.5 text-sky-400" />}
               label="Crop to Selection (Ctrl+T): Discard audio outside selection"
+              caption="Crop"
+              captionAbove
             />
 
             <TooltipButton
@@ -1723,6 +1857,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               disabled={!hasSelection}
               icon={<Scissors className="w-3.5 h-3.5 text-rose-400" />}
               label="Cut Selection (Del / Backspace): Remove selected audio and splice"
+              caption="Cut"
+              captionAbove
             />
 
             {onUndo && (
@@ -1731,16 +1867,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 disabled={!canUndo}
                 icon={<RotateCcw className="w-3.5 h-3.5 text-slate-300" />}
                 label="Undo Audio Edit (Ctrl+Z)"
+                caption="Undo"
+                captionAbove
               />
             )}
           </div>
 
-          <div className="order-7 h-5 w-px bg-slate-800 mx-0.5" />
+          <div className="order-2 h-5 w-px bg-slate-800 mx-0.5" />
 
           {/* Normalise, Curve, Peak Tamer */}
 
           {/* Normalise Peak Gain */}
-          <div className="order-5 relative">
+          <div className="order-2 relative">
             <TooltipButton
               onClick={() => {
                 setShowNormalisePopover(!showNormalisePopover);
@@ -1750,6 +1888,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               activeClass="bg-amber-600 text-white border-amber-500 shadow-sm"
               icon={<UnfoldVertical className="w-3.5 h-3.5" />}
               label="Normalise Peak Gain"
+              caption="Level"
+              captionAbove
             />
             {showNormalisePopover && (
               <div className="absolute top-full right-0 mt-2 p-3 bg-slate-950 border border-slate-800 rounded shadow-2xl text-xs space-y-2 w-48 z-50 animate-fade-in select-none">
@@ -1781,7 +1921,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           </div>
 
           {/* Anomalous Peak Tamer */}
-          <div className="order-5 relative">
+          <div className="order-2 relative">
             <TooltipButton
               onClick={() => {
                 const nextState = !showPeakTamerPopover;
@@ -1792,6 +1932,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               activeClass="bg-amber-600 text-white border-amber-500 shadow-sm"
               icon={<AudioWaveform className="w-3.5 h-3.5" />}
               label="Anomalous Peak Tamer (Detect & Reduce Outlier Spikes)"
+              caption="Repair"
+              captionAbove
             />
             {showPeakTamerPopover && (
               <div className="absolute top-full right-0 mt-2 p-3 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl text-xs space-y-2.5 w-80 z-50 animate-fade-in select-none">
@@ -2023,7 +2165,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       {/* 2. Feedback Notification Toast */}
       {feedbackToast && (
         <div
-          className={`flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs font-semibold animate-fade-in flex-shrink-0 ${
+          className={`order-3 flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs font-semibold animate-fade-in flex-shrink-0 ${
             feedbackToast.type === 'success'
               ? 'bg-emerald-950/90 border-emerald-800/80 text-emerald-300'
               : feedbackToast.type === 'warning'
@@ -2045,102 +2187,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         </div>
       )}
 
-      {/* 0. Selection Action HUD (Appears when a region is selected) */}
-      {hasSelection && (
-        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/95 border border-sky-500/40 px-3 py-1.5 rounded-xl text-xs shadow-lg backdrop-blur-xs flex-shrink-0 animate-fade-in">
-          <div className="flex items-center space-x-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-sky-500/15 text-sky-300 font-mono font-bold text-xs border border-sky-500/30">
-              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
-              <span>Selection: {formatTime(selS, true)} – {formatTime(selE, true)}</span>
-              <span className="text-slate-400 font-normal">({formatTime(selLen, true)})</span>
-            </span>
-          </div>
-
-          <div className="flex items-center flex-wrap gap-1.5">
-            {/* Loop Selection */}
-            <button
-              type="button"
-              onClick={() => {
-                if (onLoopSelection) {
-                  onLoopSelection(selS, selE);
-                } else if (onPlaySelection) {
-                  onPlaySelection(selS, selE);
-                }
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer border ${
-                isLooping && isPlaying
-                  ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/50 shadow-sm'
-                  : 'bg-slate-800 hover:bg-slate-750 text-slate-200 border-slate-700'
-              }`}
-              title="Loop and play this selected region"
-            >
-              <Repeat className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{isLooping && isPlaying ? 'Looping Section' : 'Loop Section'}</span>
-            </button>
-
-            {/* Crop to Selection */}
-            <button
-              type="button"
-              onClick={() => onCropToSelection?.(selS, selE)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition cursor-pointer border border-sky-500 shadow-sm"
-              title="Crop to Selection: Keep this selection and discard outside audio (Ctrl+T)"
-            >
-              <Crop className="w-3.5 h-3.5" />
-              <span>Crop to Selection</span>
-            </button>
-
-            {/* Cut Selection */}
-            <button
-              type="button"
-              onClick={() => onCutSelection?.(selS, selE)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer border border-rose-500 shadow-sm"
-              title="Cut Selection: Delete this section and splice the rest together (Del / Backspace)"
-            >
-              <Scissors className="w-3.5 h-3.5" />
-              <span>Cut Selection</span>
-            </button>
-
-            {/* Trim Start */}
-            {onTrimStart && (
-              <button
-                type="button"
-                onClick={onTrimStart}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold transition cursor-pointer border border-slate-700"
-                title="Trim Start: Delete unnecessary audio from 0:00 up to selection start"
-              >
-                <ArrowLeftToLine className="w-3.5 h-3.5 text-amber-400" />
-                <span>Trim Before Start</span>
-              </button>
-            )}
-
-            {/* Trim End */}
-            {onTrimEnd && (
-              <button
-                type="button"
-                onClick={onTrimEnd}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold transition cursor-pointer border border-slate-700"
-                title="Trim End: Delete unnecessary audio from selection end to track end"
-              >
-                <ArrowRightFromLine className="w-3.5 h-3.5 text-amber-400" />
-                <span>Trim After End</span>
-              </button>
-            )}
-
-            {/* Clear Selection */}
-            <button
-              type="button"
-              onClick={() => onSelectionChange?.(null)}
-              className="p-1 rounded-md bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 border border-slate-700 transition cursor-pointer"
-              title="Clear Selection (Escape)"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* 1. Main Waveform Canvas Container (fills remaining height dynamically) */}
-      <div className="flex-1 min-h-0 relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner" ref={canvasContainerRef}>
+      <div className="order-4 flex-1 min-h-0 relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner" ref={canvasContainerRef}>
         <canvas
           ref={canvasRef}
           onPointerDown={handlePointerDown}
@@ -2193,10 +2241,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {/* 2. Minimap Overview & Navigation Bar */}
-      <div className="flex items-center space-x-2.5 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800 flex-shrink-0">
-        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider w-16 shrink-0">
-          Overview:
-        </span>
+      <div className="order-5 relative w-full bg-slate-900 p-0 rounded-lg border border-slate-800 flex-shrink-0 overflow-hidden">
         <canvas
           ref={minimapRef}
           width={800}
@@ -2206,17 +2251,17 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onPointerUp={handleMinimapPointerUp}
           onPointerCancel={handleMinimapPointerUp}
           onPointerLeave={handleMinimapPointerLeave}
-          className="w-full h-6.5 rounded bg-slate-950 border border-slate-800 touch-none select-none"
+          className="block w-full h-6.5 rounded bg-slate-950 touch-none select-none"
           style={{ cursor: minimapCursor }}
           title="Drag edges to zoom • Drag inside to slide • Click to jump view"
         />
-        <div className="text-[10px] font-mono text-slate-400 shrink-0">
+        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-400 bg-slate-950/75 px-1.5 py-0.5 rounded">
           {zoom.toFixed(1)}x zoom • {formatTime(visibleDuration)} visible
         </div>
       </div>
 
       {/* 3. DAW Transport & Zoom Toolbar (at bottom) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs flex-shrink-0 relative">
+      <div className="order-6 flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs flex-shrink-0 relative">
         <div className="flex items-center flex-wrap gap-1.5">
           {/* Transport Controls (Symbol only, no text explanations) */}
           {onPlayPause && (
@@ -2232,6 +2277,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 )
               }
               label={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+              caption={isPlaying ? 'Pause' : 'Play'}
             />
           )}
 
@@ -2240,6 +2286,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               onClick={onStop}
               icon={<Square className="w-3 h-3 fill-current text-slate-300" />}
               label="Stop Playback"
+              caption="Stop"
             />
           )}
 
@@ -2250,6 +2297,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               activeClass="bg-emerald-600 text-white border-emerald-500 shadow-sm"
               icon={<Repeat className="w-3.5 h-3.5" />}
               label={`Loop Playback (${isLooping ? 'ON' : 'OFF'})`}
+              caption="Loop"
             />
           )}
 
@@ -2260,16 +2308,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             onClick={handleZoomIn}
             icon={<ZoomIn className="w-3.5 h-3.5" />}
             label="Zoom In (Ctrl + Scroll Up)"
+            caption="Zoom +"
           />
           <TooltipButton
             onClick={handleZoomOut}
             icon={<ZoomOut className="w-3.5 h-3.5" />}
             label="Zoom Out (Ctrl + Scroll Down)"
+            caption="Zoom -"
           />
           <TooltipButton
             onClick={handleZoomFit}
             icon={<ScanLine className="w-3.5 h-3.5" />}
             label="Zoom to Fit Entire Audio File"
+            caption="Fit"
           />
 
           <div className="h-5 w-px bg-slate-800 mx-0.5" />

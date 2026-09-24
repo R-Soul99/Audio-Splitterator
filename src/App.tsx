@@ -1029,7 +1029,7 @@ export default function App() {
             
             {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
             {workflowTab === 'record' && (
-              <div className="flex-1 h-full overflow-y-auto pr-1">
+              <div className="flex-1 h-full min-h-0 overflow-hidden">
                 <AudioRecorder
                   onRecordingComplete={(buf, defaultName, art, alb) => {
                     loadAudio(buf, defaultName, art, alb);
@@ -1108,7 +1108,7 @@ export default function App() {
                   {/* 2-Column Workspace: Waveform on Left, Split Regions List on Right */}
                   <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3">
                     {/* Left: Waveform canvas & toolbar (Full dynamic height) */}
-                    <div className="flex-1 min-h-0 flex flex-col">
+                    <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                       <WaveformCanvas
                         audioBuffer={audioBuffer}
                         currentTime={currentTime}

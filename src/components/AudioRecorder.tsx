@@ -3,7 +3,6 @@ import {
   Square,
   Pause,
   Play,
-  Settings,
   MicOff,
   Radio,
 } from 'lucide-react';
@@ -54,6 +53,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [inputBoostDb, setInputBoostDb] = useState<number>(0);
   const inputBoostDbRef = useRef<number>(0);
   const inputGainNodeRef = useRef<GainNode | null>(null);
+  const knobDragRef = useRef<{ startY: number; startValue: number } | null>(null);
+  const monitorKnobDragRef = useRef<{ startY: number; startValue: number } | null>(null);
 
   // Audio Context & stream refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -648,6 +649,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     }
   };
 
+  const dbToNeedleAngle = (db: number) => {
+    const normalized = Math.max(0, Math.min(1, (db + 20) / 23));
+    return -55 + normalized * 110;
+  };
+
   return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative select-none">
       
@@ -660,123 +666,80 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         }}
       >
         
-        {/* LEFT INPUT SETTINGS RAIL (Fixed position, never moves or collapses) */}
-        <div className="w-80 shrink-0 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col space-y-4">
-          <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
-            <Settings className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Input Configuration</h3>
-          </div>
-
-          {/* 1. Input Soundcard Device Selection */}
-          <div className="space-y-1.5 text-left">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Input Device
-            </label>
-            <select
-              value={selectedDeviceId}
-              onChange={(e) => handleDeviceChange(e.target.value)}
-              disabled={isRecording}
-              className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 font-semibold focus:outline-none focus:border-emerald-500/50 disabled:opacity-50 cursor-pointer"
-            >
-              {devices.length === 0 && <option value="">Default Audio Input</option>}
-              {devices.map((d) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 2. Channel Mode Toggle (Stereo / Mono) */}
-          <div className="space-y-1.5 text-left">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Channel Mode
-            </label>
-            <div className="flex bg-slate-950 p-0.5 rounded border border-slate-850 text-xs">
-              <button
-                type="button"
+        {/* FULL-WIDTH RECORDING CONSOLE */}
+        <div className="w-full h-full shrink-0 overflow-hidden bg-slate-900/10 border border-slate-900 rounded-xl p-5 flex flex-col items-center justify-between min-h-0 relative gap-3">
+          {/* Compact hardware control strip */}
+          <div className="w-full flex items-end gap-3 bg-slate-950/80 border border-slate-900 rounded-xl p-3 shrink-0">
+            <div className="flex-1 min-w-0 space-y-1">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Input</label>
+              <select
+                value={selectedDeviceId}
+                onChange={(e) => handleDeviceChange(e.target.value)}
                 disabled={isRecording}
-                onClick={() => handleModeChange('stereo')}
-                className={`flex-1 py-1 px-2.5 rounded font-bold text-center cursor-pointer transition ${
-                  channelMode === 'stereo'
-                    ? 'bg-emerald-500 text-slate-950 shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                } disabled:opacity-50`}
+                className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-200 font-semibold focus:outline-none focus:border-emerald-500/50 disabled:opacity-50 cursor-pointer"
               >
-                Stereo
-              </button>
-              <button
-                type="button"
-                disabled={isRecording}
-                onClick={() => handleModeChange('mono')}
-                className={`flex-1 py-1 px-2.5 rounded font-bold text-center cursor-pointer transition ${
-                  channelMode === 'mono'
-                    ? 'bg-emerald-500 text-slate-950 shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                } disabled:opacity-50`}
+                {devices.length === 0 && <option value="">Default Audio Input</option>}
+                {devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1 shrink-0">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mode</span>
+              <div className="flex bg-slate-950 p-0.5 rounded border border-slate-850 text-xs">
+                {(['stereo', 'mono'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={isRecording}
+                    onClick={() => handleModeChange(mode)}
+                    className={`px-3 py-1 rounded font-bold text-center cursor-pointer transition uppercase ${channelMode === mode ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'} disabled:opacity-50`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1 shrink-0">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">kHz</span>
+              <div className="flex bg-slate-950 p-0.5 rounded border border-slate-850 text-xs">
+                {[44100, 48000].map((rate) => (
+                  <button
+                    key={rate}
+                    type="button"
+                    disabled={isRecording}
+                    onClick={() => handleSampleRateChange(rate)}
+                    className={`px-2.5 py-1 rounded font-bold text-center cursor-pointer transition ${recordingSampleRate === rate ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'} disabled:opacity-50`}
+                  >
+                    {rate / 1000}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 border-l border-slate-800 pl-3 shrink-0">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right leading-tight">Preamp<br />Boost</span>
+              <div
+                className={`relative w-11 h-11 rounded-full bg-slate-950 border border-slate-800 shadow-inner touch-none ${isRecording ? 'opacity-40' : ''}`}
+                onPointerDown={(e) => {
+                  if (isRecording) return;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  knobDragRef.current = { startY: e.clientY, startValue: inputBoostDb };
+                }}
+                onPointerMove={(e) => {
+                  if (!knobDragRef.current) return;
+                  const deltaDb = Math.round((knobDragRef.current.startY - e.clientY) * 0.28);
+                  setInputBoostDb(Math.max(0, Math.min(36, knobDragRef.current.startValue + deltaDb)));
+                }}
+                onPointerUp={() => { knobDragRef.current = null; }}
+                onPointerCancel={() => { knobDragRef.current = null; }}
               >
-                Mono
-              </button>
+                <div className="absolute inset-1 rounded-full border-2 border-slate-700" style={{ background: `conic-gradient(from 225deg, #f59e0b ${(inputBoostDb / 36) * 270}deg, #1e293b ${(inputBoostDb / 36) * 270}deg 270deg, transparent 270deg)` }}>
+                  <div className="absolute left-1/2 top-1/2 w-0.5 h-4 origin-bottom rounded-full bg-amber-300" style={{ transform: `translate(-50%, -100%) rotate(${-135 + (inputBoostDb / 36) * 270}deg)` }} />
+                  <div className="absolute left-1/2 top-1/2 w-1.5 h-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300" />
+                </div>
+              </div>
+              <span className="font-mono font-bold text-amber-400 text-[10px]">+{inputBoostDb.toFixed(0)}</span>
             </div>
-          </div>
-
-          {/* 3. Direct Sample Rate Capture Format */}
-          <div className="space-y-1.5 text-left">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Capture Format
-            </label>
-            <div className="flex bg-slate-950 p-0.5 rounded border border-slate-850 text-xs">
-              <button
-                type="button"
-                disabled={isRecording}
-                onClick={() => handleSampleRateChange(44100)}
-                className={`flex-1 py-1.5 px-2.5 rounded font-bold text-center cursor-pointer transition ${
-                  recordingSampleRate === 44100
-                    ? 'bg-emerald-500 text-slate-950 shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                } disabled:opacity-50`}
-              >
-                44.1 kHz
-              </button>
-              <button
-                type="button"
-                disabled={isRecording}
-                onClick={() => handleSampleRateChange(48000)}
-                className={`flex-1 py-1.5 px-2.5 rounded font-bold text-center cursor-pointer transition ${
-                  recordingSampleRate === 48000
-                    ? 'bg-emerald-500 text-slate-950 shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                } disabled:opacity-50`}
-              >
-                48.0 kHz
-              </button>
-            </div>
-          </div>
-
-          {/* 4. Preamp Gain Boost Slider */}
-          <div className="space-y-1.5 text-left">
-            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              <span>Preamp Boost</span>
-              <span className="font-mono font-bold text-amber-400">+{inputBoostDb.toFixed(0)} dB</span>
-            </div>
-            <div className="bg-slate-950 p-2 rounded border border-slate-850 flex items-center">
-              <input
-                type="range"
-                min="0"
-                max="36"
-                step="1"
-                value={inputBoostDb}
-                disabled={isRecording}
-                onChange={(e) => setInputBoostDb(parseFloat(e.target.value))}
-                className="w-full accent-amber-500 cursor-pointer disabled:opacity-40"
-                title="Preamp input boost gain"
-              />
-            </div>
-          </div>
-
-          {/* 5. Monitor Control (Rearranged from monitorPanel_rearrange.png) */}
-          <div className="space-y-1.5 text-left">
-            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider select-none shrink-0">
+            <div className="flex items-center gap-2 border-l border-slate-800 pl-3 shrink-0">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Monitor</span>
               <button
                 type="button"
                 disabled={isRecording}
@@ -785,106 +748,87 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                     onWakeAudioEngine?.();
                     return;
                   }
-                  isMonitoringActive ? stopMonitoringStream() : startMonitoringStream();
+                  setMonitoringAudioOutput((previous) => !previous);
+                  if (!isMonitoringActive) startMonitoringStream();
                 }}
-                className={`text-[10px] font-extrabold uppercase tracking-wider transition cursor-pointer ${
-                  isStandbyMode
-                    ? 'text-amber-400 hover:text-amber-300'
-                    : monitoringAudioOutput
-                    ? 'text-emerald-300 hover:text-emerald-200'
-                    : 'text-red-400 hover:text-red-300'
-                } disabled:opacity-45 disabled:cursor-not-allowed`}
-                title={
-                  isStandbyMode
-                    ? 'Preview audio is in Standby. Click to wake engine.'
-                    : isMonitoringActive
-                    ? 'Disable Live Monitor'
-                    : 'Enable Live Monitor'
-                }
+                className={`relative w-7 h-12 rounded-full border transition cursor-pointer disabled:opacity-40 ${monitoringAudioOutput ? 'bg-emerald-500/20 border-emerald-500/50' : 'bg-slate-900 border-slate-700'}`}
+                title="Toggle monitor output"
+                aria-label="Toggle monitor output"
               >
-                {isStandbyMode ? 'MONITOR (STANDBY)' : 'MONITOR'}
+                <span className={`absolute left-1/2 -translate-x-1/2 w-4 h-4 rounded-full border transition-all ${monitoringAudioOutput ? 'top-1 bg-emerald-300 border-emerald-200' : 'bottom-1 bg-slate-500 border-slate-400'}`} />
               </button>
-              <span className="font-mono font-bold text-emerald-450">
-                {isStandbyMode ? 'STANDBY' : monitoringAudioOutput ? `${Math.round(monitorVolume * 100)}%` : 'MUTED'}
-              </span>
-            </div>
-            
-            <div className="bg-slate-950 p-3 rounded border border-slate-850 flex items-center space-x-3 shrink-0">
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={monitorVolume}
-                disabled={!monitoringAudioOutput}
-                onChange={(e) => setMonitorVolume(parseFloat(e.target.value))}
-                className="flex-1 accent-emerald-500 cursor-pointer disabled:opacity-40"
-                title="Monitoring output volume"
-              />
-              <button
-                type="button"
-                onClick={() => setMonitoringAudioOutput(!monitoringAudioOutput)}
-                className={`text-[10px] font-bold px-3 py-1.5 rounded cursor-pointer transition border shrink-0 uppercase tracking-wider font-mono ${
-                  monitoringAudioOutput
-                    ? 'bg-emerald-500 text-slate-950 border-emerald-500'
-                    : 'bg-red-500/20 text-red-400 border-red-500/30'
-                }`}
+              <div
+                className={`relative w-11 h-11 rounded-full bg-slate-950 border border-slate-800 shadow-inner touch-none ${!monitoringAudioOutput ? 'opacity-40' : ''}`}
+                onPointerDown={(e) => {
+                  if (!monitoringAudioOutput) return;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  monitorKnobDragRef.current = { startY: e.clientY, startValue: monitorVolume };
+                }}
+                onPointerMove={(e) => {
+                  if (!monitorKnobDragRef.current) return;
+                  const deltaVolume = Math.round((monitorKnobDragRef.current.startY - e.clientY) * 0.0078 * 100) / 100;
+                  setMonitorVolume(Math.max(0, Math.min(1, monitorKnobDragRef.current.startValue + deltaVolume)));
+                }}
+                onPointerUp={() => { monitorKnobDragRef.current = null; }}
+                onPointerCancel={() => { monitorKnobDragRef.current = null; }}
               >
-                {monitoringAudioOutput ? 'ON' : 'OFF'}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT/CENTER CONTENT: MAIN RECORDING CONSOLE (Symmetric, permanently fixed layout) */}
-        <div className="flex-1 bg-slate-900/10 border border-slate-900 rounded-xl p-4 lg:p-6 flex flex-col items-center justify-between min-h-0 relative space-y-4">
-          
-          {/* 1. Large Oscilloscope along the top */}
-          <div className="w-full bg-slate-950 p-3 border border-slate-900 rounded-xl relative flex flex-col justify-between h-56 shrink-0 overflow-hidden">
-            <canvas ref={liveCanvasRef} width={1000} height={170} className="w-full h-[170px] bg-slate-950 block" />
-
-            {/* Standby Mode Overlay */}
-            {isStandbyMode && (
-              <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-[3px] flex flex-col items-center justify-center p-4 z-20 text-center select-none border border-amber-500/20">
-                <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-2 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-                  <MicOff className="w-5 h-5" />
+                <div className="absolute inset-1 rounded-full border-2 border-slate-700" style={{ background: `conic-gradient(from 225deg, #10b981 ${monitorVolume * 270}deg, #1e293b ${monitorVolume * 270}deg 270deg, transparent 270deg)` }}>
+                  <div className="absolute left-1/2 top-1/2 w-0.5 h-4 origin-bottom rounded-full bg-emerald-300" style={{ transform: `translate(-50%, -100%) rotate(${-135 + monitorVolume * 270}deg)` }} />
+                  <div className="absolute left-1/2 top-1/2 w-1.5 h-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300" />
                 </div>
-                <div className="text-xs font-bold text-slate-200 tracking-wider uppercase mb-1">
-                  Preview Audio Engine in Standby
-                </div>
-                <p className="text-[11px] text-slate-400 max-w-sm mb-3 leading-relaxed">
-                  Microphone inputs and Web Audio outputs are released so this preview won't echo or clash with your local dev app.
-                </p>
-                <button
-                  type="button"
-                  onClick={onWakeAudioEngine}
-                  className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-450 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg"
-                >
-                  <Radio className="w-3.5 h-3.5" />
-                  <span>Wake Audio Engine</span>
-                </button>
               </div>
-            )}
-
-            <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-2 px-1 shrink-0">
-              <span className="font-bold tracking-wider">OSCILLOSCOPE SIGNAL FEED</span>
-              <span className="flex items-center gap-1.5 font-bold tracking-wider">
-                <span className={`w-2 h-2 rounded-full ${isStandbyMode ? 'bg-amber-500' : clipped ? 'bg-red-500 animate-ping' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
-                <span className={isStandbyMode ? 'text-amber-400 font-bold' : clipped ? 'text-red-400 font-extrabold' : 'text-slate-400'}>
-                  {isStandbyMode ? 'STANDBY' : clipped ? 'CLIP' : 'SIGNAL OK'}
-                </span>
-              </span>
             </div>
           </div>
+          
+          {/* 1. Large Oscilloscope and monitor controls */}
+          <div className="flex items-stretch gap-3 w-full h-56 shrink-0">
+            <div className="flex-1 min-w-0 bg-slate-950 p-3 border border-slate-900 rounded-xl relative flex flex-col justify-between overflow-hidden">
+              <canvas ref={liveCanvasRef} width={1000} height={170} className="w-full h-[170px] bg-slate-950 block" />
 
-          {/* 2. Vertically Centered Meters Chamber (placed underneath) */}
-          <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0">
-            <div className="flex items-center justify-center gap-4 bg-slate-950/80 p-5 border border-slate-900/60 rounded-xl shadow-lg w-full max-w-sm">
+              {/* Standby Mode Overlay */}
+              {isStandbyMode && (
+                <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-[3px] flex flex-col items-center justify-center p-4 z-20 text-center select-none border border-amber-500/20">
+                  <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-2 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                    <MicOff className="w-5 h-5" />
+                  </div>
+                  <div className="text-xs font-bold text-slate-200 tracking-wider uppercase mb-1">
+                    Preview Audio Engine in Standby
+                  </div>
+                  <p className="text-[11px] text-slate-400 max-w-sm mb-3 leading-relaxed">
+                    Microphone inputs and Web Audio outputs are released so this preview won't echo or clash with your local dev app.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onWakeAudioEngine}
+                    className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-450 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg"
+                  >
+                    <Radio className="w-3.5 h-3.5" />
+                    <span>Wake Audio Engine</span>
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-2 px-1 shrink-0">
+                <span className="font-bold tracking-wider">OSCILLOSCOPE SIGNAL FEED</span>
+                <span className="flex items-center gap-1.5 font-bold tracking-wider">
+                  <span className={`w-2 h-2 rounded-full ${isStandbyMode ? 'bg-amber-500' : clipped ? 'bg-red-500 animate-ping' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                  <span className={isStandbyMode ? 'text-amber-400 font-bold' : clipped ? 'text-red-400 font-extrabold' : 'text-slate-400'}>
+                    {isStandbyMode ? 'STANDBY' : clipped ? 'CLIP' : 'SIGNAL OK'}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* 2. Wide digital needle VU meters */}
+          <div className="flex-1 min-h-[250px] flex flex-col items-center justify-center w-full shrink-0">
+            <div className="flex items-end justify-center gap-5 bg-slate-950/80 p-5 border border-slate-900/60 rounded-xl shadow-lg w-full max-w-3xl">
               {/* L meter */}
-              <div className="flex flex-col items-center space-y-1.5">
+              <div className="flex-1 min-w-0 flex flex-col items-center gap-2">
                 <div
                   onClick={handleResetLeftPeak}
-                  className={`w-14 h-7 flex items-center justify-center text-[10px] font-mono font-bold text-center border bg-slate-950 rounded cursor-pointer hover:border-slate-500 transition shrink-0 ${
+                  className={`w-24 h-8 flex items-center justify-center text-[11px] font-mono font-bold text-center border bg-slate-950 rounded cursor-pointer hover:border-slate-500 transition shrink-0 ${
                     leftPeakHoldDb >= -0.05
                       ? 'text-red-400 border-red-500/40'
                       : leftPeakHoldDb > -12
@@ -895,56 +839,36 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 >
                   {leftPeakHoldDb >= 0 ? 'CLIP' : leftPeakHoldDb <= -60 ? '-∞' : `${leftPeakHoldDb.toFixed(1)}`}
                 </div>
-                <div className="relative w-8 h-36 bg-slate-950 border border-slate-900 overflow-hidden flex flex-col justify-end p-0.5 rounded-sm">
-                  <div
-                    className="w-full transition-all duration-75 ease-out relative rounded-none"
-                    style={{
-                      height: `${dbToHeightPercent(leftPeakDb)}%`,
-                      background:
-                        'linear-gradient(to top, #10b981 0%, #10b981 75%, #f59e0b 75%, #f59e0b 95%, #ef4444 95%, #ef4444 100%)',
-                    }}
-                  />
-                  {leftPeakHoldDb > -60 && (
-                    <div
-                      className={`absolute left-0 right-0 h-0.5 z-30 ${leftPeakHoldDb >= 0 ? 'bg-red-400' : 'bg-white'}`}
-                      style={{ bottom: `${Math.min(99, dbToHeightPercent(leftPeakHoldDb))}%` }}
-                    />
-                  )}
+                <div className="relative w-full max-w-[260px] h-36 overflow-hidden rounded-t-[140px] border-2 border-slate-700 bg-[#18211f] shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]">
+                  <div className="absolute inset-x-5 bottom-3 h-24 rounded-t-[120px] border-t border-slate-500/70" />
+                  <div className="absolute inset-x-8 bottom-3 flex justify-between text-[9px] font-mono text-slate-400">
+                    <span>-20</span><span>-12</span><span>-6</span><span>0</span><span>+3</span>
+                  </div>
+                  <div className="absolute left-1/2 bottom-3 h-28 w-0.5 origin-bottom rounded-full bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)] transition-transform duration-75 ease-out" style={{ transform: `translateX(-50%) rotate(${dbToNeedleAngle(leftPeakDb)}deg)` }} />
+                  <div className="absolute left-1/2 bottom-1.5 h-3 w-3 -translate-x-1/2 rounded-full border border-slate-300 bg-slate-700" />
                 </div>
-                <span className="text-[10px] font-bold font-mono text-slate-400 pt-0.5">L</span>
+                <span className="text-[11px] font-bold font-mono text-slate-300">L VU</span>
               </div>
 
-              {/* Central DB Scale labels with single integrated RESET button */}
-              <div className="flex flex-col items-center space-y-1.5 shrink-0">
+              {/* Central reset between the two meter channels */}
+              <div className="self-start flex flex-col items-center gap-3 shrink-0">
                 <button
                   type="button"
                   onClick={handleResetPeak}
-                  className="w-14 h-7 flex items-center justify-center border border-slate-900 bg-slate-950 text-slate-500 hover:text-slate-355 transition cursor-pointer font-mono font-bold text-[9px] uppercase tracking-wider shrink-0 rounded hover:border-slate-800"
+                  className="w-14 h-7 flex items-center justify-center border border-slate-900 bg-slate-950 text-slate-500 hover:text-slate-200 transition cursor-pointer font-mono font-bold text-[9px] uppercase tracking-wider shrink-0 rounded hover:border-slate-800"
                   title="Click to reset both peak holds"
                 >
                   RESET
                 </button>
-                <div className="flex flex-col justify-between py-1 h-36 text-[9px] font-mono text-slate-455 text-center px-2 font-semibold leading-none select-none shrink-0">
-                  <span className="text-red-400 font-bold">+3</span>
-                  <span className="text-red-400 font-bold">0</span>
-                  <span className="text-amber-400">-3</span>
-                  <span className="text-amber-400">-6</span>
-                  <span className="text-emerald-455 font-semibold">-12</span>
-                  <span className="text-emerald-455 font-semibold">-18</span>
-                  <span className="text-slate-550">-24</span>
-                  <span className="text-slate-550 font-bold">-36</span>
-                  <span className="text-slate-655">-48</span>
-                  <span className="text-slate-700">-60</span>
-                </div>
-                <span className="text-[10px] font-bold font-mono text-transparent pt-0.5 select-none pointer-events-none shrink-0">C</span>
+                <span className="text-[10px] font-bold font-mono text-slate-500">PEAK</span>
               </div>
 
               {/* R meter */}
               {channelMode === 'stereo' && (
-                <div className="flex flex-col items-center space-y-1.5">
+                <div className="flex-1 min-w-0 flex flex-col items-center gap-2">
                   <div
                     onClick={handleResetRightPeak}
-                    className={`w-14 h-7 flex items-center justify-center text-[10px] font-mono font-bold text-center border bg-slate-950 rounded cursor-pointer hover:border-slate-500 transition shrink-0 ${
+                    className={`w-24 h-8 flex items-center justify-center text-[11px] font-mono font-bold text-center border bg-slate-950 rounded cursor-pointer hover:border-slate-500 transition shrink-0 ${
                       rightPeakHoldDb >= -0.05
                         ? 'text-red-400 border-red-500/40'
                         : rightPeakHoldDb > -12
@@ -955,25 +879,18 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   >
                     {rightPeakHoldDb >= 0 ? 'CLIP' : rightPeakHoldDb <= -60 ? '-∞' : `${rightPeakHoldDb.toFixed(1)}`}
                   </div>
-                  <div className="relative w-8 h-36 bg-slate-950 border border-slate-900 overflow-hidden flex flex-col justify-end p-0.5 rounded-sm">
-                    <div
-                      className="w-full transition-all duration-75 ease-out relative rounded-none"
-                      style={{
-                        height: `${dbToHeightPercent(rightPeakDb)}%`,
-                        background:
-                          'linear-gradient(to top, #10b981 0%, #10b981 75%, #f59e0b 75%, #f59e0b 95%, #ef4444 95%, #ef4444 100%)',
-                      }}
-                    />
-                    {rightPeakHoldDb > -60 && (
-                      <div
-                        className={`absolute left-0 right-0 h-0.5 z-30 ${rightPeakHoldDb >= 0 ? 'bg-red-400' : 'bg-white'}`}
-                        style={{ bottom: `${Math.min(99, dbToHeightPercent(rightPeakHoldDb))}%` }}
-                      />
-                    )}
+                    <div className="relative w-full max-w-[260px] h-36 overflow-hidden rounded-t-[140px] border-2 border-slate-700 bg-[#18211f] shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]">
+                      <div className="absolute inset-x-5 bottom-3 h-24 rounded-t-[120px] border-t border-slate-500/70" />
+                      <div className="absolute inset-x-8 bottom-3 flex justify-between text-[9px] font-mono text-slate-400">
+                        <span>-20</span><span>-12</span><span>-6</span><span>0</span><span>+3</span>
+                      </div>
+                      <div className="absolute left-1/2 bottom-3 h-28 w-0.5 origin-bottom rounded-full bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)] transition-transform duration-75 ease-out" style={{ transform: `translateX(-50%) rotate(${dbToNeedleAngle(rightPeakDb)}deg)` }} />
+                      <div className="absolute left-1/2 bottom-1.5 h-3 w-3 -translate-x-1/2 rounded-full border border-slate-300 bg-slate-700" />
                   </div>
-                  <span className="text-[10px] font-bold font-mono text-slate-400 pt-0.5">R</span>
+                    <span className="text-[11px] font-bold font-mono text-slate-300">R VU</span>
                 </div>
               )}
+
             </div>
           </div>
 
