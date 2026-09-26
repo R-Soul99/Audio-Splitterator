@@ -8,7 +8,6 @@ import {
   Mic,
   MicOff,
   Radio,
-  Scissors,
   BookmarkPlus,
   FolderOpen,
   Layers,
@@ -20,6 +19,8 @@ import {
   Tag,
   CheckCircle2,
   RotateCcw,
+  Navigation,
+  Volume2,
 } from 'lucide-react';
 
 export default function App() {
@@ -34,6 +35,8 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isLooping, setIsLooping] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
+  const [followPlayhead, setFollowPlayhead] = useState<boolean>(true);
+  const [autoPreviewOnClick, setAutoPreviewOnClick] = useState<boolean>(true);
 
   // Crop boundaries
   const [cropStart, setCropStart] = useState<number>(0);
@@ -190,6 +193,7 @@ export default function App() {
   }, []);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<'discard' | 'import' | null>(null);
 
   // Initialize or resume shared AudioContext safely
   const getAudioContext = useCallback(() => {
@@ -224,6 +228,8 @@ export default function App() {
       animationFrameRef.current = null;
     }
     setIsPlaying(false);
+    isLoopingRef.current = false;
+    setIsLooping(false);
   }, []);
 
   const wakeAudioEngine = useCallback(() => {
@@ -407,7 +413,8 @@ export default function App() {
       const startLimit = cropStartRef.current;
       const cur = currentTimeRef.current;
       const resumeFrom = cur >= endLimit - 0.05 ? startLimit : cur;
-      startPlayback(resumeFrom);
+      // Regular playback never loops - looping is only for previewing a selection (handleLoopSelection)
+      startPlayback(resumeFrom, false);
     }
   }, [stopPlayback, startPlayback]);
 
@@ -466,25 +473,31 @@ export default function App() {
   };
 
   const handleClearRecording = () => {
-    if (confirm("Are you sure you want to discard this recording? Any unsaved splits or fades will be lost.")) {
-      stopPlayback();
-      audioBufferRef.current = null;
-      cropStartRef.current = 0;
-      cropEndRef.current = 0;
-      currentTimeRef.current = 0;
+    stopPlayback();
+    audioBufferRef.current = null;
+    cropStartRef.current = 0;
+    cropEndRef.current = 0;
+    currentTimeRef.current = 0;
 
-      setAudioBuffer(null);
-      setMainFileName('Recording');
-      setCropStart(0);
-      setCropEnd(0);
-      setSelection(null);
-      setCurrentTime(0);
-      setMarkers([]);
-      setZoom(1);
-      setViewOffsetSec(0);
-      setPreRecordArtist('');
-      setPreRecordAlbum('');
-      setWorkflowTab('record'); // reset back to record tab
+    setAudioBuffer(null);
+    setMainFileName('Recording');
+    setCropStart(0);
+    setCropEnd(0);
+    setSelection(null);
+    setCurrentTime(0);
+    setMarkers([]);
+    setZoom(1);
+    setViewOffsetSec(0);
+    setPreRecordArtist('');
+    setPreRecordAlbum('');
+    setWorkflowTab('record'); // reset back to record tab
+  };
+
+  const handleRequestImport = () => {
+    if (audioBuffer) {
+      setConfirmDialog('import');
+    } else {
+      fileInputRef.current?.click();
     }
   };
 
@@ -994,6 +1007,18 @@ export default function App() {
             </button>
           </div>
 
+          {/* Import Button on the Right (mirrors Brand on the Left) */}
+          <div className="flex items-center justify-end shrink-0 mt-2 sm:mt-0 sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
+            <button
+              type="button"
+              onClick={handleRequestImport}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-850 hover:bg-emerald-950/40 text-slate-300 hover:text-emerald-400 border border-slate-800 hover:border-emerald-800/40 text-xs font-bold transition cursor-pointer"
+              title="Import an audio file"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span>Import</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -1020,7 +1045,7 @@ export default function App() {
       <main className="flex-1 min-h-0 w-full p-4 lg:p-6 lg:pb-4 flex flex-col">
         <div className="flex-1 flex flex-col min-h-0 relative">
           {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
-          <div className="flex-1 flex flex-col relative bg-slate-950/20 border border-slate-900 rounded-2xl overflow-hidden p-4 min-h-0 select-none">
+          <div className="flex-1 flex flex-col relative bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 min-h-0 select-none shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]">
             
             {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
             {workflowTab === 'record' && (
@@ -1041,69 +1066,9 @@ export default function App() {
 
             {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
             {workflowTab === 'edit' && (
-              !audioBuffer ? (
-                <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900/20 border border-slate-900/60 rounded-2xl">
-                  {/* Visual empty state icon */}
-                  <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 mb-4 animate-pulse">
-                    <Scissors className="w-8 h-8" />
-                  </div>
-                  <h3 className="text-base font-bold text-slate-200 mb-2">No Active Recording Found</h3>
-                  <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-                    No active recording found. Please complete a recording or import an audio file in the <strong className="text-red-400">RECORD</strong> tab to begin editing.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setWorkflowTab('record')}
-                    className="mt-6 px-4 py-2 bg-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-300 rounded-lg text-xs font-bold transition hover:bg-slate-850 cursor-pointer"
-                  >
-                    Go to RECORD Tab
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col h-full min-h-0 gap-3 overflow-hidden">
-                  {/* Top: Project Metadata Bar */}
-                  <div className="flex-shrink-0 h-12 flex items-center justify-between gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs overflow-hidden">
-                    <div className="flex items-center gap-4 min-w-0">
-                      {/* Artist */}
-                      <div className="flex items-center space-x-2">
-                        <Tag className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="text-slate-400 font-medium">Artist:</span>
-                        <input
-                          type="text"
-                          value={preRecordArtist}
-                          onChange={(e) => setPreRecordArtist(e.target.value)}
-                          className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs font-semibold text-slate-200 focus:outline-none focus:border-emerald-500 w-36"
-                          placeholder="Artist / Band name..."
-                        />
-                      </div>
-                      {/* Album */}
-                      <div className="flex items-center space-x-2">
-                        <Tag className="w-3.5 h-3.5 text-sky-400" />
-                        <span className="text-slate-400 font-medium">Album:</span>
-                        <input
-                          type="text"
-                          value={preRecordAlbum}
-                          onChange={(e) => setPreRecordAlbum(e.target.value)}
-                          className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs font-semibold text-slate-200 focus:outline-none focus:border-sky-500 w-36"
-                          placeholder="Album / Record title..."
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleClearRecording}
-                      className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-slate-850 hover:bg-red-950/40 text-slate-400 hover:text-red-400 border border-slate-800 hover:border-red-800/40 text-xs font-bold transition cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Discard Recording</span>
-                    </button>
-                  </div>
-
-                  {/* 2-Column Workspace: Waveform on Left, Split Regions List on Right */}
-                  <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_320px] gap-3 overflow-hidden">
-                    {/* Left: Waveform canvas & toolbar (Full dynamic height) */}
-                    <div className="min-w-0 min-h-0 flex flex-col overflow-hidden">
+                <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_320px] grid-rows-[minmax(0,1fr)_auto] gap-3 overflow-hidden">
+                    {/* Left, top: Waveform canvas & toolbar (Full dynamic height) */}
+                    <div className="col-start-1 row-start-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                       <WaveformCanvas
                         audioBuffer={audioBuffer}
                         currentTime={currentTime}
@@ -1117,6 +1082,8 @@ export default function App() {
                         isPlaying={isPlaying}
                         isLooping={isLooping}
                         canUndo={canUndo}
+                        followPlayhead={followPlayhead}
+                        autoPreviewOnClick={autoPreviewOnClick}
                         onPlayPause={handlePlayPause}
                         onStop={handleStop}
                         onSeek={handleSeek}
@@ -1129,7 +1096,6 @@ export default function App() {
                         onTrimStart={handleTrimStart}
                         onTrimEnd={handleTrimEnd}
                         onUndo={handleUndo}
-                        onToggleLoop={() => setIsLooping(!isLooping)}
                         onCropChange={(start, end) => {
                           setCropStart(start);
                           setCropEnd(end);
@@ -1147,8 +1113,8 @@ export default function App() {
                       />
                     </div>
 
-                    {/* Right: Split Regions List (Never a scroll list - all entries visible at all times) */}
-                    <div className="w-[320px] min-w-0 bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden">
+                    {/* Right: Split Regions List, spans BOTH grid rows so it's never shortened by the bottom toolbar row (Never a scroll list - all entries visible at all times) */}
+                    <div className="col-start-2 row-start-1 row-span-2 w-[320px] min-w-0 bg-slate-900/60 border border-slate-700/70 p-3 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
                       {/* Header */}
                       <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 flex-shrink-0">
                         <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
@@ -1159,11 +1125,20 @@ export default function App() {
                           <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
                             {splits.length} {splits.length === 1 ? 'Track' : 'Tracks'}
                           </span>
+                          <button
+                            type="button"
+                            disabled={!audioBuffer}
+                            onClick={() => setConfirmDialog('discard')}
+                            title="Discard Recording"
+                            className="w-5 h-5 flex items-center justify-center rounded border border-rose-800/50 bg-rose-950/30 text-rose-400 hover:bg-rose-900/50 hover:border-rose-600 hover:text-rose-300 transition cursor-pointer disabled:cursor-not-allowed disabled:hover:bg-rose-950/30 disabled:hover:border-rose-800/50 disabled:hover:text-rose-400"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                         </div>
                       </div>
 
                       {/* Entries Container (NO scrollbar, strictly overflow-hidden, dynamically fitted) */}
-                      <div className="flex-1 min-h-0 flex flex-col justify-start gap-1 overflow-hidden">
+                      <div className={`flex-1 min-h-0 flex flex-col justify-start overflow-hidden ${splits.length > 13 ? 'gap-0.5' : 'gap-1'}`}>
                         {splits.length === 0 ? (
                           <div className="flex-1 flex flex-col items-center justify-center text-center p-4 text-slate-500 text-xs italic">
                             No split regions detected.
@@ -1175,12 +1150,15 @@ export default function App() {
                             const isThisPlaying = isPlaying && currentTime >= split.startTime - 0.05 && currentTime <= split.endTime + 0.05;
                             const isCompact = splits.length > 8;
                             const isUltraCompact = splits.length > 13;
+                            const isHyperCompact = splits.length > 20;
 
                             return (
                               <div
                                 key={split.id}
-                                className={`group flex items-center justify-between bg-slate-950/70 border border-slate-850 hover:border-slate-700 hover:bg-slate-900/60 rounded-lg transition shrink min-h-0 ${
-                                  isUltraCompact
+                                className={`group flex items-center justify-between bg-slate-950/70 border border-slate-800/40 hover:border-slate-700/60 hover:bg-slate-900/60 rounded-lg transition shrink-0 ${
+                                  isHyperCompact
+                                    ? 'py-0 px-1 text-[9px]'
+                                    : isUltraCompact
                                     ? 'py-0.5 px-1.5 text-[10px]'
                                     : isCompact
                                     ? 'py-1 px-2 text-[11px]'
@@ -1198,53 +1176,54 @@ export default function App() {
                                     }
                                   }}
                                   className={`rounded-md flex items-center justify-center transition cursor-pointer shrink-0 border ${
-                                    isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
+                                    isHyperCompact ? 'w-4 h-4' : isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
                                   } ${
                                     isThisPlaying
                                       ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm animate-pulse'
-                                      : 'bg-slate-900 hover:bg-emerald-600/20 text-emerald-400 hover:text-emerald-300 border-slate-800 hover:border-emerald-500/40'
+                                      : 'bg-slate-900 hover:bg-emerald-600/20 text-emerald-400 hover:text-emerald-300 border-slate-800/60 hover:border-emerald-500/40'
                                   }`}
                                   title={isThisPlaying ? 'Pause split preview' : `Play Region ${split.index} (${formatTime(split.duration, false)})`}
                                 >
                                   {isThisPlaying ? (
-                                    <Pause className="w-2.5 h-2.5 fill-current" />
+                                    <Pause className={`fill-current ${isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'}`} />
                                   ) : (
-                                    <Play className="w-2.5 h-2.5 fill-current ml-0.5" />
+                                    <Play className={`fill-current ml-0.5 ${isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'}`} />
                                   )}
                                 </button>
 
-                                {/* 2. Middle: Track number, name input, duration, and timestamps */}
-                                <div className="flex-1 min-w-0 mx-2 flex flex-col justify-center">
-                                  <div className="flex items-center space-x-1.5">
-                                    <span
-                                      className="font-mono text-[9px] font-bold px-1 rounded shrink-0 leading-none py-0.5"
-                                      style={{
-                                        backgroundColor: `${color}22`,
-                                        color: color,
-                                        border: `1px solid ${color}44`,
-                                      }}
-                                    >
-                                      #{String(split.index).padStart(2, '0')}
-                                    </span>
-                                    <input
-                                      type="text"
-                                      value={trackNames[split.id] ?? split.name}
-                                      onChange={(e) => {
-                                        e.stopPropagation();
-                                        setTrackNames((prev) => ({ ...prev, [split.id]: e.target.value }));
-                                      }}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="flex-1 min-w-0 bg-transparent text-slate-200 text-xs font-bold truncate leading-tight focus:outline-none focus:bg-slate-800/50 rounded px-1 -mx-1 group-hover:text-amber-400 transition placeholder-slate-600"
-                                      placeholder={`Track ${String(split.index).padStart(2, '0')}...`}
-                                    />
-                                  </div>
-                                  {!isUltraCompact && (
-                                    <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 mt-0.5 leading-none">
-                                      <span className="text-slate-300 font-semibold">{formatTime(split.duration, false)}</span>
-                                      <span className="text-slate-700">•</span>
-                                      <span className="text-slate-500 truncate">{formatTime(split.startTime, false)} - {formatTime(split.endTime, false)}</span>
-                                    </div>
-                                  )}
+                                {/* 2. Middle: Track number, name input, duration (right-aligned) */}
+                                <div className="flex-1 min-w-0 mx-2 flex items-center space-x-1.5">
+                                  <span
+                                    className="font-mono text-[9px] font-bold px-1 rounded shrink-0 leading-none py-0.5"
+                                    style={{
+                                      backgroundColor: `${color}22`,
+                                      color: color,
+                                      border: `1px solid ${color}44`,
+                                    }}
+                                  >
+                                    #{String(split.index).padStart(2, '0')}
+                                  </span>
+                                  <input
+                                    type="text"
+                                    value={trackNames[split.id] ?? split.name}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      setTrackNames((prev) => ({ ...prev, [split.id]: e.target.value }));
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={`flex-1 min-w-0 bg-transparent text-slate-200 font-bold truncate leading-tight focus:outline-none focus:bg-slate-800/50 rounded px-1 -mx-1 group-hover:text-amber-400 transition placeholder-slate-600 ${
+                                      isHyperCompact ? 'text-[9px]' : isUltraCompact ? 'text-[10px]' : isCompact ? 'text-[11px]' : 'text-xs'
+                                    }`}
+                                    placeholder={`Track ${String(split.index).padStart(2, '0')}...`}
+                                  />
+                                  <span
+                                    className={`font-mono text-slate-400 shrink-0 leading-none ${
+                                      isUltraCompact ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-[11px]'
+                                    }`}
+                                    title={`${formatTime(split.startTime, false)} - ${formatTime(split.endTime, false)}`}
+                                  >
+                                    {formatTime(split.duration, false)}
+                                  </span>
                                 </div>
 
                                 {/* 3. Delete button at the end (removes split marker, merging into previous split) */}
@@ -1256,11 +1235,11 @@ export default function App() {
                                     handleDeleteSplit(idx);
                                   }}
                                   className={`rounded-md flex items-center justify-center transition cursor-pointer shrink-0 border ${
-                                    isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
+                                    isHyperCompact ? 'w-4 h-4' : isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
                                   } ${
                                     markers.length === 0
                                       ? 'opacity-20 cursor-not-allowed border-transparent text-slate-600'
-                                      : 'bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border-slate-800 hover:border-rose-800/50'
+                                      : 'bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border-slate-800/60 hover:border-rose-800/50'
                                   }`}
                                   title={
                                     markers.length === 0
@@ -1270,7 +1249,7 @@ export default function App() {
                                       : 'Delete split marker (merge with next region)'
                                   }
                                 >
-                                  <Trash2 className="w-2.5 h-2.5" />
+                                  <Trash2 className={isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'} />
                                 </button>
                               </div>
                             );
@@ -1278,9 +1257,146 @@ export default function App() {
                         )}
                       </div>
                     </div>
-                  </div>
+
+                    {/* Left, bottom: Transport/View controls + Artist/Album. The list on the right spans both rows, so nothing here costs it any height. */}
+                    <div className="col-start-1 row-start-2 min-w-0 flex flex-wrap items-start gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
+                      {/* Transport */}
+                      <div className="flex flex-col items-center gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0">
+                        <span className="text-[7px] font-bold uppercase tracking-wider text-slate-500">Transport</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={handlePlayPause}
+                            disabled={!audioBuffer}
+                            title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+                            className={`w-6 h-6 flex items-center justify-center rounded-md border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                              isPlaying
+                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleStop}
+                            disabled={!audioBuffer}
+                            title="Stop Playback"
+                            className="w-6 h-6 flex items-center justify-center rounded-md border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Square className="w-3 h-3 fill-current" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* View */}
+                      <div className="flex flex-col items-center gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0">
+                        <span className="text-[7px] font-bold uppercase tracking-wider text-slate-500">View</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setFollowPlayhead(!followPlayhead)}
+                            title={`Auto-Scroll Follow Playhead (${followPlayhead ? 'ON' : 'OFF'})`}
+                            className={`w-6 h-6 flex items-center justify-center rounded-md border transition cursor-pointer ${
+                              followPlayhead
+                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <Navigation className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFadeSettings({ ...fadeSettings, zeroCrossing: !fadeSettings.zeroCrossing })}
+                            title={`Zero-Crossing Snapping (${fadeSettings.zeroCrossing ? 'Active' : 'OFF'})`}
+                            className={`w-6 h-6 flex items-center justify-center rounded-md border transition cursor-pointer ${
+                              fadeSettings.zeroCrossing
+                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAutoPreviewOnClick(!autoPreviewOnClick)}
+                            title={`Audition on Click (${autoPreviewOnClick ? 'ON' : 'OFF'})`}
+                            className={`w-6 h-6 flex items-center justify-center rounded-md border transition cursor-pointer ${
+                              autoPreviewOnClick
+                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <Volume2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Artist / Album: stacked. Safe to do now - the list spans both grid rows, so this row's height no longer affects it. */}
+                      <div className="flex-1 min-w-[180px] flex flex-col justify-center gap-1 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2 py-1">
+                        <div className="flex items-center gap-1.5">
+                          <Tag className="w-3 h-3 text-emerald-400 shrink-0" />
+                          <input
+                            type="text"
+                            value={preRecordArtist}
+                            onChange={(e) => setPreRecordArtist(e.target.value)}
+                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
+                            placeholder="Artist..."
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Tag className="w-3 h-3 text-sky-400 shrink-0" />
+                          <input
+                            type="text"
+                            value={preRecordAlbum}
+                            onChange={(e) => setPreRecordAlbum(e.target.value)}
+                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
+                            placeholder="Album..."
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                  {/* Confirm Dialog: Discard / Import Overwrite */}
+                  {confirmDialog && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm">
+                      <div className="w-72 rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+                        <h2 className="text-sm font-bold text-slate-100">
+                          {confirmDialog === 'discard' ? 'Discard this recording?' : 'Import a new file?'}
+                        </h2>
+                        <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                          {confirmDialog === 'discard'
+                            ? 'This will remove the current audio and any unsaved splits or fades. This cannot be undone.'
+                            : 'Importing a new file will replace the audio currently loaded, along with any unsaved splits or fades.'}
+                        </p>
+                        <div className="mt-4 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDialog(null)}
+                            className="rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:border-slate-500 hover:text-slate-100 cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const mode = confirmDialog;
+                              setConfirmDialog(null);
+                              if (mode === 'discard') {
+                                handleClearRecording();
+                              } else {
+                                fileInputRef.current?.click();
+                              }
+                            }}
+                            className="rounded-md border border-red-500/50 bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-500 cursor-pointer"
+                          >
+                            {confirmDialog === 'discard' ? 'Discard' : 'Import'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )
             )}
 
             {/* WORKFLOW VIEW 3: SAVE WORKSPACE */}

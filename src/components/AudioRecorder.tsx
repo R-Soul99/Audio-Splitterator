@@ -897,7 +897,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 </button>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preamp</span>
                 <div
-                  className={`relative w-14 h-14 rounded-full bg-slate-950 border border-slate-800 shadow-inner touch-none ${isRecording ? 'opacity-40' : ''}`}
+                  className={`relative mt-1 w-16 h-16 rounded-full bg-slate-950 border border-slate-800 shadow-inner touch-none ${isRecording ? 'opacity-40' : ''}`}
                   onPointerDown={(e) => {
                     if (isRecording) return;
                     e.currentTarget.setPointerCapture(e.pointerId);
@@ -995,7 +995,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               type="button"
               disabled={!isRecording}
               onClick={togglePause}
-              className={`absolute left-[calc(50%+68px)] top-1/2 w-12 h-12 -translate-y-1/2 rounded-lg border transition cursor-pointer flex items-center justify-center shadow ${
+              className={`absolute left-[calc(66.6667%_-_45px)] top-1/2 w-12 h-12 -translate-y-1/2 rounded-lg border transition cursor-pointer flex items-center justify-center shadow ${
                 isPaused
                   ? 'bg-amber-600/20 border-amber-500/40 text-amber-400 hover:bg-amber-600/30'
                   : 'bg-slate-950 border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-200'
@@ -1010,7 +1010,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               type="button"
               disabled={!isRecording}
               onClick={stopRecording}
-              className="absolute left-[calc(50%+132px)] top-1/2 w-12 h-12 -translate-y-1/2 rounded-lg bg-slate-950 border border-slate-855 hover:bg-slate-900 flex items-center justify-center text-slate-400 hover:text-red-400 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shadow"
+              className="absolute left-[calc(83.3333%_-_105px)] top-1/2 w-12 h-12 -translate-y-1/2 rounded-lg bg-slate-950 border border-slate-855 hover:bg-slate-900 flex items-center justify-center text-slate-400 hover:text-red-400 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shadow"
               title="Stop recording"
             >
               <Square className="w-4 h-4 fill-current" />
