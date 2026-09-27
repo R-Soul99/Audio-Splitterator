@@ -40,6 +40,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(false);
   const [monitoringAudioOutput, setMonitoringAudioOutput] = useState<boolean>(false);
   const [monitorVolume, setMonitorVolume] = useState<number>(0.7);
+  const monitoringAudioOutputRef = useRef(monitoringAudioOutput);
+  const monitorVolumeRef = useRef(monitorVolume);
+  monitoringAudioOutputRef.current = monitoringAudioOutput;
+  monitorVolumeRef.current = monitorVolume;
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const [showReplaceRecordingDialog, setShowReplaceRecordingDialog] = useState<boolean>(false);
 
@@ -84,9 +88,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const pauseStartTimeRef = useRef<number>(0);
   const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const recordingWaveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const recordingWaveformHistoryRef = useRef<Float32Array>(new Float32Array(1600));
+  const recordingWaveformLeftHistoryRef = useRef<Float32Array>(new Float32Array(1600));
+  const recordingWaveformRightHistoryRef = useRef<Float32Array>(new Float32Array(1600));
   const recordingWaveformWriteIndexRef = useRef<number>(0);
-  const recordingWaveformPreviousAmplitudeRef = useRef<number>(0);
 
   const isRecordingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false);
@@ -242,12 +246,16 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     analyserL.getFloatTimeDomainData(bufferL);
 
     let maxL = 0;
+    let sumSquaresL = 0;
     for (let i = 0; i < bufferL.length; i++) {
       const absVal = Math.abs(bufferL[i]);
       if (absVal > maxL) maxL = absVal;
+      sumSquaresL += bufferL[i] * bufferL[i];
     }
+    const rmsL = Math.sqrt(sumSquaresL / Math.max(1, bufferL.length));
 
     let maxR = maxL;
+    let rmsR = rmsL;
     if (analyserR) {
       // Reuse pre-allocated Right Buffer
       if (!bufferRightRef.current || bufferRightRef.current.length !== analyserR.fftSize) {
@@ -256,14 +264,19 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       const bufferR = bufferRightRef.current;
       analyserR.getFloatTimeDomainData(bufferR);
       maxR = 0;
+      let sumSquaresR = 0;
       for (let i = 0; i < bufferR.length; i++) {
         const absVal = Math.abs(bufferR[i]);
         if (absVal > maxR) maxR = absVal;
+        sumSquaresR += bufferR[i] * bufferR[i];
       }
+      rmsR = Math.sqrt(sumSquaresR / Math.max(1, bufferR.length));
     }
 
     const dbL = maxL > 0 ? 20 * Math.log10(maxL) : -60;
     const dbR = maxR > 0 ? 20 * Math.log10(maxR) : -60;
+    const rmsDbL = rmsL > 0 ? 20 * Math.log10(rmsL) : -60;
+    const rmsDbR = rmsR > 0 ? 20 * Math.log10(rmsR) : -60;
 
     const clampedDbL = Math.max(-60, dbL);
     const clampedDbR = Math.max(-60, dbR);
@@ -310,7 +323,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         ctx.stroke();
 
         ctx.lineWidth = 1.5;
-        ctx.strokeStyle = isRecordingRef.current ? (isPausedRef.current ? '#f59e0b' : '#ef4444') : '#10b981';
+        ctx.strokeStyle = '#10b981';
         ctx.beginPath();
 
         const len = bufferL.length;
@@ -332,35 +345,108 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         const waveformWidth = waveformCanvas.width;
         const waveformHeight = waveformCanvas.height;
         if (isRecordingRef.current && !isPausedRef.current) {
-          const history = recordingWaveformHistoryRef.current;
           const writeIndex = recordingWaveformWriteIndexRef.current;
-          const averageAmplitude = bufferL.reduce((sum, value) => sum + Math.abs(value), 0) / Math.max(1, bufferL.length);
-          history[writeIndex % history.length] = Math.min(1, averageAmplitude * 2.5);
+          recordingWaveformLeftHistoryRef.current[writeIndex % recordingWaveformLeftHistoryRef.current.length] = Math.max(-60, Math.min(6, rmsDbL));
+          recordingWaveformRightHistoryRef.current[writeIndex % recordingWaveformRightHistoryRef.current.length] = Math.max(-60, Math.min(6, rmsDbR));
           recordingWaveformWriteIndexRef.current = writeIndex + 1;
-          const amplitude = history[writeIndex % history.length];
-          const previousY = waveformHeight / 2 - recordingWaveformPreviousAmplitudeRef.current * waveformHeight * 0.42;
-          const nextY = waveformHeight / 2 - amplitude * waveformHeight * 0.42;
+        }
 
-          // Shift the established trace left and draw only the newest slice at the right edge.
-          waveformCtx.drawImage(waveformCanvas, -3, 0);
-          waveformCtx.fillStyle = '#020617';
-          waveformCtx.fillRect(waveformWidth - 3, 0, 3, waveformHeight);
-          waveformCtx.strokeStyle = '#10b981';
-          waveformCtx.lineWidth = 2;
-          waveformCtx.beginPath();
-          waveformCtx.moveTo(waveformWidth - 3, previousY);
-          waveformCtx.lineTo(waveformWidth, nextY);
-          waveformCtx.stroke();
-          recordingWaveformPreviousAmplitudeRef.current = amplitude;
-        } else if (recordingWaveformWriteIndexRef.current === 0) {
-          waveformCtx.fillStyle = '#020617';
-          waveformCtx.fillRect(0, 0, waveformWidth, waveformHeight);
-          waveformCtx.strokeStyle = '#1e293b';
+        const horizontalScale = waveformWidth / Math.max(1, waveformCanvas.clientWidth);
+        const plotLeft = 26 * horizontalScale;
+        const plotRight = waveformWidth - 42 * horizontalScale;
+        const plotTop = 30;
+        const plotBottom = waveformHeight - 8;
+        const laneHeight = (plotBottom - plotTop) / 2;
+        const dbToY = (db: number, laneTop: number) => laneTop + ((6 - Math.max(-60, Math.min(6, db))) / 66) * laneHeight;
+
+        waveformCtx.fillStyle = '#020617';
+        waveformCtx.fillRect(0, 0, waveformWidth, waveformHeight);
+
+        const channels = [
+          { name: 'L', level: rmsDbL, history: recordingWaveformLeftHistoryRef.current, laneTop: plotTop },
+          { name: 'R', level: rmsDbR, history: recordingWaveformRightHistoryRef.current, laneTop: plotTop + laneHeight },
+        ];
+        const guideLevels = [6, 0, -6, -12, -18, -24, -30, -36, -42, -48, -54, -60];
+
+        for (let channelIndex = 0; channelIndex < channels.length; channelIndex++) {
+          const channel = channels[channelIndex];
+          const laneBottom = channel.laneTop + laneHeight;
+          for (const dbfs of guideLevels) {
+            const y = dbToY(dbfs, channel.laneTop);
+            waveformCtx.strokeStyle = dbfs === 0
+              ? 'rgba(245, 158, 11, 0.65)'
+              : dbfs === 6
+              ? 'rgba(248, 113, 113, 0.5)'
+              : 'rgba(148, 163, 184, 0.2)';
+            waveformCtx.lineWidth = dbfs === 0 || dbfs === 6 ? 1.5 : 1;
+            waveformCtx.setLineDash(dbfs === 0 || dbfs === 6 ? [4, 4] : [2, 5]);
+            waveformCtx.beginPath();
+            waveformCtx.moveTo(plotLeft, Math.min(laneBottom, y));
+            waveformCtx.lineTo(plotRight, Math.min(laneBottom, y));
+            waveformCtx.stroke();
+          }
+
+          waveformCtx.setLineDash([]);
+          waveformCtx.strokeStyle = '#334155';
           waveformCtx.lineWidth = 1;
           waveformCtx.beginPath();
-          waveformCtx.moveTo(0, waveformHeight / 2);
-          waveformCtx.lineTo(waveformWidth, waveformHeight / 2);
+          waveformCtx.moveTo(plotLeft, laneBottom);
+          waveformCtx.lineTo(plotRight, laneBottom);
           waveformCtx.stroke();
+        }
+        waveformCtx.setLineDash([]);
+
+        const labelWidth = waveformCanvas.clientWidth;
+        waveformCtx.save();
+        waveformCtx.scale(horizontalScale, 1);
+        waveformCtx.font = '8px ui-monospace, monospace';
+        waveformCtx.textAlign = 'left';
+        waveformCtx.textBaseline = 'middle';
+        const channelLabels = [
+          { name: 'L', laneTop: plotTop },
+          { name: 'R', laneTop: plotTop + laneHeight },
+        ];
+        for (const channel of channelLabels) {
+          waveformCtx.fillStyle = '#cbd5e1';
+          waveformCtx.textBaseline = 'top';
+          waveformCtx.fillText(channel.name, 8, channel.laneTop + 2);
+          waveformCtx.textAlign = 'left';
+          waveformCtx.textBaseline = 'middle';
+          for (const dbfs of [0, -12, -24, -36, -48, -60]) {
+            const y = dbToY(dbfs, channel.laneTop);
+            const x = plotRight / horizontalScale + 4;
+            waveformCtx.fillStyle = 'rgba(2, 6, 23, 0.9)';
+            waveformCtx.fillRect(x - 2, y - 5, 34, 10);
+            waveformCtx.fillStyle = dbfs === 0 ? '#fbbf24' : dbfs === 6 ? '#f87171' : '#94a3b8';
+            waveformCtx.fillText(dbfs > 0 ? `+${dbfs}` : String(dbfs), x, y);
+          }
+        }
+        waveformCtx.textAlign = 'right';
+        waveformCtx.textBaseline = 'top';
+        waveformCtx.fillStyle = rmsDbL >= 0 || rmsDbR >= 0 ? '#f87171' : '#34d399';
+        waveformCtx.fillText(`L ${rmsDbL.toFixed(1)}  R ${rmsDbR.toFixed(1)} dBFS`, labelWidth - 6, 3);
+        waveformCtx.restore();
+
+        const count = Math.min(
+          recordingWaveformWriteIndexRef.current,
+          recordingWaveformLeftHistoryRef.current.length,
+          Math.floor((plotRight - plotLeft) / 3)
+        );
+        if (count > 0) {
+          const firstIndex = recordingWaveformWriteIndexRef.current - count;
+          waveformCtx.lineWidth = 2;
+          for (const channel of channels) {
+            waveformCtx.strokeStyle = channel.level >= 0 ? '#f87171' : '#10b981';
+            waveformCtx.beginPath();
+            for (let i = 0; i < count; i++) {
+              const x = plotRight - (count - 1 - i) * 3;
+              const dbfs = channel.history[(firstIndex + i) % channel.history.length];
+              const y = dbToY(dbfs, channel.laneTop);
+              if (i === 0) waveformCtx.moveTo(x, y);
+              else waveformCtx.lineTo(x, y);
+            }
+            waveformCtx.stroke();
+          }
         }
       }
     }
@@ -470,7 +556,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         analyserNodeRightRef.current = analyserR;
 
         const monitorGain = audioCtx.createGain();
-        monitorGain.gain.value = monitoringAudioOutput ? monitorVolume : 0;
+        monitorGain.gain.value = monitoringAudioOutputRef.current ? monitorVolumeRef.current : 0;
         inputGain.connect(monitorGain);
         monitorGain.connect(audioCtx.destination);
         monitorGainNodeRef.current = monitorGain;
@@ -485,7 +571,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         setDeviceError('Could not start live monitoring');
       }
     },
-    [selectedDeviceId, channelMode, recordingSampleRate, monitoringAudioOutput, monitorVolume, updateMeterLoop, isStandbyMode]
+    [selectedDeviceId, channelMode, recordingSampleRate, updateMeterLoop, isStandbyMode]
   );
 
   const stopMonitoringStream = () => {
@@ -579,9 +665,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     totalRecordedSamplesRef.current = 0;
     pausedDurationRef.current = 0;
     setDurationSec(0);
-    recordingWaveformHistoryRef.current.fill(0);
+    recordingWaveformLeftHistoryRef.current.fill(-60);
+    recordingWaveformRightHistoryRef.current.fill(-60);
     recordingWaveformWriteIndexRef.current = 0;
-    recordingWaveformPreviousAmplitudeRef.current = 0;
     if (recordingWaveformCanvasRef.current) {
       const waveformCtx = recordingWaveformCanvasRef.current.getContext('2d');
       if (waveformCtx) {
@@ -758,16 +844,16 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  disabled={isRecording}
                   onClick={() => {
                     if (isStandbyMode) {
+                      setMonitoringAudioOutput(true);
                       onWakeAudioEngine?.();
                       return;
                     }
                     setMonitoringAudioOutput((previous) => !previous);
                     if (!isMonitoringActive) startMonitoringStream();
                   }}
-                  className={`relative w-7 h-12 rounded-full border transition cursor-pointer disabled:opacity-40 ${monitoringAudioOutput ? 'bg-emerald-500/20 border-emerald-500/50' : 'bg-slate-900 border-slate-700'}`}
+                  className={`relative w-7 h-12 rounded-full border transition cursor-pointer ${monitoringAudioOutput ? 'bg-emerald-500/20 border-emerald-500/50' : 'bg-slate-900 border-slate-700'}`}
                   title="Toggle monitor output"
                   aria-label="Toggle monitor output"
                 >
@@ -843,7 +929,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             </div>
 
             <div className="w-48 bg-slate-950/80 border border-slate-700/60 rounded-xl flex flex-col items-center justify-center gap-2 shadow-lg">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Signal</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Oscilloscope</span>
               <div className="relative w-36 h-36 rounded-full border-4 border-slate-700 bg-slate-950 overflow-hidden shadow-[inset_0_0_18px_rgba(0,0,0,0.8)]">
                 <canvas ref={liveCanvasRef} width={160} height={160} className="w-full h-full block rounded-full" />
                 <div className="absolute inset-3 rounded-full border border-slate-700/70 pointer-events-none" />
@@ -953,7 +1039,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* 3. Centered transport-like recording console controls */}
-          <div className="absolute inset-x-5 bottom-5 z-10 h-36">
+          <div className="absolute inset-x-5 bottom-5 z-10 h-36 pointer-events-none">
             <div className="relative h-full w-full">
             {/* Glowing Red RECORD button */}
             <button
@@ -969,7 +1055,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   }
                 }
               }}
-              className={`absolute left-1/2 top-1/2 w-32 h-32 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-slate-950 flex flex-col items-center justify-center text-white font-bold tracking-widest text-sm uppercase cursor-pointer transition-all duration-300 ${
+              className={`absolute left-1/2 top-1/2 w-32 h-32 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-slate-950 flex flex-col items-center justify-center text-white font-bold tracking-widest text-sm uppercase cursor-pointer pointer-events-auto transition-all duration-300 ${
                 isStandbyMode
                   ? 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
                   : isRecording
@@ -995,7 +1081,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               type="button"
               disabled={!isRecording}
               onClick={togglePause}
-              className={`absolute left-[calc(66.6667%_-_45px)] top-1/2 w-12 h-12 -translate-y-1/2 rounded-lg border transition cursor-pointer flex items-center justify-center shadow ${
+              className={`absolute left-[calc(66.6667%_-_45px)] top-1/2 w-12 h-12 -translate-y-1/2 rounded-lg border transition cursor-pointer pointer-events-auto flex items-center justify-center shadow ${
                 isPaused
                   ? 'bg-amber-600/20 border-amber-500/40 text-amber-400 hover:bg-amber-600/30'
                   : 'bg-slate-950 border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-200'
@@ -1010,7 +1096,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               type="button"
               disabled={!isRecording}
               onClick={stopRecording}
-              className="absolute left-[calc(83.3333%_-_105px)] top-1/2 w-12 h-12 -translate-y-1/2 rounded-lg bg-slate-950 border border-slate-855 hover:bg-slate-900 flex items-center justify-center text-slate-400 hover:text-red-400 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shadow"
+              className="absolute left-[calc(83.3333%_-_105px)] top-1/2 w-12 h-12 -translate-y-1/2 rounded-lg bg-slate-950 border border-slate-855 hover:bg-slate-900 flex items-center justify-center text-slate-400 hover:text-red-400 transition cursor-pointer pointer-events-auto disabled:opacity-30 disabled:cursor-not-allowed shadow"
               title="Stop recording"
             >
               <Square className="w-4 h-4 fill-current" />

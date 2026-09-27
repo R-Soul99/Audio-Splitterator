@@ -26,6 +26,7 @@ import {
   Trash2,
   AudioWaveform,
   UnfoldVertical,
+  Volume2,
 } from 'lucide-react';
 
 interface WaveformCanvasProps {
@@ -43,6 +44,8 @@ interface WaveformCanvasProps {
   canUndo?: boolean;
   followPlayhead: boolean;
   autoPreviewOnClick: boolean;
+  onFollowPlayheadChange: (enabled: boolean) => void;
+  onAutoPreviewOnClickChange: (enabled: boolean) => void;
   onPlayPause?: () => void;
   onStop?: () => void;
   onSeek: (time: number) => void;
@@ -129,7 +132,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
         {caption && !captionAbove && <span className="text-[9px] font-bold uppercase tracking-wider">{caption}</span>}
       </button>
       {showTooltip && (
-        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2.5 px-2.5 py-1.5 bg-slate-950 text-slate-200 border border-slate-850 text-[10px] font-medium font-sans rounded shadow-2xl whitespace-nowrap z-50 pointer-events-none">
+        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2.5 px-2.5 py-1.5 bg-slate-950 text-slate-200 border border-slate-850 text-[10px] font-medium font-sans rounded shadow-2xl whitespace-nowrap z-50 pointer-events-none">
           {label}
         </div>
       )}
@@ -234,6 +237,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   canUndo = false,
   followPlayhead,
   autoPreviewOnClick,
+  onFollowPlayheadChange,
+  onAutoPreviewOnClickChange,
   onPlayPause,
   onStop,
   onSeek,
@@ -563,9 +568,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
     }
 
-    // Horizontal Zero Centerline
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 1.5;
+    // Center divider between stereo lanes (also the zero line for mono audio)
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, height / 2);
     ctx.lineTo(width, height / 2);
@@ -586,10 +591,40 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const startSample = Math.round(currentOffset * audioBuffer.sampleRate);
     const endSample = Math.round((currentOffset + visibleDuration) * audioBuffer.sampleRate);
     const sampleCount = endSample - startSample;
+    const displayMaxAmplitude = 2;
+
+    for (let c = 0; c < channels; c++) {
+      const channelHeight = height / channels;
+      const centerY = channelHeight * c + channelHeight / 2;
+      const amplitudeScale = channelHeight * 0.45 / displayMaxAmplitude;
+
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, centerY);
+      ctx.lineTo(width, centerY);
+      ctx.stroke();
+
+      for (const dbfs of [0, -6, -12, -18]) {
+        const offset = Math.pow(10, dbfs / 20) * amplitudeScale;
+        ctx.strokeStyle = dbfs === 0 ? 'rgba(245, 158, 11, 0.45)' : 'rgba(148, 163, 184, 0.2)';
+        ctx.lineWidth = dbfs === 0 ? 1 : 0.75;
+        ctx.setLineDash(dbfs === 0 ? [3, 3] : [1, 4]);
+
+        for (const polarity of [-1, 1]) {
+          const guideY = centerY + polarity * offset;
+          ctx.beginPath();
+          ctx.moveTo(0, guideY);
+          ctx.lineTo(width, guideY);
+          ctx.stroke();
+
+        }
+      }
+      ctx.setLineDash([]);
+    }
 
     const pyramid = pyramidRef.current;
     if (pyramid && pyramid[0]) {
-      ctx.strokeStyle = '#059669'; // Emerald-600
       ctx.lineWidth = 1;
 
       for (let c = 0; c < channels; c++) {
@@ -611,7 +646,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const mins = activeLevel.min;
         const maxs = activeLevel.max;
 
-        ctx.beginPath();
+        const waveformPath = new Path2D();
+        const fullScalePath = new Path2D();
         for (let x = 0; x < width; x++) {
           const t = xToTime(x, width);
           const sIdx = Math.round(t * audioBuffer.sampleRate);
@@ -642,15 +678,37 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               }
             }
 
-            const visualGain = 1.35;
-            const yMin = centerY + minVal * fadeGain * (channelHeight * 0.45) * visualGain;
-            const yMax = centerY + maxVal * fadeGain * (channelHeight * 0.45) * visualGain;
+            const minAmplitude = Math.max(-displayMaxAmplitude, Math.min(displayMaxAmplitude, minVal * fadeGain));
+            const maxAmplitude = Math.max(-displayMaxAmplitude, Math.min(displayMaxAmplitude, maxVal * fadeGain));
+            const amplitudeScale = channelHeight * 0.45 / displayMaxAmplitude;
+            const yMin = centerY + minAmplitude * amplitudeScale;
+            const yMax = centerY + maxAmplitude * amplitudeScale;
+            const path = minVal <= -1 || maxVal >= 1 ? fullScalePath : waveformPath;
 
-            ctx.moveTo(x, yMin);
-            ctx.lineTo(x, yMax);
+            path.moveTo(x, yMin);
+            path.lineTo(x, yMax);
           }
         }
-        ctx.stroke();
+        ctx.strokeStyle = '#059669';
+        ctx.stroke(waveformPath);
+        ctx.strokeStyle = '#f87171';
+        ctx.stroke(fullScalePath);
+      }
+    }
+
+    if (width > 120) {
+      ctx.font = '8px ui-monospace, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      for (let c = 0; c < channels; c++) {
+        const channelHeight = height / channels;
+        const centerY = channelHeight * c + channelHeight / 2;
+        const zeroDbY = centerY - Math.pow(10, 0 / 20) * channelHeight * 0.45 / displayMaxAmplitude;
+        const labelX = Math.floor(width * 0.6);
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
+        ctx.fillRect(labelX, zeroDbY - 10, 42, 10);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText('0 dBFS', labelX + 2, zeroDbY - 1);
       }
     }
   }, [canvasDimensions, currentOffset, visibleDuration, audioBuffer, xToTime, fadeSettings, cropStart, cropEnd]);
@@ -1796,7 +1854,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   return (
     <div className="space-y-2 select-none flex flex-col h-full min-w-0 min-h-0 overflow-hidden" ref={containerRef}>
       {/* 1. Precision Audio Editing Toolbar (placed at top, between Recording Name bar and Waveform) */}
-      <div className="order-2 flex items-center justify-between gap-1 bg-slate-900 border border-slate-800 px-2 py-1 rounded-xl text-xs flex-shrink-0 relative overflow-hidden">
+      <div className="order-2 flex items-center justify-between gap-1 bg-slate-900 border border-slate-800 px-2 py-1 rounded-xl text-xs flex-shrink-0 relative overflow-visible">
         <div className="flex items-end flex-nowrap gap-1 min-w-0 w-full">
           {/* Markers Section */}
           <div className="order-4 flex flex-col items-center gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0">
@@ -1911,6 +1969,48 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           </div>
 
           <div className="order-2 h-5 w-px bg-slate-800 mx-0.5" />
+
+          {/* View toggles */}
+          <div className="order-5 flex flex-col items-center gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0">
+            <span className="text-[7px] font-bold uppercase tracking-wider text-slate-400">View</span>
+            <div className="flex items-center gap-1">
+              <TooltipButton
+                onClick={() => onFollowPlayheadChange(!followPlayhead)}
+                isActive={followPlayhead}
+                icon={(
+                  <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1.5 12h1.2c1.5 0 1.5-3.5 3-3.5s1.5 7 3 7 1.5-8.5 3-8.5" />
+                    <path d="M13.2 2v20" />
+                    <path d="M13.2 9.5h4.2V6.7L23 12l-5.6 5.3v-2.8h-4.2z" fill="currentColor" stroke="none" />
+                  </svg>
+                )}
+                label={`Auto-Scroll Follow Playhead (${followPlayhead ? 'ON' : 'OFF'})`}
+                compact
+              />
+              <TooltipButton
+                onClick={() => onFadeSettingsChange({ ...fadeSettings, zeroCrossing: !fadeSettings.zeroCrossing })}
+                isActive={fadeSettings.zeroCrossing}
+                icon={(
+                  <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="1.5" y="1.5" width="21" height="21" rx="3.5" stroke="#64748b" strokeWidth="1.2" />
+                    <path d="M4 6.2c3.2 0 3.2 11.6 6.4 11.6s3.2-11.6 6.4-11.6 3.2 11.6 5.2 11.6" stroke="#38bdf8" strokeWidth="1.8" />
+                    <path d="M4 12h16" stroke="currentColor" strokeWidth="1.4" />
+                    <path d="M12 7.5v2.2m0 4.6v2.2" stroke="currentColor" strokeWidth="1.4" />
+                    <circle cx="12" cy="12" r="2.2" fill="#38bdf8" stroke="currentColor" strokeWidth="1.4" />
+                  </svg>
+                )}
+                label={`Zero-Crossing Snapping (${fadeSettings.zeroCrossing ? 'Active' : 'OFF'})`}
+                compact
+              />
+              <TooltipButton
+                onClick={() => onAutoPreviewOnClickChange(!autoPreviewOnClick)}
+                isActive={autoPreviewOnClick}
+                icon={<Volume2 className="w-3.5 h-3.5" />}
+                label={`Audition on Click (${autoPreviewOnClick ? 'ON' : 'OFF'})`}
+                compact
+              />
+            </div>
+          </div>
 
         {/* Process */}
         <div className="order-2 flex flex-col items-center gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0">
@@ -2203,7 +2303,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {/* 1. Main Waveform Canvas Container (fills remaining height dynamically) */}
-      <div className="order-4 flex-1 min-h-0 relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner" ref={canvasContainerRef}>
+      <div className="order-4 flex-1 min-h-0 max-h-[260px] relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner" ref={canvasContainerRef}>
         {/* Feedback Notification Toast (floats over the canvas; never shifts layout) */}
         {feedbackToast && (
           <div
@@ -2296,7 +2396,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         </div>
 
         {/* Zoom Controls HUD (bottom-right corner of waveform display) */}
-        <div className="absolute bottom-3 right-3 bg-slate-950/85 border border-slate-800/80 rounded p-1 backdrop-blur-xs flex items-center gap-1">
+        <div className="absolute bottom-3 right-3 bg-slate-950/85 border border-slate-800 rounded p-1 backdrop-blur-xs flex items-center gap-1">
           <button
             type="button"
             onClick={handleZoomOut}
@@ -2322,6 +2422,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
         </div>
+
       </div>
 
       {/* 2. Minimap Overview & Navigation Bar */}

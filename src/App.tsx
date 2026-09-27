@@ -881,7 +881,7 @@ export default function App() {
       const defaultName = `${mainFileName}_${indexStr}`;
 
       segments.push({
-        id: `split-${i}-${segStart.toFixed(3)}`,
+        id: i === 0 ? 'split-start' : `split-marker-${activeMarkers[i - 1].id}`,
         index: segIndex,
         trackNumber: segIndex,
         name: defaultName,
@@ -1084,6 +1084,8 @@ export default function App() {
                         canUndo={canUndo}
                         followPlayhead={followPlayhead}
                         autoPreviewOnClick={autoPreviewOnClick}
+                        onFollowPlayheadChange={setFollowPlayhead}
+                        onAutoPreviewOnClickChange={setAutoPreviewOnClick}
                         onPlayPause={handlePlayPause}
                         onStop={handleStop}
                         onSeek={handleSeek}
@@ -1139,6 +1141,16 @@ export default function App() {
 
                       {/* Entries Container (NO scrollbar, strictly overflow-hidden, dynamically fitted) */}
                       <div className={`flex-1 min-h-0 flex flex-col justify-start overflow-hidden ${splits.length > 13 ? 'gap-0.5' : 'gap-1'}`}>
+                        <div className="flex items-center justify-between px-1.5 pb-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-500 shrink-0">
+                          <span className="w-6 shrink-0" />
+                          <div className="flex-1 min-w-0 mx-2 flex items-center space-x-1.5">
+                            <span className="shrink-0 px-1" />
+                            <span className="flex-1 min-w-0" />
+                            <span className="w-[54px] text-right">Start</span>
+                            <span className="w-[54px] text-right">Duration</span>
+                          </div>
+                          <span className="w-6 shrink-0" />
+                        </div>
                         {splits.length === 0 ? (
                           <div className="flex-1 flex flex-col items-center justify-center text-center p-4 text-slate-500 text-xs italic">
                             No split regions detected.
@@ -1191,7 +1203,7 @@ export default function App() {
                                   )}
                                 </button>
 
-                                {/* 2. Middle: Track number, name input, duration (right-aligned) */}
+                                {/* 2. Middle: Track number, name input, start, and duration */}
                                 <div className="flex-1 min-w-0 mx-2 flex items-center space-x-1.5">
                                   <span
                                     className="font-mono text-[9px] font-bold px-1 rounded shrink-0 leading-none py-0.5"
@@ -1217,7 +1229,15 @@ export default function App() {
                                     placeholder={`Track ${String(split.index).padStart(2, '0')}...`}
                                   />
                                   <span
-                                    className={`font-mono text-slate-400 shrink-0 leading-none ${
+                                    className={`w-[54px] text-right font-mono text-sky-400/80 shrink-0 leading-none ${
+                                      isUltraCompact ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-[11px]'
+                                    }`}
+                                    title={`Start time: ${formatTime(split.startTime, false)}`}
+                                  >
+                                    {formatTime(split.startTime, false)}
+                                  </span>
+                                  <span
+                                    className={`w-[54px] text-right font-mono text-slate-400 shrink-0 leading-none ${
                                       isUltraCompact ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-[11px]'
                                     }`}
                                     title={`${formatTime(split.startTime, false)} - ${formatTime(split.endTime, false)}`}
@@ -1269,71 +1289,39 @@ export default function App() {
                             onClick={handlePlayPause}
                             disabled={!audioBuffer}
                             title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                            className={`w-6 h-6 flex items-center justify-center rounded-md border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            className={`w-16 h-16 flex items-center justify-center rounded-md border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               isPlaying
                                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
                                 : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
                             }`}
                           >
-                            {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                            {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
                           </button>
                           <button
                             type="button"
                             onClick={handleStop}
                             disabled={!audioBuffer}
                             title="Stop Playback"
-                            className="w-6 h-6 flex items-center justify-center rounded-md border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="w-16 h-16 flex items-center justify-center rounded-md border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            <Square className="w-3 h-3 fill-current" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* View */}
-                      <div className="flex flex-col items-center gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0">
-                        <span className="text-[7px] font-bold uppercase tracking-wider text-slate-500">View</span>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setFollowPlayhead(!followPlayhead)}
-                            title={`Auto-Scroll Follow Playhead (${followPlayhead ? 'ON' : 'OFF'})`}
-                            className={`w-6 h-6 flex items-center justify-center rounded-md border transition cursor-pointer ${
-                              followPlayhead
-                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
-                            }`}
-                          >
-                            <Navigation className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFadeSettings({ ...fadeSettings, zeroCrossing: !fadeSettings.zeroCrossing })}
-                            title={`Zero-Crossing Snapping (${fadeSettings.zeroCrossing ? 'Active' : 'OFF'})`}
-                            className={`w-6 h-6 flex items-center justify-center rounded-md border transition cursor-pointer ${
-                              fadeSettings.zeroCrossing
-                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
-                            }`}
-                          >
-                            <Zap className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAutoPreviewOnClick(!autoPreviewOnClick)}
-                            title={`Audition on Click (${autoPreviewOnClick ? 'ON' : 'OFF'})`}
-                            className={`w-6 h-6 flex items-center justify-center rounded-md border transition cursor-pointer ${
-                              autoPreviewOnClick
-                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
-                            }`}
-                          >
-                            <Volume2 className="w-3.5 h-3.5" />
+                            <Square className="w-5 h-5 fill-current" />
                           </button>
                         </div>
                       </div>
 
                       {/* Artist / Album: stacked. Safe to do now - the list spans both grid rows, so this row's height no longer affects it. */}
-                      <div className="flex-1 min-w-[180px] flex flex-col justify-center gap-1 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2 py-1">
+                      <div className="flex-1 min-w-[140px] flex flex-col justify-center gap-1 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2 py-1">
+                        <div className="flex items-center gap-1.5">
+                          <Tag className="w-3 h-3 text-amber-400 shrink-0" />
+                          <input
+                            type="text"
+                            value={mainFileName}
+                            onChange={(e) => setMainFileName(e.target.value)}
+                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
+                            placeholder="Recording Name..."
+                            title="Recording name used for default split names"
+                          />
+                        </div>
                         <div className="flex items-center gap-1.5">
                           <Tag className="w-3 h-3 text-emerald-400 shrink-0" />
                           <input
