@@ -1,0 +1,1 @@
+a cool effect for the cursor snapping would be like a visual radar ping in the cursor's brightness with a fade when you hit one of those detected gaps when moving  the cursor over one - easier to see visually than a snapping line
