@@ -5,12 +5,13 @@ import {
   Play,
   MicOff,
   Radio,
+  BookmarkPlus,
 } from 'lucide-react';
 import { AudioDeviceOption } from '../types';
 import { formatTime } from '../utils/audioProcessing';
 
 interface AudioRecorderProps {
-  onRecordingComplete: (audioBuffer: AudioBuffer, defaultName: string, artist?: string, album?: string) => void;
+  onRecordingComplete: (audioBuffer: AudioBuffer, defaultName: string, artist?: string, album?: string, markerTimes?: number[]) => void;
   isRecordingActive: boolean;
   setIsRecordingActive: (active: boolean) => void;
   onClearRecording?: () => void;
@@ -35,6 +36,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [durationSec, setDurationSec] = useState<number>(0);
+  const [recordingMarkerCount, setRecordingMarkerCount] = useState<number>(0);
 
   // Independent Live Monitoring State
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(false);
@@ -83,6 +85,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const recordedChunksLeftRef = useRef<Float32Array[]>([]);
   const recordedChunksRightRef = useRef<Float32Array[]>([]);
   const totalRecordedSamplesRef = useRef<number>(0);
+  const recordingMarkerTimesRef = useRef<number[]>([]);
   const recordingStartTimeRef = useRef<number>(0);
   const pausedDurationRef = useRef<number>(0);
   const pauseStartTimeRef = useRef<number>(0);
@@ -113,7 +116,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         const pHeight = parent.clientHeight;
         
         // Base pro-audio console design targets (the ideal scale dimensions)
-        const baseWidth = 940;
+        const baseWidth = 1000;
         const baseHeight = 735;
         
         // Compute the fitting aspect scale ratio
@@ -663,6 +666,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     recordedChunksLeftRef.current = [];
     recordedChunksRightRef.current = [];
     totalRecordedSamplesRef.current = 0;
+    recordingMarkerTimesRef.current = [];
+    setRecordingMarkerCount(0);
     pausedDurationRef.current = 0;
     setDurationSec(0);
     recordingWaveformLeftHistoryRef.current.fill(-60);
@@ -741,6 +746,39 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     }
   };
 
+  const dropRecordingMarker = useCallback(() => {
+    const audioContext = audioContextRef.current;
+    if (!isRecordingRef.current || isPausedRef.current || !audioContext) return;
+
+    const markerTime = totalRecordedSamplesRef.current / audioContext.sampleRate;
+    if (markerTime <= 0 || recordingMarkerTimesRef.current.some((time) => Math.abs(time - markerTime) < 0.05)) {
+      return;
+    }
+
+    recordingMarkerTimesRef.current = [...recordingMarkerTimesRef.current, markerTime];
+    setRecordingMarkerCount(recordingMarkerTimesRef.current.length);
+  }, []);
+
+  useEffect(() => {
+    const handleRecordingShortcut = (event: KeyboardEvent) => {
+      if (event.code !== 'KeyM' || event.ctrlKey || event.metaKey || event.altKey || !isRecordingRef.current) return;
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat && !isPausedRef.current) dropRecordingMarker();
+    };
+
+    window.addEventListener('keydown', handleRecordingShortcut, true);
+    return () => window.removeEventListener('keydown', handleRecordingShortcut, true);
+  }, [dropRecordingMarker]);
+
   const stopRecording = async () => {
     if (!isRecording) return;
 
@@ -791,7 +829,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     }
 
     const defaultName = 'Recording';
-    onRecordingComplete(finalBuffer, defaultName, '', '');
+    onRecordingComplete(finalBuffer, defaultName, '', '', recordingMarkerTimesRef.current);
   };
 
   const dbToHeightPercent = (db: number) => {
@@ -816,7 +854,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       
       {/* Rigid, centered hardware layout wrapper scaling proportionally with CSS transform scale */}
       <div
-        className="w-[940px] h-[735px] shrink-0 flex flex-row gap-6 relative"
+        className="w-[1000px] h-[735px] shrink-0 flex flex-row gap-6 relative"
         style={{
           transform: `scale(${scale})`,
           transformOrigin: 'center center',
@@ -917,8 +955,23 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 </div>
               )}
 
-              <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-2 px-1 shrink-0">
+              <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-slate-500 pt-2 px-1 shrink-0">
                 <span className="font-bold tracking-wider">RECORDING WAVEFORM</span>
+                <button
+                  type="button"
+                  onClick={dropRecordingMarker}
+                  disabled={!isRecording || isPaused}
+                  className="flex items-center gap-2 rounded border border-amber-300/60 bg-amber-400/15 px-3 py-1.5 font-sans text-[11px] font-bold tracking-wide text-amber-200 transition hover:border-amber-200 hover:bg-amber-400/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-70"
+                  title={!isRecording ? 'Start recording to drop a split marker' : isPaused ? 'Resume recording to drop a split marker' : 'Drop a split marker at the current recording position (M)'}
+                  aria-label="Drop recording marker"
+                >
+                  <BookmarkPlus className="h-4 w-4" />
+                  <span>DROP MARKER</span>
+                  <kbd className="rounded border border-amber-200/30 bg-slate-950/70 px-1 py-0.5 font-mono text-[9px] text-amber-100">M</kbd>
+                  {recordingMarkerCount > 0 && (
+                    <span className="rounded bg-amber-400/20 px-1 font-mono">{recordingMarkerCount}</span>
+                  )}
+                </button>
                 <span className="flex items-center gap-1.5 font-bold tracking-wider">
                   <span className={`w-2 h-2 rounded-full ${isStandbyMode ? 'bg-amber-500' : clipped ? 'bg-red-500 animate-ping' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
                   <span className={isStandbyMode ? 'text-amber-400 font-bold' : clipped ? 'text-red-400 font-extrabold' : 'text-slate-400'}>
@@ -928,9 +981,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </div>
             </div>
 
-            <div className="w-48 bg-slate-950/80 border border-slate-700/60 rounded-xl flex flex-col items-center justify-center gap-2 shadow-lg">
+            <div className="w-56 bg-slate-950/80 border border-slate-700/60 rounded-xl flex flex-col items-center justify-center gap-2 shadow-lg">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Oscilloscope</span>
-              <div className="relative w-36 h-36 rounded-full border-4 border-slate-700 bg-slate-950 overflow-hidden shadow-[inset_0_0_18px_rgba(0,0,0,0.8)]">
+              <div className="relative w-40 h-40 rounded-full border-4 border-slate-700 bg-slate-950 overflow-hidden shadow-[inset_0_0_18px_rgba(0,0,0,0.8)]">
                 <canvas ref={liveCanvasRef} width={160} height={160} className="w-full h-full block rounded-full" />
                 <div className="absolute inset-3 rounded-full border border-slate-700/70 pointer-events-none" />
               </div>
@@ -942,7 +995,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* 2. Wide digital needle VU meters */}
-          <div className="order-2 h-[320px] flex-none flex flex-col items-center justify-start pt-1 w-full shrink-0">
+          <div className="order-2 mt-7 h-[320px] flex-none flex flex-col items-center justify-start pt-1 w-full shrink-0">
             <div className="flex items-start justify-center gap-5 bg-slate-950/80 p-5 border border-slate-700/60 rounded-xl shadow-lg w-full max-w-3xl">
               {/* L meter */}
               <div className="flex-1 min-w-0 flex flex-col items-center gap-2">

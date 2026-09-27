@@ -276,6 +276,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const [canvasDimensions, setCanvasDimensions] = useState({ width: 600, height: 180 });
   const [markerTool, setMarkerTool] = useState<'none' | 'add' | 'remove'>('none');
+  const [verticalZoom, setVerticalZoom] = useState(1);
+  const verticalZoomRef = useRef(1);
 
   // Popover States
   const [showNormalisePopover, setShowNormalisePopover] = useState<boolean>(false);
@@ -350,6 +352,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const visibleDuration = duration / Math.max(1, zoom);
   const maxOffset = Math.max(0, duration - visibleDuration);
   const currentOffset = Math.max(0, Math.min(maxOffset, viewOffsetSec));
+
+  useEffect(() => {
+    verticalZoomRef.current = 1;
+    setVerticalZoom(1);
+  }, [audioBuffer]);
 
   // Compute Peaks once
   useEffect(() => {
@@ -436,17 +443,27 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     onViewOffsetChangeRef.current = onViewOffsetChange;
   }, [zoom, currentOffset, duration, onZoomChange, onViewOffsetChange]);
 
-  // Ctrl + Mouse Wheel zoom centered on cursor
+  // Mouse wheel zooms time around the cursor; Shift + wheel adjusts waveform amplitude.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const handleWheel = (e: WheelEvent) => {
-      // Check for Ctrl key (or Meta key on macOS)
-      if (!e.ctrlKey && !e.metaKey) return;
-
-      // Prevent native browser page zoom
+      if (e.deltaY === 0) return;
       e.preventDefault();
+
+      const wheelDelta = Math.max(-200, Math.min(200, e.deltaY));
+      const zoomFactor = Math.pow(1.0015, -wheelDelta);
+
+      if (e.shiftKey) {
+        const currentVerticalZoom = verticalZoomRef.current;
+        const nextVerticalZoom = Math.max(0.25, Math.min(64, currentVerticalZoom * zoomFactor));
+        if (nextVerticalZoom !== currentVerticalZoom) {
+          verticalZoomRef.current = nextVerticalZoom;
+          setVerticalZoom(nextVerticalZoom);
+        }
+        return;
+      }
 
       const rect = canvas.getBoundingClientRect();
       const cursorX = e.clientX - rect.left;
@@ -463,8 +480,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const cursorRatio = Math.max(0, Math.min(1, cursorX / width));
       const cursorTime = currOffset + cursorRatio * currVisible;
 
-      // Calculate zoom factor: deltaY < 0 means scroll up (zoom in), deltaY > 0 means scroll down (zoom out)
-      const zoomFactor = e.deltaY < 0 ? 1.25 : 1 / 1.25;
       const nextZoom = Math.max(1, Math.min(60, currZoom * zoomFactor));
 
       if (nextZoom === currZoom) return;
@@ -477,6 +492,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
       onZoomChangeRef.current(nextZoom);
       onViewOffsetChangeRef.current(nextOffset);
+      zoomRef.current = nextZoom;
+      currentOffsetRef.current = nextOffset;
     };
 
     canvas.addEventListener('wheel', handleWheel, { passive: false });
@@ -591,12 +608,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const startSample = Math.round(currentOffset * audioBuffer.sampleRate);
     const endSample = Math.round((currentOffset + visibleDuration) * audioBuffer.sampleRate);
     const sampleCount = endSample - startSample;
-    const displayMaxAmplitude = 2;
+    const displayMaxAmplitude = 2 / verticalZoom;
 
     for (let c = 0; c < channels; c++) {
       const channelHeight = height / channels;
       const centerY = channelHeight * c + channelHeight / 2;
       const amplitudeScale = channelHeight * 0.45 / displayMaxAmplitude;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, c * channelHeight, width, channelHeight);
+      ctx.clip();
 
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 1;
@@ -621,6 +642,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         }
       }
       ctx.setLineDash([]);
+      ctx.restore();
     }
 
     const pyramid = pyramidRef.current;
@@ -630,6 +652,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       for (let c = 0; c < channels; c++) {
         const channelHeight = height / channels;
         const centerY = channelHeight * c + channelHeight / 2;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, c * channelHeight, width, channelHeight);
+        ctx.clip();
         const dataMins = pyramid[c].levels[0].min;
         const dataMaxs = pyramid[c].levels[0].max;
         const blockSize = pyramid[c].levels[0].blockSize;
@@ -693,6 +719,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.stroke(waveformPath);
         ctx.strokeStyle = '#f87171';
         ctx.stroke(fullScalePath);
+        ctx.restore();
       }
     }
 
@@ -703,15 +730,21 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       for (let c = 0; c < channels; c++) {
         const channelHeight = height / channels;
         const centerY = channelHeight * c + channelHeight / 2;
-        const zeroDbY = centerY - Math.pow(10, 0 / 20) * channelHeight * 0.45 / displayMaxAmplitude;
+        const channelTop = c * channelHeight;
+        const zeroDbY = Math.max(channelTop + 10, centerY - channelHeight * 0.45 / displayMaxAmplitude);
         const labelX = Math.floor(width * 0.6);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, channelTop, width, channelHeight);
+        ctx.clip();
         ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
         ctx.fillRect(labelX, zeroDbY - 10, 42, 10);
         ctx.fillStyle = '#fbbf24';
         ctx.fillText('0 dBFS', labelX + 2, zeroDbY - 1);
+        ctx.restore();
       }
     }
-  }, [canvasDimensions, currentOffset, visibleDuration, audioBuffer, xToTime, fadeSettings, cropStart, cropEnd]);
+  }, [canvasDimensions, currentOffset, visibleDuration, audioBuffer, xToTime, fadeSettings, cropStart, cropEnd, verticalZoom]);
 
   // Overlay Drawing: Markers, Fades, Crop braces, Selection bounds
   const drawOverlay = useCallback(() => {
@@ -1513,6 +1546,24 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     onViewOffsetChange(0);
   };
 
+  const updateVerticalZoom = (nextZoom: number) => {
+    const boundedZoom = Math.max(0.25, Math.min(64, nextZoom));
+    verticalZoomRef.current = boundedZoom;
+    setVerticalZoom(boundedZoom);
+  };
+
+  const handleVerticalZoomOut = () => {
+    updateVerticalZoom(verticalZoomRef.current / 1.25);
+  };
+
+  const handleVerticalZoomReset = () => {
+    updateVerticalZoom(1);
+  };
+
+  const handleVerticalZoomIn = () => {
+    updateVerticalZoom(verticalZoomRef.current * 1.25);
+  };
+
   const handleZoomCrop = () => {
     if (!audioBuffer || cropEnd - cropStart < 0.1) return;
     const nextZ = duration / (cropEnd - cropStart);
@@ -1991,12 +2042,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 onClick={() => onFadeSettingsChange({ ...fadeSettings, zeroCrossing: !fadeSettings.zeroCrossing })}
                 isActive={fadeSettings.zeroCrossing}
                 icon={(
-                  <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="1.5" y="1.5" width="21" height="21" rx="3.5" stroke="#64748b" strokeWidth="1.2" />
-                    <path d="M4 6.2c3.2 0 3.2 11.6 6.4 11.6s3.2-11.6 6.4-11.6 3.2 11.6 5.2 11.6" stroke="#38bdf8" strokeWidth="1.8" />
-                    <path d="M4 12h16" stroke="currentColor" strokeWidth="1.4" />
-                    <path d="M12 7.5v2.2m0 4.6v2.2" stroke="currentColor" strokeWidth="1.4" />
-                    <circle cx="12" cy="12" r="2.2" fill="#38bdf8" stroke="currentColor" strokeWidth="1.4" />
+                  <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M2 22 22 2" />
                   </svg>
                 )}
                 label={`Zero-Crossing Snapping (${fadeSettings.zeroCrossing ? 'Active' : 'OFF'})`}
@@ -2337,6 +2385,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onContextMenu={handleContextMenu}
           className={`w-full block touch-none ${cursorStyle} ${audioBuffer ? '' : 'pointer-events-none'}`}
           style={{ height: `${canvasDimensions.height}px` }}
+          title="Scroll to zoom at cursor; Shift+scroll to adjust waveform height"
         />
         <canvas
           ref={overlayCanvasRef}
@@ -2386,40 +2435,65 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <span className="text-amber-400">{noiseFloorDb.toFixed(1)} dB</span>
         </div>
 
-        {/* Playhead HUD Timecode Overlay inside bottom of canvas */}
-        <div className="absolute bottom-3 left-3 bg-slate-950/85 border border-slate-800/80 px-2.5 py-1.5 rounded text-xs font-mono font-bold pointer-events-none select-none backdrop-blur-xs flex items-center gap-2">
-          <span className="text-sky-400">PLAYHEAD: {formatTime(currentTime, true)}</span>
-          <span className="text-slate-700">|</span>
-          <span className="text-slate-200">Length: {audioBuffer ? formatTime(audioBuffer.duration) : '--:--'}</span>
-          <span className="text-slate-700 hidden sm:inline">|</span>
-          <span className="text-slate-200 hidden sm:inline">Rate: {audioBuffer ? `${audioBuffer.sampleRate} Hz` : '--'}</span>
-        </div>
-
-        {/* Zoom Controls HUD (bottom-right corner of waveform display) */}
-        <div className="absolute bottom-3 right-3 bg-slate-950/85 border border-slate-800 rounded p-1 backdrop-blur-xs flex items-center gap-1">
+        {/* Independent horizontal zoom row */}
+        <div className="absolute bottom-3 right-11 flex items-center gap-0.5">
           <button
             type="button"
-            onClick={handleZoomOut}
-            className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-            title="Zoom Out (Ctrl + Scroll Down)"
+            onClick={handleZoomIn}
+            className="w-6 h-6 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+            title="Zoom horizontal in"
+            aria-label="Zoom horizontal in"
           >
-            <ZoomOut className="w-3.5 h-3.5" />
+            <ZoomIn className="w-3 h-3" />
           </button>
           <button
             type="button"
             onClick={handleZoomFit}
-            className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-            title="Zoom to Fit Entire Audio File"
+            className="w-6 h-6 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+            title="Reset horizontal zoom to fit the full track"
+            aria-label="Reset horizontal zoom"
           >
-            <ScanLine className="w-3.5 h-3.5" />
+            <RotateCcw className="w-3 h-3" />
           </button>
           <button
             type="button"
-            onClick={handleZoomIn}
-            className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-            title="Zoom In (Ctrl + Scroll Up)"
+            onClick={handleZoomOut}
+            className="w-6 h-6 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+            title="Zoom horizontal out"
+            aria-label="Zoom horizontal out"
+          >
+            <ZoomOut className="w-3 h-3" />
+          </button>
+        </div>
+
+        {/* Independent vertical zoom stack, aligned to the waveform edge */}
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={handleVerticalZoomIn}
+            className="w-7 h-7 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+            title="Zoom waveform vertically in"
+            aria-label="Zoom waveform vertically in"
           >
             <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={handleVerticalZoomReset}
+            className="w-7 h-7 flex items-center justify-center rounded bg-slate-950/75 text-amber-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+            title="Reset vertical zoom"
+            aria-label="Reset vertical zoom"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={handleVerticalZoomOut}
+            className="w-7 h-7 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+            title="Zoom waveform vertically out"
+            aria-label="Zoom waveform vertically out"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
           </button>
         </div>
 
@@ -2438,10 +2512,25 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onPointerLeave={handleMinimapPointerLeave}
           className={`block w-full h-6.5 rounded bg-slate-950 touch-none select-none ${audioBuffer ? '' : 'pointer-events-none'}`}
           style={{ cursor: minimapCursor }}
-          title="Drag edges to zoom • Drag inside to slide • Click to jump view"
+          title="Drag edges to zoom • Drag inside to slide • Scroll waveform to zoom at cursor • Shift+scroll to adjust height"
         />
         <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-400 bg-slate-950/75 px-1.5 py-0.5 rounded">
           {zoom.toFixed(1)}x zoom • {formatTime(visibleDuration)} visible
+        </div>
+      </div>
+
+      <div className="order-6 flex items-center gap-2">
+        <div className="flex min-w-0 items-baseline gap-2 rounded border border-slate-800 bg-slate-950 px-2.5 py-1">
+          <span className="text-[8px] font-bold tracking-wide text-slate-500">POS</span>
+          <span className="font-mono text-[12px] font-semibold tabular-nums text-emerald-300">
+            {formatTime(currentTime, true)}
+          </span>
+        </div>
+        <div className="flex min-w-0 items-baseline gap-2 rounded border border-slate-800 bg-slate-950 px-2.5 py-1">
+          <span className="text-[8px] font-bold tracking-wide text-slate-500">LEN</span>
+          <span className="font-mono text-[12px] font-semibold tabular-nums text-sky-300">
+            {audioBuffer ? formatTime(audioBuffer.duration) : '--:--'}
+          </span>
         </div>
       </div>
 

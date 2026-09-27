@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Download,
-  Folder,
   Tag,
   CheckCircle2,
 } from 'lucide-react';
@@ -66,6 +65,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
   // Track data dictionary keyed by split ID
   const [tracksData, setTracksData] = useState<{ [splitId: string]: TrackCustomData }>({});
+  const editedTrackTitlesRef = useRef<Set<string>>(new Set());
 
   // Track selection state for export checklists
   const [selectedTracks, setSelectedTracks] = useState<{ [splitId: string]: boolean }>({});
@@ -108,12 +108,14 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
       let changed = false;
       const next = { ...prev };
       splits.forEach((split, idx) => {
-        if (!next[split.id]) {
-          const initialTrackNum = startTrackNumber + idx;
+        const initialTrackNum = startTrackNumber + idx;
+        const initialTitle = trackNames[split.id] || split.name || `Track_${String(initialTrackNum).padStart(2, '0')}`;
+        if (!next[split.id] || (!next[split.id].title && !editedTrackTitlesRef.current.has(split.id))) {
           next[split.id] = {
+            ...next[split.id],
             trackNumber: initialTrackNum,
-            title: '',
-            artist: albumArtist || preRecordArtist || '',
+            title: initialTitle,
+            artist: next[split.id]?.artist || albumArtist || preRecordArtist || '',
           };
           changed = true;
         }
@@ -130,7 +132,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
       });
       return next;
     });
-  }, [splits, startTrackNumber, albumArtist, preRecordArtist]);
+  }, [splits, startTrackNumber, albumArtist, preRecordArtist, trackNames]);
 
   // Calculate effective fade settings based on toggle
   const getEffectiveFadeSettings = (): any => {
@@ -210,11 +212,18 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
     return parts.join(' - ').replace(/[/\\?%*:|"<>]/g, '_').trim();
   };
 
+  const getTrackTitle = (split: any, index: number) => {
+    const savedTitle = tracksData[split.id]?.title;
+    if (savedTitle && savedTitle.length > 0) return savedTitle;
+    if (editedTrackTitlesRef.current.has(split.id)) return savedTitle ?? '';
+    return trackNames[split.id] || split.name || `Track_${String(index + 1).padStart(2, '0')}`;
+  };
+
   const encodeSplitSlice = async (split: any): Promise<{ blob: Blob; fileName: string }> => {
     const rawSlice = extractSlice(sourceBuffer, split.startTime, split.endTime, getEffectiveFadeSettings());
     const track = tracksData[split.id];
     const trackArtist = (track?.artist || albumArtist || '').trim();
-    const trackTitle = (track?.title || `Track_${String(split.trackNumber).padStart(2, '0')}`).trim();
+    const trackTitle = (track?.title || getTrackTitle(split, (split.trackNumber ?? split.index ?? 1) - 1)).trim();
     const trackNumber = track?.trackNumber ?? split.trackNumber ?? split.index;
 
     const metadata: AudioMetadata = {
@@ -254,7 +263,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
       for (let i = 0; i < exportSplits.length; i++) {
         const split = exportSplits[i];
         const track = tracksData[split.id];
-        const trackTitle = (track?.title || `Track_${String(split.trackNumber).padStart(2, '0')}`).trim();
+        const trackTitle = (track?.title || getTrackTitle(split, (split.trackNumber ?? split.index ?? 1) - 1)).trim();
         setSaveProgress({ current: i, total: exportSplits.length, message: `Encoding split ${i + 1} of ${exportSplits.length}: ${trackTitle}...` });
         const encoded = await encodeSplitSlice(split);
         filesToSave.push({ blob: encoded.blob, name: encoded.fileName });
@@ -278,15 +287,24 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
   const handleCloseFallbackModal = () => { setFallbackModalData({ isOpen: false, files: [] }); };
   const selectedCount = splits.filter((s) => selectedTracks[s.id]).length;
+  const isCompactList = splits.length > 8;
+  const isUltraCompactList = splits.length > 13;
+  const isHyperCompactList = splits.length > 20;
+  const listGapClass = isHyperCompactList ? 'gap-0' : isUltraCompactList ? 'gap-0.5' : isCompactList ? 'gap-0.5' : 'gap-1';
+  const listRowHeightClass = isHyperCompactList ? 'h-3' : isUltraCompactList ? 'h-5' : isCompactList ? 'h-6' : 'h-7';
+  const filenameRowFontClass = isHyperCompactList ? 'text-[7px]' : isUltraCompactList ? 'text-[8px]' : isCompactList ? 'text-[9px]' : 'text-[10px]';
+  const tagRowPaddingClass = isHyperCompactList ? 'py-0' : isUltraCompactList ? 'py-0' : isCompactList ? 'py-0.5' : 'py-1';
+  const tagRowFontClass = isHyperCompactList ? 'text-[7px]' : isUltraCompactList ? 'text-[8px]' : isCompactList ? 'text-[9px]' : 'text-[10px]';
+  const titleInputPaddingClass = isCompactList ? 'py-0' : 'py-0.5';
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 h-full min-h-0 select-none">
+    <div className="grid grid-cols-1 md:grid-cols-12 gap-5 h-full min-h-0 select-none">
 
       {/* LEFT COLUMN: Track list */}
-      <div className="lg:col-span-5 flex flex-col min-h-0 border-r border-slate-800 pr-4">
+      <div className="md:col-span-5 flex flex-col min-h-0 overflow-hidden border-r-0 border-slate-800 pr-0 md:border-r md:pr-4">
         {/* Header: checkboxes + All/None */}
-        <div className="flex-shrink-0 pb-3 border-b border-slate-800">
-          <div className="flex items-center justify-between mb-2">
+        <div className="flex-shrink-0 pb-2 border-b border-slate-800">
+          <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
               <span>Slices to Export</span>
@@ -297,63 +315,63 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
               <button type="button" onClick={() => setSelectedTracks(splits.reduce((acc, s) => ({ ...acc, [s.id]: false }), {}))} className="text-[10px] text-slate-400 hover:text-slate-300 font-bold hover:underline cursor-pointer">None</button>
             </div>
           </div>
-          {/* Inline checkboxes with inputs */}
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 shrink-0">
-              <input type="checkbox" checked={includeArtistInFilename} onChange={(e) => setIncludeArtistInFilename(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
-              <span className="text-[10px] text-slate-300 font-semibold uppercase">Artist</span>
-            </label>
-            <input type="text" value={albumArtist} onChange={(e) => setAlbumArtist(e.target.value)} disabled={!includeArtistInFilename} className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-200 font-semibold focus:outline-none focus:border-emerald-500/40 placeholder-slate-600 disabled:opacity-30 w-28" placeholder="Artist..." />
-            <label className="flex items-center gap-1.5 shrink-0 ml-2">
-              <input type="checkbox" checked={includeAlbumInFilename} onChange={(e) => setIncludeAlbumInFilename(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
-              <span className="text-[10px] text-slate-300 font-semibold uppercase">Album</span>
-            </label>
-            <input type="text" value={albumTitle} onChange={(e) => setAlbumTitle(e.target.value)} disabled={!includeAlbumInFilename} className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-200 font-semibold focus:outline-none focus:border-emerald-500/40 placeholder-slate-600 disabled:opacity-30 w-28" placeholder="Album..." />
-            <label className="flex items-center gap-1.5 shrink-0 ml-2">
-              <input type="checkbox" checked={includeTrackNumbers} onChange={(e) => setIncludeTrackNumbers(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
-              <span className="text-[10px] text-slate-300 font-semibold uppercase">Track #</span>
-            </label>
+          {/* Filename components */}
+          <div className="pt-1">
+            <div className="grid max-w-[360px] grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5">
+              <label className="flex items-center gap-1 text-[9px] font-semibold uppercase text-slate-300">
+                <input type="checkbox" checked={includeTrackNumbers} onChange={(e) => setIncludeTrackNumbers(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded accent-emerald-500" />
+                <span>Track no.</span>
+              </label>
+              <label htmlFor="filename-artist" className="flex items-center gap-1 text-[9px] font-semibold uppercase text-slate-300">
+                <input type="checkbox" checked={includeArtistInFilename} onChange={(e) => setIncludeArtistInFilename(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded accent-emerald-500" />
+                <span>Artist</span>
+              </label>
+              <label htmlFor="filename-album" className="flex items-center gap-1 text-[9px] font-semibold uppercase text-slate-300">
+                <input type="checkbox" checked={includeAlbumInFilename} onChange={(e) => setIncludeAlbumInFilename(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded accent-emerald-500" />
+                <span>Album</span>
+              </label>
+              <span />
+              <input id="filename-artist" type="text" value={albumArtist} onChange={(e) => setAlbumArtist(e.target.value)} disabled={!includeArtistInFilename} className="w-full min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-0.5 text-[10px] font-semibold text-slate-200 placeholder:text-[9px] placeholder-slate-600 focus:border-emerald-500/40 focus:outline-none disabled:opacity-30" placeholder="Artist..." />
+              <input id="filename-album" type="text" value={albumTitle} onChange={(e) => setAlbumTitle(e.target.value)} disabled={!includeAlbumInFilename} className="w-full min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-0.5 text-[10px] font-semibold text-slate-200 placeholder:text-[9px] placeholder-slate-600 focus:border-emerald-500/40 focus:outline-none disabled:opacity-30" placeholder="Album..." />
+            </div>
           </div>
         </div>
 
-        {/* Filename preview label */}
-        {splits.length > 0 && (
-          <div className="flex-shrink-0 pt-2 pb-1">
-            <div className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Filename Preview:</div>
-          </div>
-        )}
-
         {/* Tracks list (resolved filename + duration) */}
-        <div className="flex-1 min-h-0 flex flex-col justify-start gap-1.5 overflow-hidden pr-1.5">
+        <div className={`flex-1 min-h-0 flex flex-col justify-start ${listGapClass} overflow-hidden pr-1.5`}>
           {splits.map((split, idx) => {
             const isChecked = !!selectedTracks[split.id];
-            const isCompact = splits.length > 8;
-            const isUltraCompact = splits.length > 13;
-            const trackTitle = trackNames[split.id] || split.name || `Track ${String(idx + 1).padStart(2, '0')}`;
+            const trackTitle = getTrackTitle(split, idx);
             const fileName = constructFileName(idx + 1, albumArtist, trackTitle, namingPattern, padTrackNumbers);
             return (
-              <div key={split.id} onClick={() => setSelectedTracks((prev) => ({ ...prev, [split.id]: !prev[split.id] }))} className={`flex items-center gap-2 border rounded-lg cursor-pointer transition shrink min-h-0 px-2 ${isChecked ? 'bg-emerald-950/10 border-emerald-500/20' : 'bg-slate-950/40 border-slate-850 hover:bg-slate-900/30'} ${isUltraCompact ? 'py-0.5 text-[9px]' : isCompact ? 'py-1 text-[10px]' : 'py-1.5 text-[11px]'}`}>
-                <input type="checkbox" checked={isChecked} onChange={() => {}} className={`rounded accent-emerald-500 cursor-pointer shrink-0 ${isUltraCompact ? 'w-2.5 h-2.5' : 'w-3 h-3'}`} />
-                <span className={`flex-1 min-w-0 truncate font-mono ${isChecked ? 'text-emerald-300' : 'text-slate-300'} ${isUltraCompact ? 'text-[9px]' : 'text-[10px]'}`}>{fileName}.{format}</span>
-                <span className={`shrink-0 font-mono w-12 text-center ${isUltraCompact ? 'text-[8px]' : 'text-[9px]'} text-slate-400`}>{formatTime(split.duration)}</span>
+              <div key={split.id} onClick={() => setSelectedTracks((prev) => ({ ...prev, [split.id]: !prev[split.id] }))} className={`flex ${listRowHeightClass} min-h-0 shrink-0 items-center gap-2 border rounded-lg px-2 cursor-pointer transition ${isChecked ? 'bg-emerald-950/10 border-emerald-500/20' : 'bg-slate-950/40 border-slate-850 hover:bg-slate-900/30'}`}>
+                <input type="checkbox" checked={isChecked} onChange={() => {}} className={`rounded accent-emerald-500 cursor-pointer shrink-0 ${isHyperCompactList ? 'h-2 w-2' : isUltraCompactList ? 'h-2.5 w-2.5' : 'h-3 w-3'}`} />
+                <span className={`flex-1 min-w-0 truncate font-mono ${isChecked ? 'text-emerald-300' : 'text-slate-300'} ${filenameRowFontClass}`}>{fileName}.{format}</span>
+                <span className={`shrink-0 font-mono w-12 text-center ${filenameRowFontClass} text-slate-400`}>{formatTime(split.duration)}</span>
               </div>
             );
           })}
         </div>
 
         {/* Export button */}
-        <div className="flex-shrink-0 pt-4 mt-2 border-t border-slate-800 text-center">
-          <button type="button" onClick={handleExportAllTracks} disabled={selectedCount === 0 || isSavingAll} className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold border border-emerald-500/20 cursor-pointer shadow-md transition-all uppercase tracking-wider text-xs disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            <span>Export Selected</span>
-          </button>
+        <div className="flex-shrink-0 pt-3 mt-2 border-t border-slate-800 text-center">
+          <div className="mb-2 flex flex-wrap items-center justify-center gap-3">
+            <label className="flex max-w-[170px] items-center gap-1.5 text-left text-[9px] font-semibold leading-tight text-slate-300 cursor-pointer select-none" title="Apply a 10ms micro fade between splits to prevent pops or clicks">
+              <input type="checkbox" checked={autoSplitFades} onChange={(e) => setAutoSplitFades(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
+              <span>Micro fade between splits</span>
+            </label>
+            <button type="button" onClick={handleExportAllTracks} disabled={selectedCount === 0 || isSavingAll} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold border border-emerald-500/20 cursor-pointer shadow-md transition-all uppercase tracking-wider text-[11px] disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              <span>Export Selected</span>
+            </button>
+          </div>
           <div className="text-[10px] font-mono text-slate-500 mt-2">Ready to export <strong className="text-emerald-400">{selectedCount}</strong> out of <strong className="text-slate-300">{splits.length}</strong> slices</div>
         </div>
       </div>
 
       {/* RIGHT COLUMN: Tag preview table, format settings, include tags */}
-      <div className="lg:col-span-7 flex flex-col justify-between h-full min-h-0">
-        <div className="space-y-4 flex flex-col flex-1 min-h-0 pr-1">
+      <div className="md:col-span-7 flex flex-col h-full min-h-0 overflow-hidden">
+        <div className="flex flex-1 min-h-0 flex-col gap-4 pr-1">
           {/* Tag Preview Table */}
           <div className="flex-shrink-0 space-y-2">
             <div className="flex items-center justify-between">
@@ -361,10 +379,16 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
                 <Tag className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Tag Preview</span>
               </div>
-              <div className="flex items-center space-x-1.5">
-                <button type="button" onClick={() => {}} className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold hover:underline cursor-pointer">All</button>
-                <span className="text-slate-700 font-mono text-[9px]">•</span>
-                <button type="button" onClick={() => {}} className="text-[10px] text-slate-400 hover:text-slate-300 font-bold hover:underline cursor-pointer">None</button>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-300 cursor-pointer select-none">
+                  <input type="checkbox" checked={includeTags} onChange={(e) => setIncludeTags(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
+                  <span>Include Tags</span>
+                </label>
+                <div className="flex items-center space-x-1.5">
+                  <button type="button" onClick={() => {}} className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold hover:underline cursor-pointer">All</button>
+                  <span className="text-slate-700 font-mono text-[9px]">•</span>
+                  <button type="button" onClick={() => {}} className="text-[10px] text-slate-400 hover:text-slate-300 font-bold hover:underline cursor-pointer">None</button>
+                </div>
               </div>
             </div>
 
@@ -388,41 +412,60 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
               </div>
             </div>
 
-            {/* Table header row */}
-            <div className="grid grid-cols-4 bg-slate-900/80 border border-slate-800 rounded-t-lg text-[9px] text-slate-400 font-semibold uppercase tracking-wider">
-              <div className="px-2 py-1.5 border-r border-slate-800">Artist</div>
-              <div className="px-2 py-1.5 border-r border-slate-800">Title</div>
-              <div className="px-2 py-1.5 border-r border-slate-800">Album</div>
-              <div className="px-2 py-1.5">Genre</div>
-            </div>
           </div>
 
           {/* Tag rows for each track */}
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1">
+          <div className={`-mt-[9px] flex flex-1 min-h-0 flex-col ${listGapClass} overflow-hidden pr-1`}>
             {splits.map((split, idx) => {
-              const trackTitle = trackNames[split.id] || split.name || `Track ${String(idx + 1).padStart(2, '0')}`;
+              const trackTitle = getTrackTitle(split, idx);
               const isChecked = !!selectedTracks[split.id];
               return (
-                <div key={split.id} className={`grid grid-cols-4 border rounded-lg text-[10px] font-mono transition ${isChecked ? 'bg-emerald-950/10 border-emerald-500/20 text-emerald-300' : 'bg-slate-950/40 border-slate-850 text-slate-400'}`}>
-                  <div className="px-2 py-1.5 border-r border-slate-800 truncate">{albumArtist || '—'}</div>
-                  <div className="px-2 py-1.5 border-r border-slate-800 truncate"><span className="text-slate-500">{albumArtist && '— '}</span>{trackTitle}</div>
-                  <div className="px-2 py-1.5 border-r border-slate-800 truncate">{albumTitle || '—'}</div>
-                  <div className="px-2 py-1.5 truncate">{genre || '—'}</div>
+                <div key={split.id} className={`grid ${listRowHeightClass} shrink-0 min-h-0 grid-cols-4 border rounded-lg font-mono transition ${tagRowFontClass} ${isChecked ? 'bg-emerald-950/10 border-emerald-500/20 text-emerald-300' : 'bg-slate-950/40 border-slate-850 text-slate-400'}`}>
+                  <div className={`flex min-h-0 items-center truncate border-r border-slate-800 px-2 ${tagRowPaddingClass}`}>{albumArtist || '—'}</div>
+                  <div className={`flex min-h-0 items-center border-r border-slate-800 px-0.5 ${tagRowPaddingClass}`}>
+                    <input
+                      type="text"
+                      value={trackTitle}
+                      onChange={(event) => {
+                        editedTrackTitlesRef.current.add(split.id);
+                        setTracksData((previous) => ({
+                          ...previous,
+                          [split.id]: {
+                            trackNumber: previous[split.id]?.trackNumber ?? split.trackNumber ?? idx + 1,
+                            title: event.target.value,
+                            artist: previous[split.id]?.artist ?? albumArtist,
+                          },
+                        }));
+                      }}
+                      onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
+                        if (!['Enter', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
+                        event.preventDefault();
+                        const titleInputs = Array.from(
+                          event.currentTarget.closest('.dark-scroll')?.querySelectorAll('input[aria-label^="Title for track "]') ?? []
+                        ) as HTMLInputElement[];
+                        const currentIndex = titleInputs.indexOf(event.currentTarget);
+                        const direction = event.key === 'ArrowUp' ? -1 : 1;
+                        const targetInput = titleInputs[currentIndex + direction];
+                        targetInput?.focus();
+                        targetInput?.select();
+                      }}
+                      aria-label={`Title for track ${idx + 1}`}
+                      className={`w-full min-w-0 bg-transparent px-1.5 ${titleInputPaddingClass} font-mono text-inherit focus:outline-none focus:bg-slate-900/80 focus:ring-1 focus:ring-emerald-500/50 rounded ${tagRowFontClass}`}
+                    />
+                  </div>
+                  <div className={`flex min-h-0 items-center truncate border-r border-slate-800 px-2 ${tagRowPaddingClass}`}>{albumTitle || '—'}</div>
+                  <div className={`flex min-h-0 items-center truncate px-2 ${tagRowPaddingClass}`}>{genre || '—'}</div>
                 </div>
               );
             })}
           </div>
 
           {/* Format Settings Card */}
-          <div className="space-y-3.5 bg-slate-950/40 p-4 rounded-xl border border-slate-900 flex-shrink-0 text-xs">
-            <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
-              <Folder className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Export Format &amp; Quality Codecs</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2.5 bg-slate-950/40 p-3 rounded-xl border border-slate-900 flex-shrink-0 text-[11px]">
+            <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col space-y-1 text-left">
-                <label className="text-slate-400 font-semibold">Output Audio Format</label>
-                <select value={format} onChange={(e) => setFormat(e.target.value as AudioFormat)} className="bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-100 font-bold focus:outline-none cursor-pointer">
+                <label className="text-[10px] text-slate-400 font-semibold">Output Audio Format</label>
+                <select value={format} onChange={(e) => setFormat(e.target.value as AudioFormat)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] text-slate-100 font-bold focus:outline-none cursor-pointer">
                   <option value="flac">FLAC (Lossless)</option>
                   <option value="wav">WAV (Lossless uncompressed)</option>
                   <option value="mp3">MP3 (Compressed)</option>
@@ -432,25 +475,25 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
                 {format === 'flac' && (
                   <>
                     <label className="text-slate-400 font-semibold">Bit Depth</label>
-                    <div className="grid grid-cols-2 gap-1.5 bg-slate-900 p-1 rounded border border-slate-800">
-                      <button type="button" onClick={() => setFlacBitDepth(16)} className={`py-1 text-[11px] font-bold rounded cursor-pointer transition ${flacBitDepth === 16 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>16-bit</button>
-                      <button type="button" onClick={() => setFlacBitDepth(24)} className={`py-1 text-[11px] font-bold rounded cursor-pointer transition ${flacBitDepth === 24 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>24-bit</button>
+                    <div className="grid grid-cols-2 gap-1 bg-slate-900 p-0.5 rounded border border-slate-800">
+                      <button type="button" onClick={() => setFlacBitDepth(16)} className={`py-1 text-[10px] font-bold rounded cursor-pointer transition ${flacBitDepth === 16 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>16-bit</button>
+                      <button type="button" onClick={() => setFlacBitDepth(24)} className={`py-1 text-[10px] font-bold rounded cursor-pointer transition ${flacBitDepth === 24 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>24-bit</button>
                     </div>
                   </>
                 )}
                 {format === 'wav' && (
                   <>
                     <label className="text-slate-400 font-semibold">Bit Depth</label>
-                    <div className="grid grid-cols-2 gap-1.5 bg-slate-900 p-1 rounded border border-slate-800">
-                      <button type="button" onClick={() => setWavBitDepth(16)} className={`py-1 text-[11px] font-bold rounded cursor-pointer transition ${wavBitDepth === 16 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>16-bit</button>
-                      <button type="button" onClick={() => setWavBitDepth(24)} className={`py-1 text-[11px] font-bold rounded cursor-pointer transition ${wavBitDepth === 24 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>24-bit</button>
+                    <div className="grid grid-cols-2 gap-1 bg-slate-900 p-0.5 rounded border border-slate-800">
+                      <button type="button" onClick={() => setWavBitDepth(16)} className={`py-1 text-[10px] font-bold rounded cursor-pointer transition ${wavBitDepth === 16 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>16-bit</button>
+                      <button type="button" onClick={() => setWavBitDepth(24)} className={`py-1 text-[10px] font-bold rounded cursor-pointer transition ${wavBitDepth === 24 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>24-bit</button>
                     </div>
                   </>
                 )}
                 {format === 'mp3' && (
                   <>
                     <label className="text-slate-400 font-semibold">Encoding Bitrate</label>
-                    <select value={mp3Bitrate} onChange={(e) => setMp3Bitrate(Number(e.target.value) as Mp3Bitrate)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-100 font-bold focus:outline-none cursor-pointer">
+                    <select value={mp3Bitrate} onChange={(e) => setMp3Bitrate(Number(e.target.value) as Mp3Bitrate)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] text-slate-100 font-bold focus:outline-none cursor-pointer">
                       <option value={128}>128 kbps (Draft)</option>
                       <option value={192}>192 kbps (Standard)</option>
                       <option value={256}>256 kbps (High Quality)</option>
@@ -460,20 +503,9 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
                 )}
               </div>
             </div>
-            <label className="flex items-center space-x-2.5 text-[11px] text-slate-300 cursor-pointer select-none">
-              <input type="checkbox" checked={autoSplitFades} onChange={(e) => setAutoSplitFades(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
-              <span className="font-semibold text-slate-200">Auto-apply 10ms micro-fades at boundaries to prevent pops/clicks</span>
-            </label>
           </div>
         </div>
 
-        {/* Include Tags checkbox */}
-        <div className="flex-shrink-0 pt-4 mt-2 border-t border-slate-800">
-          <label className="flex items-center space-x-2.5 text-sm text-slate-200 font-semibold cursor-pointer select-none">
-            <input type="checkbox" checked={includeTags} onChange={(e) => setIncludeTags(e.target.checked)} className="rounded accent-emerald-500 w-4 h-4 cursor-pointer" />
-            <span>Include Tags</span>
-          </label>
-        </div>
       </div>
 
       {/* Manual save Fallback Modal */}
