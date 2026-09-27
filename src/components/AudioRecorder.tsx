@@ -116,7 +116,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         const pHeight = parent.clientHeight;
         
         // Base pro-audio console design targets (the ideal scale dimensions)
-        const baseWidth = 940;
+        const baseWidth = 1000;
         const baseHeight = 735;
         
         // Compute the fitting aspect scale ratio
@@ -854,7 +854,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       
       {/* Rigid, centered hardware layout wrapper scaling proportionally with CSS transform scale */}
       <div
-        className="w-[940px] h-[735px] shrink-0 flex flex-row gap-6 relative"
+        className="w-[1000px] h-[735px] shrink-0 flex flex-row gap-6 relative"
         style={{
           transform: `scale(${scale})`,
           transformOrigin: 'center center',
@@ -981,9 +981,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </div>
             </div>
 
-            <div className="w-48 bg-slate-950/80 border border-slate-700/60 rounded-xl flex flex-col items-center justify-center gap-2 shadow-lg">
+            <div className="w-56 bg-slate-950/80 border border-slate-700/60 rounded-xl flex flex-col items-center justify-center gap-2 shadow-lg">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Oscilloscope</span>
-              <div className="relative w-36 h-36 rounded-full border-4 border-slate-700 bg-slate-950 overflow-hidden shadow-[inset_0_0_18px_rgba(0,0,0,0.8)]">
+              <div className="relative w-40 h-40 rounded-full border-4 border-slate-700 bg-slate-950 overflow-hidden shadow-[inset_0_0_18px_rgba(0,0,0,0.8)]">
                 <canvas ref={liveCanvasRef} width={160} height={160} className="w-full h-full block rounded-full" />
                 <div className="absolute inset-3 rounded-full border border-slate-700/70 pointer-events-none" />
               </div>
@@ -995,7 +995,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* 2. Wide digital needle VU meters */}
-          <div className="order-2 h-[320px] flex-none flex flex-col items-center justify-start pt-1 w-full shrink-0">
+          <div className="order-2 mt-7 h-[320px] flex-none flex flex-col items-center justify-start pt-1 w-full shrink-0">
             <div className="flex items-start justify-center gap-5 bg-slate-950/80 p-5 border border-slate-700/60 rounded-xl shadow-lg w-full max-w-3xl">
               {/* L meter */}
               <div className="flex-1 min-w-0 flex flex-col items-center gap-2">

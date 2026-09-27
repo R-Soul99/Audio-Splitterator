@@ -2435,20 +2435,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <span className="text-amber-400">{noiseFloorDb.toFixed(1)} dB</span>
         </div>
 
-        {/* Playhead HUD Timecode Overlay inside bottom of canvas */}
-        <div className="absolute bottom-3 left-3 right-28 bg-slate-950/85 border border-slate-800/80 px-2 py-1 rounded text-[10px] font-mono font-bold pointer-events-none select-none backdrop-blur-xs flex items-center gap-1.5 whitespace-nowrap overflow-hidden">
-          <span className="text-sky-400">POS {formatTime(currentTime, true)}</span>
-          <span className="text-slate-700">|</span>
-          <span className="text-slate-200">LEN {audioBuffer ? formatTime(audioBuffer.duration) : '--:--'}</span>
-          <span className="text-slate-700 hidden sm:inline">|</span>
-          <span className="text-slate-200 hidden sm:inline">{audioBuffer ? `${(audioBuffer.sampleRate / 1000).toFixed(1)}kHz` : 'RATE --'}</span>
-          <span className="text-slate-700 hidden sm:inline">|</span>
-          <span className="text-amber-300 hidden sm:inline">V{verticalZoom.toFixed(1)}x</span>
-        </div>
-
         {/* Independent horizontal zoom row */}
         <div className="absolute bottom-3 right-11 flex items-center gap-0.5">
-          <span className="w-3 text-center text-[8px] font-bold text-slate-400">H</span>
           <button
             type="button"
             onClick={handleZoomIn}
@@ -2480,7 +2468,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
         {/* Independent vertical zoom stack, aligned to the waveform edge */}
         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1">
-          <span className="text-[9px] font-bold text-amber-400">V</span>
           <button
             type="button"
             onClick={handleVerticalZoomIn}
@@ -2529,6 +2516,21 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         />
         <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-400 bg-slate-950/75 px-1.5 py-0.5 rounded">
           {zoom.toFixed(1)}x zoom • {formatTime(visibleDuration)} visible
+        </div>
+      </div>
+
+      <div className="order-6 flex items-center gap-2">
+        <div className="flex min-w-0 items-baseline gap-2 rounded border border-slate-800 bg-slate-950 px-2.5 py-1">
+          <span className="text-[8px] font-bold tracking-wide text-slate-500">POS</span>
+          <span className="font-mono text-[12px] font-semibold tabular-nums text-emerald-300">
+            {formatTime(currentTime, true)}
+          </span>
+        </div>
+        <div className="flex min-w-0 items-baseline gap-2 rounded border border-slate-800 bg-slate-950 px-2.5 py-1">
+          <span className="text-[8px] font-bold tracking-wide text-slate-500">LEN</span>
+          <span className="font-mono text-[12px] font-semibold tabular-nums text-sky-300">
+            {audioBuffer ? formatTime(audioBuffer.duration) : '--:--'}
+          </span>
         </div>
       </div>
 
