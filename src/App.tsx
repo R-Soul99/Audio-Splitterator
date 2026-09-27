@@ -449,7 +449,7 @@ export default function App() {
   );
 
   // Load new audio buffer (recording finished or imported file)
-  const loadAudio = (buffer: AudioBuffer, fileName: string, artist?: string, album?: string) => {
+  const loadAudio = (buffer: AudioBuffer, fileName: string, artist?: string, album?: string, markerTimes: number[] = []) => {
     stopPlayback();
     audioBufferRef.current = buffer;
     cropStartRef.current = 0;
@@ -464,7 +464,12 @@ export default function App() {
     setCropEnd(buffer.duration);
     setSelection(null);
     setCurrentTime(0);
-    setMarkers([]);
+    const markerIdPrefix = `marker-recording-${Date.now()}`;
+    setMarkers(
+      markerTimes
+        .filter((time) => time > 0.01 && time < buffer.duration - 0.01)
+        .map((time, index) => ({ id: `${markerIdPrefix}-${index}`, time }))
+    );
     setZoom(1);
     setViewOffsetSec(0);
 
@@ -928,7 +933,9 @@ export default function App() {
         setSelection(null);
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
-        handleAddMarkerAtPlayhead();
+        if (workflowTab !== 'record' || !isRecordingActive) {
+          handleAddMarkerAtPlayhead();
+        }
       } else if (e.key === 'i' || e.key === 'I') {
         e.preventDefault();
         setCropStart(currentTimeRef.current);
@@ -940,7 +947,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handlePlayPause, handleAddMarkerAtPlayhead, handleCutSelection, handleCropToSelection, handleUndo]);
+  }, [workflowTab, isRecordingActive, handlePlayPause, handleAddMarkerAtPlayhead, handleCutSelection, handleCropToSelection, handleUndo]);
 
   return (
     <div className="h-screen max-h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
@@ -965,7 +972,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Centered Workflow Buttons (RECORD, EDIT, SAVE) serving as global header */}
+          {/* Centered Workflow Buttons (RECORD, EDIT, EXPORT) serving as global header */}
           <div className="grid grid-cols-3 gap-2 w-full sm:w-[380px] mx-auto mt-4 sm:mt-0 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
             {/* RECORD TAB */}
             <button
@@ -993,7 +1000,7 @@ export default function App() {
               EDIT
             </button>
 
-            {/* SAVE TAB (Always available, but shows empty state if no audio) */}
+            {/* EXPORT TAB (Always available, but shows empty state if no audio) */}
             <button
               type="button"
               onClick={() => setWorkflowTab('save')}
@@ -1003,7 +1010,7 @@ export default function App() {
                   : 'text-slate-400 hover:text-slate-200 border-transparent bg-transparent'
               }`}
             >
-              SAVE
+              EXPORT
             </button>
           </div>
 
@@ -1051,8 +1058,8 @@ export default function App() {
             {workflowTab === 'record' && (
               <div className="flex-1 h-full min-h-0 overflow-hidden">
                 <AudioRecorder
-                  onRecordingComplete={(buf, defaultName, art, alb) => {
-                    loadAudio(buf, defaultName, art, alb);
+                  onRecordingComplete={(buf, defaultName, art, alb, markerTimes) => {
+                    loadAudio(buf, defaultName, art, alb, markerTimes);
                   }}
                   isRecordingActive={isRecordingActive}
                   setIsRecordingActive={setIsRecordingActive}
@@ -1312,34 +1319,34 @@ export default function App() {
                       {/* Artist / Album: stacked. Safe to do now - the list spans both grid rows, so this row's height no longer affects it. */}
                       <div className="flex-1 min-w-[140px] flex flex-col justify-center gap-1 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2 py-1">
                         <div className="flex items-center gap-1.5">
-                          <Tag className="w-3 h-3 text-amber-400 shrink-0" />
+                          <label htmlFor="recording-name" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Recording name:</label>
                           <input
+                            id="recording-name"
                             type="text"
                             value={mainFileName}
                             onChange={(e) => setMainFileName(e.target.value)}
                             className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
-                            placeholder="Recording Name..."
                             title="Recording name used for default split names"
                           />
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <Tag className="w-3 h-3 text-emerald-400 shrink-0" />
+                          <label htmlFor="recording-artist" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Artist:</label>
                           <input
+                            id="recording-artist"
                             type="text"
                             value={preRecordArtist}
                             onChange={(e) => setPreRecordArtist(e.target.value)}
                             className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
-                            placeholder="Artist..."
                           />
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <Tag className="w-3 h-3 text-sky-400 shrink-0" />
+                          <label htmlFor="recording-album" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Album:</label>
                           <input
+                            id="recording-album"
                             type="text"
                             value={preRecordAlbum}
                             onChange={(e) => setPreRecordAlbum(e.target.value)}
                             className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
-                            placeholder="Album..."
                           />
                         </div>
                       </div>
