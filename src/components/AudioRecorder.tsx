@@ -1050,7 +1050,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* Bottom row */}
-          <div className="grid min-h-0 grid-cols-[180px_minmax(0,1fr)] gap-4">
+          <div className="grid min-h-0 grid-cols-[165px_minmax(0,1fr)] gap-4">
             {/* Transport */}
             <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-700/60 bg-slate-950/80 p-4">
               <span className="self-start text-xs font-bold uppercase tracking-wider text-slate-300">Transport</span>
@@ -1118,9 +1118,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Level Meters</span>
                 <span className="h-px flex-1 bg-slate-700/60" />
               </div>
-              <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_120px_minmax(0,1fr)] items-start gap-4 pt-4">
+              <div className="relative grid min-h-0 flex-1 grid-cols-2 items-start gap-4 pt-4">
                 <VuMeter label="L VU" peakDb={leftPeakDb} peakHoldDb={leftPeakHoldDb} onResetPeak={handleResetLeftPeak} />
-                <div className="flex flex-col items-center gap-1.5">
+                <div className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5">
                   <button
                     type="button"
                     onClick={handleResetPeak}
@@ -1138,7 +1138,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         </div>
 
         {/* RIGHT PANEL: controls */}
-        <div className="h-full w-[290px] shrink-0 rounded-xl border border-slate-700/60 bg-slate-900/10 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
+        <div className="h-full w-[280px] shrink-0 rounded-xl border border-slate-700/60 bg-slate-900/10 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
           <div className="flex h-full flex-col rounded-xl border border-slate-700/60 bg-slate-950/80 px-4 py-4">
             <span className="border-b border-slate-700/60 pb-3 text-sm font-bold uppercase tracking-wider text-slate-200">Controls</span>
 
