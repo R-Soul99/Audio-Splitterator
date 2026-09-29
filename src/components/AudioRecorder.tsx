@@ -47,7 +47,7 @@ const VuMeter: React.FC<VuMeterProps> = ({ label, peakDb, peakHoldDb, onResetPea
   // Geometry is derived from the box we are given, so the meter fills it.
   const { w, h } = size;
   const pivot = { x: w / 2, y: h - Math.max(16, h * 0.07) };
-  const radius = Math.min(w * 0.42, (pivot.y - 6) * 0.86);
+  const radius = Math.min(w * 0.46, (pivot.y - 6) * 0.9);
   const k = radius / 170;
   const at = (r: number, angleDeg: number) => {
     const rad = (angleDeg * Math.PI) / 180;
@@ -987,9 +987,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       {/* Fluid console: fills whatever space the window gives it */}
       <div className="relative flex h-full min-h-0 w-full flex-row gap-3">
         {/* LEFT PANEL: waveform + scope on top, transport + level meters below */}
-        <div className="flex-1 min-w-0 h-full grid grid-rows-[minmax(0,4fr)_minmax(0,5fr)] gap-3 rounded-xl border border-slate-700/60 bg-slate-900/10 p-3 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
+        <div className="flex-1 min-w-0 h-full grid grid-rows-[minmax(0,3.6fr)_minmax(0,5.4fr)] gap-3 rounded-xl border border-slate-700/60 bg-slate-900/10 p-3 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
           {/* Top row */}
-          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(260px,27%)] grid-rows-[minmax(0,1fr)] gap-3">
+          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(290px,30%)] grid-rows-[minmax(0,1fr)] gap-3">
             {/* Recording waveform */}
             <div className="relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
               <div className="relative min-h-0 flex-1">
@@ -1065,7 +1065,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* Bottom row */}
-          <div className="grid min-h-0 grid-cols-[minmax(190px,17%)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-3">
+          <div className="grid min-h-0 grid-cols-[minmax(175px,15%)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-3">
             {/* Transport */}
             <div className="flex min-h-0 flex-col items-center justify-between overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
               <span className="self-start text-xs font-bold uppercase tracking-wider text-slate-300">Transport</span>
