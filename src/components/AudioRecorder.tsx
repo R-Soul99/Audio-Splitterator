@@ -20,8 +20,24 @@ interface AudioRecorderProps {
   onWakeAudioEngine?: () => void;
 }
 
-// Needle sweep: -20 dB .. +3 dB maps to -55deg .. +55deg around the pivot.
-const vuAngle = (db: number) => -55 + (Math.max(-20, Math.min(3, db)) + 20) / 23 * 110;
+// Needle sweep uses the full digital input range, but gives the important upper
+// levels more physical travel so quiet signals still move the needle smoothly.
+const vuAngle = (db: number) => {
+  const value = Math.max(-60, Math.min(3, db));
+
+  if (value <= -20) {
+    // -60 .. -20 dBFS => -55 .. -30 degrees
+    return -55 + ((value + 60) / 40) * 25;
+  }
+
+  if (value <= 0) {
+    // -20 .. 0 dBFS => -30 .. +40 degrees
+    return -30 + ((value + 20) / 20) * 70;
+  }
+
+  // 0 .. +3 dBFS => +40 .. +55 degrees
+  return 40 + (value / 3) * 15;
+};
 const VU_PIVOT = { x: 220, y: 230 };
 const polar = (radius: number, angleDeg: number) => {
   const rad = (angleDeg * Math.PI) / 180;
@@ -37,8 +53,11 @@ interface VuMeterProps {
 }
 
 const VuMeter: React.FC<VuMeterProps> = ({ label, peakDb, peakHoldDb, onResetPeak, hidden }) => {
-  const ticks = Array.from({ length: 24 }, (_, i) => i - 20);
-  const labelled = [-20, -12, -6, 0, 3];
+  const ticks = [
+    -60, -55, -50, -45, -40, -35, -30, -25, -20,
+    -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 1, 2, 3,
+  ];
+  const labelled = [-60, -40, -20, -12, -6, 0, 3];
   const redStart = polar(156, vuAngle(0));
   const redEnd = polar(156, vuAngle(3));
   return (
