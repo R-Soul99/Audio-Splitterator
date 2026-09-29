@@ -22,12 +22,6 @@ interface AudioRecorderProps {
 
 // Needle sweep: -20 dB .. +3 dB maps to -55deg .. +55deg around the pivot.
 const vuAngle = (db: number) => -55 + (Math.max(-20, Math.min(3, db)) + 20) / 23 * 110;
-const VU_PIVOT = { x: 220, y: 274 };
-const polar = (radius: number, angleDeg: number) => {
-  const rad = (angleDeg * Math.PI) / 180;
-  return { x: VU_PIVOT.x + radius * Math.sin(rad), y: VU_PIVOT.y - radius * Math.cos(rad) };
-};
-
 interface VuMeterProps {
   label: string;
   peakDb: number;
@@ -37,12 +31,39 @@ interface VuMeterProps {
 }
 
 const VuMeter: React.FC<VuMeterProps> = ({ label, peakDb, peakHoldDb, onResetPeak, hidden }) => {
+  const wrapRef = React.useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = React.useState({ w: 440, h: 290 });
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setSize({ w: Math.round(width), h: Math.round(height) });
+    });
+    resizeObserver.observe(el);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  // Geometry is derived from the box we are given, so the meter fills it.
+  const { w, h } = size;
+  const pivot = { x: w / 2, y: h - Math.max(16, h * 0.07) };
+  const radius = Math.min(w * 0.42, (pivot.y - 6) * 0.86);
+  const k = radius / 170;
+  const at = (r: number, angleDeg: number) => {
+    const rad = (angleDeg * Math.PI) / 180;
+    return { x: pivot.x + r * Math.sin(rad), y: pivot.y - r * Math.cos(rad) };
+  };
+  const cornerX = w * 0.42;
+  const cornerY = (pivot.y - 3) * 0.8;
+  const housing = `M 3 ${h - 2} V ${3 + cornerY} A ${cornerX} ${cornerY} 0 0 1 ${3 + cornerX} 3 H ${w - 3 - cornerX} A ${cornerX} ${cornerY} 0 0 1 ${w - 3} ${3 + cornerY} V ${h - 2} Z`;
   const ticks = Array.from({ length: 24 }, (_, i) => i - 20);
   const labelled = [-20, -12, -6, 0, 3];
-  const redStart = polar(180, vuAngle(0));
-  const redEnd = polar(180, vuAngle(3));
+  const arcStart = at(radius, -60);
+  const arcEnd = at(radius, 60);
+  const redStart = at(radius + 10 * k, vuAngle(0));
+  const redEnd = at(radius + 10 * k, vuAngle(3));
   return (
-    <div className={`flex min-w-0 flex-col items-center gap-2 ${hidden ? 'invisible' : ''}`}>
+    <div className={`flex h-full min-h-0 min-w-0 flex-col items-center gap-2 ${hidden ? 'invisible' : ''}`}>
       <div
         onClick={onResetPeak}
         className={`flex h-9 w-36 shrink-0 cursor-pointer items-center justify-center gap-2 rounded border bg-slate-950 font-mono text-[12px] font-bold transition hover:border-slate-500 ${
@@ -57,29 +78,31 @@ const VuMeter: React.FC<VuMeterProps> = ({ label, peakDb, peakHoldDb, onResetPea
         <span className={`h-2.5 w-2.5 rounded-full border ${peakHoldDb >= -0.05 ? 'border-red-300 bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]' : 'border-slate-600 bg-slate-800'}`} />
         <span>{peakHoldDb >= 0 ? 'CLIP' : peakHoldDb <= -60 ? '-∞' : peakHoldDb.toFixed(1)}</span>
       </div>
-      <svg viewBox="0 0 440 290" className="w-full" role="img" aria-label={`${label} level meter`}>
-        <path d="M 4 288 V 274 A 216 258 0 0 1 436 274 V 288 Z" fill="#18211f" stroke="#475569" strokeWidth="3" />
-        <path d="M 50 274 A 170 170 0 0 1 390 274" fill="none" stroke="rgba(148,163,184,0.35)" strokeWidth="1.5" />
-        {ticks.map((db) => {
-          const major = labelled.includes(db);
-          const a = polar(major ? 148 : 158, vuAngle(db));
-          const b = polar(170, vuAngle(db));
-          return <line key={db} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={db >= 0 ? '#f87171' : '#94a3b8'} strokeWidth={major ? 2.5 : 1.2} opacity={major ? 0.9 : 0.55} />;
-        })}
-        <path d={`M ${redStart.x} ${redStart.y} A 180 180 0 0 1 ${redEnd.x} ${redEnd.y}`} fill="none" stroke="#f87171" strokeWidth="5" opacity="0.8" />
-        {labelled.map((db) => {
-          const p = polar(126, vuAngle(db));
-          return (
-            <text key={db} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle" fontSize="16" fontFamily="ui-monospace, monospace" fill={db >= 0 ? '#fca5a5' : '#94a3b8'}>
-              {db > 0 ? `+${db}` : db}
-            </text>
-          );
-        })}
-        <g style={{ transform: `rotate(${vuAngle(peakDb)}deg)`, transformOrigin: `${VU_PIVOT.x}px ${VU_PIVOT.y}px`, transition: 'transform 75ms ease-out' }}>
-          <line x1={VU_PIVOT.x} y1={VU_PIVOT.y} x2={VU_PIVOT.x} y2={VU_PIVOT.y - 190} stroke="#f87171" strokeWidth="3.5" strokeLinecap="round" style={{ filter: 'drop-shadow(0 0 4px rgba(248,113,113,0.8))' }} />
-        </g>
-        <circle cx={VU_PIVOT.x} cy={VU_PIVOT.y} r="11" fill="#334155" stroke="#cbd5e1" strokeWidth="2" />
-      </svg>
+      <div ref={wrapRef} className="relative min-h-0 w-full flex-1">
+        <svg viewBox={`0 0 ${w} ${h}`} className="absolute inset-0 h-full w-full" role="img" aria-label={`${label} level meter`}>
+          <path d={housing} fill="#18211f" stroke="#475569" strokeWidth="3" />
+          <path d={`M ${arcStart.x} ${arcStart.y} A ${radius} ${radius} 0 0 1 ${arcEnd.x} ${arcEnd.y}`} fill="none" stroke="rgba(148,163,184,0.35)" strokeWidth="1.5" />
+          {ticks.map((db) => {
+            const major = labelled.includes(db);
+            const a = at(radius - (major ? 22 : 12) * k, vuAngle(db));
+            const b = at(radius, vuAngle(db));
+            return <line key={db} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={db >= 0 ? '#f87171' : '#94a3b8'} strokeWidth={(major ? 2.5 : 1.2) * Math.max(0.7, k)} opacity={major ? 0.9 : 0.55} />;
+          })}
+          <path d={`M ${redStart.x} ${redStart.y} A ${radius + 10 * k} ${radius + 10 * k} 0 0 1 ${redEnd.x} ${redEnd.y}`} fill="none" stroke="#f87171" strokeWidth={5 * Math.max(0.7, k)} opacity="0.8" />
+          {labelled.map((db) => {
+            const pt = at(radius - 44 * k, vuAngle(db));
+            return (
+              <text key={db} x={pt.x} y={pt.y} textAnchor="middle" dominantBaseline="middle" fontSize={Math.max(11, 16 * k)} fontFamily="ui-monospace, monospace" fill={db >= 0 ? '#fca5a5' : '#94a3b8'}>
+                {db > 0 ? `+${db}` : db}
+              </text>
+            );
+          })}
+          <g style={{ transform: `rotate(${vuAngle(peakDb)}deg)`, transformOrigin: `${pivot.x}px ${pivot.y}px`, transition: 'transform 75ms ease-out' }}>
+            <line x1={pivot.x} y1={pivot.y} x2={pivot.x} y2={pivot.y - radius * 1.1} stroke="#f87171" strokeWidth={3.5 * Math.max(0.7, k)} strokeLinecap="round" style={{ filter: 'drop-shadow(0 0 4px rgba(248,113,113,0.8))' }} />
+          </g>
+          <circle cx={pivot.x} cy={pivot.y} r={11 * Math.max(0.8, k)} fill="#334155" stroke="#cbd5e1" strokeWidth="2" />
+        </svg>
+      </div>
       <span className="font-mono text-base font-bold tracking-wide text-slate-200">{label}</span>
     </div>
   );
@@ -110,7 +133,7 @@ const VerticalToggle: React.FC<VerticalToggleProps> = ({ topLabel, bottomLabel, 
         onClick={onToggle}
         className="cursor-pointer rounded-lg transition hover:brightness-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <svg viewBox="0 0 48 84" className="block h-[84px] w-[48px]">
+        <svg viewBox="0 0 48 84" className="block aspect-[48/84] h-[clamp(64px,8.5vh,84px)]">
           <defs>
             <linearGradient id={`${id}-metal`} x1="0" x2="1" y1="0" y2="0">
               <stop offset="0" stopColor="#64748b" />
@@ -219,8 +242,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const isRecordingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false);
 
-  // Proportional scaling factor tracking
-  const [scale, setScale] = useState<number>(1);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -228,49 +249,21 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     isPausedRef.current = isPaused;
   }, [isRecording, isPaused]);
 
-  // Handle proportional scale calculations
-  const calculateScale = useCallback(() => {
-    if (containerRef.current) {
-      const parent = containerRef.current.parentElement;
-      if (parent) {
-        const pWidth = parent.clientWidth;
-        const pHeight = parent.clientHeight;
-        
-        // Base pro-audio console design targets (the ideal scale dimensions)
-        const baseWidth = 1500;
-        const baseHeight = 830;
-        
-        // Compute the fitting aspect scale ratio
-        const scaleX = pWidth / baseWidth;
-        const scaleY = pHeight / baseHeight;
-        const newScale = Math.min(scaleX, scaleY);
-        
-        setScale(newScale);
-      }
-    }
-  }, []);
-
+  // Keep the waveform canvas drawing buffer 1:1 with its on-screen size
   useEffect(() => {
-    window.addEventListener('resize', calculateScale);
-    // Initial delay trigger for accurate rendering calculation
-    const t = setTimeout(calculateScale, 60);
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (containerRef.current && containerRef.current.parentElement) {
-      resizeObserver = new ResizeObserver(() => {
-        calculateScale();
-      });
-      resizeObserver.observe(containerRef.current.parentElement);
-    }
-
-    return () => {
-      window.removeEventListener('resize', calculateScale);
-      clearTimeout(t);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
+    const canvas = recordingWaveformCanvasRef.current;
+    if (!canvas) return;
+    const resizeObserver = new ResizeObserver(() => {
+      const w = Math.max(1, Math.round(canvas.clientWidth));
+      const h = Math.max(1, Math.round(canvas.clientHeight));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
       }
-    };
-  }, [calculateScale]);
+    });
+    resizeObserver.observe(canvas);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   // Load audio input devices
   const loadDevices = useCallback(async () => {
@@ -991,22 +984,16 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative select-none">
       
-      {/* Fixed-size console, scaled proportionally to fit the available space */}
-      <div
-        className="w-[1500px] h-[830px] shrink-0 flex flex-row gap-4 relative"
-        style={{
-          transform: `scale(${scale})`,
-          transformOrigin: 'center center',
-        }}
-      >
+      {/* Fluid console: fills whatever space the window gives it */}
+      <div className="relative flex h-full min-h-0 w-full flex-row gap-3">
         {/* LEFT PANEL: waveform + scope on top, transport + level meters below */}
-        <div className="flex-1 min-w-0 h-full grid grid-rows-[340px_minmax(0,1fr)] gap-3 rounded-xl border border-slate-700/60 bg-slate-900/10 p-3 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
+        <div className="flex-1 min-w-0 h-full grid grid-rows-[minmax(0,4fr)_minmax(0,5fr)] gap-3 rounded-xl border border-slate-700/60 bg-slate-900/10 p-3 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
           {/* Top row */}
-          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_296px] gap-3">
+          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(260px,27%)] grid-rows-[minmax(0,1fr)] gap-3">
             {/* Recording waveform */}
-            <div className="relative flex min-w-0 flex-col justify-center overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
-              <div className="relative">
-                <canvas ref={recordingWaveformCanvasRef} width={1000} height={232} className="block h-[232px] w-full bg-slate-950" />
+            <div className="relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
+              <div className="relative min-h-0 flex-1">
+                <canvas ref={recordingWaveformCanvasRef} width={1000} height={232} className="absolute inset-0 block h-full w-full bg-slate-950" />
                 <span className="pointer-events-none absolute left-2 top-0 font-mono text-xs font-bold tracking-wider text-slate-300">RECORDING WAVEFORM</span>
                 {isRecording && (
                   <div className="absolute left-14 top-9 z-10 flex items-center gap-1.5 border border-dashed border-amber-400/80 bg-slate-950/90 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-500">
@@ -1065,12 +1052,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             </div>
 
             {/* Oscilloscope */}
-            <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
+            <div className="flex min-h-0 flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Oscilloscope</span>
-              <div className="relative h-[268px] w-[268px] overflow-hidden rounded-full border-[6px] border-slate-700 bg-slate-950 shadow-[inset_0_0_24px_rgba(0,0,0,0.85)]">
-                <canvas ref={liveCanvasRef} width={268} height={268} className="block h-full w-full rounded-full" />
+              <div className="flex min-h-0 w-full flex-1 items-center justify-center" style={{ containerType: 'size' }}><div className="relative aspect-square w-[min(100cqw,100cqh)] overflow-hidden rounded-full border-[6px] border-slate-700 bg-slate-950 shadow-[inset_0_0_24px_rgba(0,0,0,0.85)]">
+                <canvas ref={liveCanvasRef} width={360} height={360} className="block h-full w-full rounded-full" />
                 <div className="pointer-events-none absolute inset-4 rounded-full border border-slate-600/50" />
-              </div>
+              </div></div>
               <span className={`font-mono text-xs font-bold tracking-wider ${clipped ? 'text-red-400' : isMonitoringActive ? 'text-emerald-400' : 'text-slate-500'}`}>
                 {isStandbyMode ? 'STANDBY' : clipped ? 'CLIP' : isMonitoringActive ? 'SIGNAL' : 'NO SIGNAL'}
               </span>
@@ -1078,9 +1065,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* Bottom row */}
-          <div className="grid min-h-0 grid-cols-[230px_minmax(0,1fr)] gap-3">
+          <div className="grid min-h-0 grid-cols-[minmax(190px,17%)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-3">
             {/* Transport */}
-            <div className="flex flex-col items-center justify-between rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
+            <div className="flex min-h-0 flex-col items-center justify-between overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
               <span className="self-start text-xs font-bold uppercase tracking-wider text-slate-300">Transport</span>
               <div className="flex flex-col items-center gap-1.5">
                 <button
@@ -1094,7 +1081,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                       startRecording();
                     }
                   }}
-                  className={`flex h-28 w-28 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-all duration-300 ${
+                  className={`flex h-[clamp(72px,12vh,112px)] w-[clamp(72px,12vh,112px)] cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-all duration-300 ${
                     isStandbyMode
                       ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500 hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
                       : isRecording
@@ -1104,7 +1091,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   title={isStandbyMode ? 'Audio engine is sleeping in Standby. Click to wake and record.' : isRecording ? 'Stop Recording' : 'Start Recording'}
                   aria-label={isStandbyMode ? 'Wake audio engine' : isRecording ? 'Stop recording' : 'Start recording'}
                 >
-                  <span className="h-10 w-10 rounded-full bg-white/90" />
+                  <span className="h-[36%] w-[36%] rounded-full bg-white/90" />
                 </button>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : 'RECORD'}</span>
               </div>
@@ -1114,7 +1101,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   type="button"
                   disabled={!isRecording}
                   onClick={togglePause}
-                  className={`flex h-16 w-24 cursor-pointer items-center justify-center rounded-lg border shadow transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`flex h-[clamp(40px,7vh,64px)] w-24 cursor-pointer items-center justify-center rounded-lg border shadow transition disabled:cursor-not-allowed disabled:opacity-40 ${
                     isPaused
                       ? 'border-amber-500/40 bg-amber-600/20 text-amber-400 hover:bg-amber-600/30'
                       : 'border-slate-600 bg-slate-800/80 text-slate-200 hover:bg-slate-700'
@@ -1131,7 +1118,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   type="button"
                   disabled={!isRecording}
                   onClick={stopRecording}
-                  className="flex h-16 w-24 cursor-pointer items-center justify-center rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 shadow transition hover:bg-slate-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-[clamp(40px,7vh,64px)] w-24 cursor-pointer items-center justify-center rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 shadow transition hover:bg-slate-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
                   title="Stop recording"
                 >
                   <Square className="h-7 w-7 fill-current" />
@@ -1146,7 +1133,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Level Meters</span>
                 <span className="h-px flex-1 bg-slate-700/60" />
               </div>
-              <div className="relative grid min-h-0 flex-1 grid-cols-2 items-center gap-2 pt-2">
+              <div className="relative grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-2 pt-2">
                 <VuMeter label="L VU" peakDb={leftPeakDb} peakHoldDb={leftPeakHoldDb} onResetPeak={handleResetLeftPeak} />
                 <VuMeter label="R VU" peakDb={rightPeakDb} peakHoldDb={rightPeakHoldDb} onResetPeak={handleResetRightPeak} hidden={channelMode !== 'stereo'} />
                 {/* Sits in the top row above the gap between the two domes, so the meters can expand inward */}
@@ -1167,11 +1154,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         </div>
 
         {/* RIGHT PANEL: controls */}
-        <div className="h-full w-[290px] shrink-0 rounded-xl border border-slate-700/60 bg-slate-900/10 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
-          <div className="flex h-full flex-col rounded-xl border border-slate-700/60 bg-slate-950/80 px-4 py-4">
-            <span className="border-b border-slate-700/60 pb-3 text-sm font-bold uppercase tracking-wider text-slate-200">Controls</span>
+        <div className="h-full min-h-0 w-[300px] shrink-0 rounded-xl border border-slate-700/60 bg-slate-900/10 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
+          <div className="flex h-full flex-col overflow-y-auto rounded-xl border border-slate-700/60 bg-slate-950/80 px-4 py-4">
+            <span className="border-b border-slate-700/60 pb-[clamp(4px,1vh,12px)] text-sm font-bold uppercase tracking-wider text-slate-200">Controls</span>
 
-            <div className="space-y-2 border-b border-slate-700/60 py-4">
+            <div className="space-y-2 border-b border-slate-700/60 py-[clamp(6px,1.5vh,16px)]">
               <label htmlFor="input-device" className="block text-[11px] font-bold uppercase tracking-wider text-slate-300">Input</label>
               <select
                 id="input-device"
@@ -1185,7 +1172,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </select>
             </div>
 
-            <div className="space-y-2 border-b border-slate-700/60 py-4">
+            <div className="space-y-2 border-b border-slate-700/60 py-[clamp(6px,1.5vh,16px)]">
               <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-300">Monitor</span>
               <div className="flex items-center justify-center gap-10">
                 <VerticalToggle
@@ -1227,7 +1214,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 border-b border-slate-700/60 py-4">
+            <div className="grid grid-cols-2 border-b border-slate-700/60 py-[clamp(6px,1.5vh,16px)]">
               <div className="flex flex-col items-center gap-2 border-r border-slate-700/60 pr-2">
                 <span className="text-center text-[10px] font-bold uppercase leading-tight tracking-wider text-slate-300">Sample rate (kHz)</span>
                 <VerticalToggle
@@ -1252,11 +1239,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-1 flex-col pt-4">
+            <div className="flex flex-1 flex-col pt-[clamp(6px,1.5vh,16px)]">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Preamp</span>
               <div className="flex flex-1 flex-col items-center justify-center gap-2">
                 <div
-                  className={`relative h-[144px] w-[144px] touch-none ${isRecording ? 'opacity-40' : 'cursor-ns-resize'}`}
+                  className={`relative h-[clamp(104px,16vh,144px)] w-[clamp(104px,16vh,144px)] touch-none ${isRecording ? 'opacity-40' : 'cursor-ns-resize'}`}
                   onPointerDown={(e) => {
                     if (isRecording) return;
                     e.currentTarget.setPointerCapture(e.pointerId);
