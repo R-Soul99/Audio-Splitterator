@@ -993,7 +993,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         {/* LEFT PANEL: waveform + scope on top, transport + level meters below */}
         <div className="flex-1 min-w-0 h-full grid grid-rows-[9fr_10fr] gap-4 rounded-xl border border-slate-700/60 bg-slate-900/10 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
           {/* Top row */}
-          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_290px] gap-4">
+          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_305px] gap-4">
             {/* Recording waveform */}
             <div className="relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-4">
               <div className="relative">
@@ -1056,10 +1056,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             </div>
 
             {/* Oscilloscope */}
-            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-700/60 bg-slate-950/80 p-4">
+            <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Oscilloscope</span>
-              <div className="relative h-[250px] w-[250px] overflow-hidden rounded-full border-[6px] border-slate-700 bg-slate-950 shadow-[inset_0_0_24px_rgba(0,0,0,0.85)]">
-                <canvas ref={liveCanvasRef} width={250} height={250} className="block h-full w-full rounded-full" />
+              <div className="relative h-[264px] w-[264px] overflow-hidden rounded-full border-[6px] border-slate-700 bg-slate-950 shadow-[inset_0_0_24px_rgba(0,0,0,0.85)]">
+                <canvas ref={liveCanvasRef} width={264} height={264} className="block h-full w-full rounded-full" />
                 <div className="pointer-events-none absolute inset-4 rounded-full border border-slate-600/50" />
               </div>
               <span className={`font-mono text-xs font-bold tracking-wider ${clipped ? 'text-red-400' : isMonitoringActive ? 'text-emerald-400' : 'text-slate-500'}`}>
@@ -1069,11 +1069,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* Bottom row */}
-          <div className="grid min-h-0 grid-cols-[165px_minmax(0,1fr)] gap-4">
+          <div className="grid min-h-0 grid-cols-[160px_minmax(0,1fr)] gap-4">
             {/* Transport */}
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-700/60 bg-slate-950/80 p-4">
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
               <span className="self-start text-xs font-bold uppercase tracking-wider text-slate-300">Transport</span>
-              <div className="flex flex-col items-center gap-1.5">
+              <div className="flex flex-col items-center gap-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -1100,7 +1100,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : 'RECORD'}</span>
               </div>
 
-              <div className="flex flex-col items-center gap-1.5">
+              <div className="flex flex-col items-center gap-1">
                 <button
                   type="button"
                   disabled={!isRecording}
@@ -1117,7 +1117,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">{isPaused ? 'Resume' : 'Pause'}</span>
               </div>
 
-              <div className="flex flex-col items-center gap-1.5">
+              <div className="flex flex-col items-center gap-1">
                 <button
                   type="button"
                   disabled={!isRecording}
@@ -1139,7 +1139,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </div>
               <div className="relative grid min-h-0 flex-1 grid-cols-2 items-start gap-4 pt-4">
                 <VuMeter label="L VU" peakDb={leftPeakDb} peakHoldDb={leftPeakHoldDb} onResetPeak={handleResetLeftPeak} />
-                <div className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5">
+                <div className="absolute left-1/2 top-5 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
                   <button
                     type="button"
                     onClick={handleResetPeak}
@@ -1157,7 +1157,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         </div>
 
         {/* RIGHT PANEL: controls */}
-        <div className="h-full w-[280px] shrink-0 rounded-xl border border-slate-700/60 bg-slate-900/10 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
+        <div className="h-full w-[270px] shrink-0 rounded-xl border border-slate-700/60 bg-slate-900/10 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
           <div className="flex h-full flex-col rounded-xl border border-slate-700/60 bg-slate-950/80 px-4 py-4">
             <span className="border-b border-slate-700/60 pb-3 text-sm font-bold uppercase tracking-wider text-slate-200">Controls</span>
 
