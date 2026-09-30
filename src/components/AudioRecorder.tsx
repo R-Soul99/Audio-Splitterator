@@ -999,31 +999,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               <div className="relative">
                 <canvas ref={recordingWaveformCanvasRef} width={1000} height={250} className="block h-[250px] w-full bg-slate-950" />
                 <span className="pointer-events-none absolute left-2 top-0 font-mono text-xs font-bold tracking-wider text-slate-300">RECORDING WAVEFORM</span>
-                {isRecording && (
-                  <div className="absolute left-14 top-9 z-10 flex items-center gap-1.5 border border-dashed border-amber-400/80 bg-slate-950/90 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-500">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-                    CAPTURING: {formatTime(durationSec, true)} @ {recordingSampleRate / 1000} kHz {channelMode === 'stereo' ? 'Stereo' : 'Mono'}
-                  </div>
-                )}
               </div>
 
-              <div className="relative mt-auto flex shrink-0 items-center justify-center pt-2">
-                <button
-                  type="button"
-                  onClick={dropRecordingMarker}
-                  disabled={!isRecording || isPaused}
-                  className="flex items-center gap-2 rounded border border-amber-300/60 bg-amber-400/15 px-4 py-2 font-sans text-xs font-bold tracking-wide text-amber-200 transition hover:border-amber-200 hover:bg-amber-400/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-70"
-                  title={!isRecording ? 'Start recording to drop a split marker' : isPaused ? 'Resume recording to drop a split marker' : 'Drop a split marker at the current recording position (M)'}
-                  aria-label="Drop recording marker"
-                >
-                  <BookmarkPlus className="h-4 w-4" />
-                  <span>DROP MARKER</span>
-                  <kbd className="rounded border border-amber-200/30 bg-slate-950/70 px-1 py-0.5 font-mono text-[9px] text-amber-100">M</kbd>
-                  {recordingMarkerCount > 0 && (
-                    <span className="rounded bg-amber-400/20 px-1 font-mono">{recordingMarkerCount}</span>
-                  )}
-                </button>
-                <span className="absolute right-1 flex items-center gap-1.5 font-mono text-[11px] font-bold tracking-wider">
+              <div className="relative mt-auto flex shrink-0 items-center justify-end pt-2">
+                <span className="flex items-center gap-1.5 font-mono text-[11px] font-bold tracking-wider">
                   <span className={`h-2.5 w-2.5 rounded-full ${isStandbyMode ? 'bg-amber-500' : clipped ? 'animate-ping bg-red-500' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
                   <span className={isStandbyMode ? 'text-amber-400' : clipped ? 'font-extrabold text-red-400' : 'text-slate-300'}>
                     {isStandbyMode ? 'STANDBY' : clipped ? 'CLIP' : 'SIGNAL OK'}
@@ -1133,9 +1112,32 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
             {/* Level meters */}
             <div className="flex min-w-0 flex-col rounded-xl border border-slate-700/60 bg-slate-950/80 p-4">
-              <div className="flex items-center gap-4">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Level Meters</span>
-                <span className="h-px flex-1 bg-slate-700/60" />
+              <div className="flex items-center gap-3">
+                <span className="shrink-0 text-xs font-bold uppercase tracking-wider text-slate-300">Level Meters</span>
+                <div className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded border border-slate-700 bg-black/80 shadow-inner">
+                  <div className="flex min-w-0 flex-1 items-center gap-4 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-wider">
+                    <span className={`flex items-center gap-1.5 ${isRecording ? (isPaused ? 'text-amber-400' : 'text-red-400') : 'text-slate-500'}`}>
+                      <span className={`h-2 w-2 rounded-full ${isRecording ? (isPaused ? 'bg-amber-400' : 'animate-pulse bg-red-500') : 'bg-slate-700'}`} />
+                      {isRecording ? (isPaused ? 'Paused' : 'Rec') : 'Ready'}
+                    </span>
+                    <span className={isRecording ? 'text-amber-200' : 'text-slate-400'}>{formatTime(durationSec, true)}</span>
+                    <span className="text-slate-400">{recordingSampleRate / 1000} kHz</span>
+                    <span className="text-slate-400">{channelMode === 'stereo' ? 'Stereo' : 'Mono'}</span>
+                    <span className="ml-auto text-slate-500">Markers {String(recordingMarkerCount).padStart(2, '0')}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={dropRecordingMarker}
+                    disabled={!isRecording || isPaused}
+                    className="flex shrink-0 items-center gap-2 border-l border-amber-500/30 bg-amber-400/10 px-3 font-mono text-[11px] font-bold uppercase tracking-wider text-amber-300 transition hover:bg-amber-400/20 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-35"
+                    title={!isRecording ? 'Start recording to add a marker' : isPaused ? 'Resume recording to add a marker' : 'Add a marker at the current recording position (M)'}
+                    aria-label="Add recording marker"
+                  >
+                    <BookmarkPlus className="h-4 w-4" />
+                    <span>Mark</span>
+                    <kbd className="rounded border border-amber-200/20 bg-slate-950/70 px-1 py-0.5 text-[9px] text-amber-100">M</kbd>
+                  </button>
+                </div>
               </div>
               <div className="relative grid min-h-0 flex-1 grid-cols-2 items-start gap-4 pt-4">
                 <VuMeter label="L VU" peakDb={leftPeakDb} peakHoldDb={leftPeakHoldDb} onResetPeak={handleResetLeftPeak} />
