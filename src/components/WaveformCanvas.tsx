@@ -2121,7 +2121,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               compact
             />
             {showPeakTamerPopover && (
-              <div className="absolute top-full right-0 mt-2 p-3 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl text-xs space-y-2.5 w-80 z-50 animate-fade-in select-none">
+              <div className="fixed left-1/2 top-1/2 z-[100] max-h-[calc(100vh-2rem)] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs shadow-2xl space-y-2.5 animate-fade-in select-none custom-scrollbar">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                   <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
                     <AudioWaveform className="w-3.5 h-3.5 text-amber-400" />
