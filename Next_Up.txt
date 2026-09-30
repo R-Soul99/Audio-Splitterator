@@ -1,0 +1,1 @@
+i'd like to move the POS readout and LEN readouts elsewhere, they're taking up space unnecessarily.
