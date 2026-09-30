@@ -10,7 +10,6 @@ import {
   Radio,
   BookmarkPlus,
   FolderOpen,
-  Layers,
   Trash2,
   Zap,
   Play,
@@ -21,11 +20,27 @@ import {
   RotateCcw,
   Navigation,
   Volume2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 export default function App() {
   // 3-Workflow sequential tabs state based on mockup (Record -> Edit -> Save)
   const [workflowTab, setWorkflowTab] = useState<'record' | 'edit' | 'save'>('record');
+  const [processingPanelContainer, setProcessingPanelContainer] = useState<HTMLDivElement | null>(null);
+  const trackRowsRef = useRef<HTMLDivElement | null>(null);
+  const [trackSlots, setTrackSlots] = useState(15);
+  const [trackPage, setTrackPage] = useState(0);
+
+  useEffect(() => {
+    if (workflowTab !== 'edit' || !trackRowsRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      // Match the fixed h-8 rows; never compress rows or show a partial slot.
+      setTrackSlots(Math.max(1, Math.floor(entry.contentRect.height / 32)));
+    });
+    observer.observe(trackRowsRef.current);
+    return () => observer.disconnect();
+  }, [workflowTab]);
 
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [mainFileName, setMainFileName] = useState<string>('Recording');
@@ -899,6 +914,14 @@ export default function App() {
     return segments;
   }, [audioBuffer, cropStart, cropEnd, markers, mainFileName]);
 
+  const trackPageCount = Math.max(1, Math.ceil(splits.length / trackSlots));
+  const visibleTrackPage = Math.min(trackPage, trackPageCount - 1);
+  const firstVisibleTrack = visibleTrackPage * trackSlots;
+
+  useEffect(() => {
+    setTrackPage((page) => Math.min(page, trackPageCount - 1));
+  }, [trackPageCount]);
+
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1049,10 +1072,10 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 min-h-0 w-full p-4 lg:p-6 lg:pb-4 flex flex-col">
+      <main className={`flex-1 min-h-0 w-full flex flex-col ${workflowTab === 'edit' ? 'px-3 py-2 lg:px-4' : 'p-4 lg:p-6 lg:pb-4'}`}>
         <div className="flex-1 flex flex-col min-h-0 relative">
           {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
-          <div className="flex-1 flex flex-col relative bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 min-h-0 select-none shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]">
+          <div className={`flex-1 flex flex-col relative min-h-0 select-none ${workflowTab === 'edit' ? '' : 'bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]'}`}>
             
             {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
             {workflowTab === 'record' && (
@@ -1073,10 +1096,11 @@ export default function App() {
 
             {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
             {workflowTab === 'edit' && (
-                <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_320px] grid-rows-[minmax(0,1fr)_auto] gap-3 overflow-hidden">
+                <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,480px)] grid-rows-[minmax(0,1fr)_auto_auto] gap-2.5">
                     {/* Left, top: Waveform canvas & toolbar (Full dynamic height) */}
                     <div className="col-start-1 row-start-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                       <WaveformCanvas
+                        processingPanelContainer={processingPanelContainer}
                         audioBuffer={audioBuffer}
                         currentTime={currentTime}
                         cropStart={cropStart}
@@ -1122,18 +1146,28 @@ export default function App() {
                       />
                     </div>
 
-                    {/* Right: Split Regions List, spans BOTH grid rows so it's never shortened by the bottom toolbar row (Never a scroll list - all entries visible at all times) */}
-                    <div className="col-start-2 row-start-1 row-span-2 w-[320px] min-w-0 bg-slate-900/60 border border-slate-700/70 p-3 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
+                    {/* Tracks span waveform and transport, with only as many fixed-height slots as fit. */}
+                    <div className="col-start-2 row-start-1 row-span-2 min-w-0 bg-slate-900/60 border border-slate-700/70 px-2 py-2 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
                       {/* Header */}
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 flex-shrink-0">
-                        <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
-                          <Layers className="w-3.5 h-3.5 text-amber-500" />
-                          <span>Split Regions</span>
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 px-1 flex-shrink-0">
+                        <div className="flex items-center text-slate-100 font-semibold text-base">
+                          <h2>Tracks</h2>
                         </div>
                         <div className="flex items-center space-x-1.5">
-                          <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                            {splits.length} {splits.length === 1 ? 'Track' : 'Tracks'}
+                          <span className="text-[11px] font-mono text-sky-300 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/20">
+                            {splits.length} {splits.length === 1 ? 'track' : 'tracks'}
                           </span>
+                          {trackPageCount > 1 && (
+                            <div className="flex items-center gap-1 text-[10px] text-slate-400" aria-label="Track pages">
+                              <button type="button" aria-label="Previous tracks" disabled={visibleTrackPage === 0} onClick={() => setTrackPage(visibleTrackPage - 1)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-800 hover:text-sky-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="font-mono tabular-nums" aria-live="polite">{firstVisibleTrack + 1}–{Math.min(firstVisibleTrack + trackSlots, splits.length)}</span>
+                              <button type="button" aria-label="Next tracks" disabled={visibleTrackPage === trackPageCount - 1} onClick={() => setTrackPage(visibleTrackPage + 1)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-800 hover:text-sky-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                           <button
                             type="button"
                             disabled={!audioBuffer}
@@ -1146,43 +1180,29 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Entries Container (NO scrollbar, strictly overflow-hidden, dynamically fitted) */}
-                      <div className={`flex-1 min-h-0 flex flex-col justify-start overflow-hidden ${splits.length > 13 ? 'gap-0.5' : 'gap-1'}`}>
-                        <div className="flex items-center justify-between px-1.5 pb-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-500 shrink-0">
-                          <span className="w-6 shrink-0" />
-                          <div className="flex-1 min-w-0 mx-2 flex items-center space-x-1.5">
-                            <span className="shrink-0 px-1" />
-                            <span className="flex-1 min-w-0" />
-                            <span className="w-[54px] text-right">Start</span>
-                            <span className="w-[54px] text-right">Duration</span>
-                          </div>
-                          <span className="w-6 shrink-0" />
+                      {/* Consistent columns keep names and timing readable at every track count. */}
+                      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                        <div className="shrink-0 grid grid-cols-[28px_22px_minmax(0,1fr)_52px_58px_24px] items-center gap-1 h-7 border-b border-slate-700/70 text-[10px] text-slate-400">
+                          <span />
+                          <span>#</span>
+                          <span>Track name</span>
+                          <span className="text-right">Start</span>
+                          <span className="text-right">Duration</span>
+                          <span />
                         </div>
+                        <div ref={trackRowsRef} className="flex-1 min-h-0 overflow-hidden" aria-label="Track slots">
                         {splits.length === 0 ? (
                           <div className="flex-1 flex flex-col items-center justify-center text-center p-4 text-slate-500 text-xs italic">
-                            No split regions detected.
+                            Import or record audio to create tracks.
                           </div>
                         ) : (
-                          splits.map((split, idx) => {
-                            const colors = ['#f87171', '#fb923c', '#4ade80', '#38bdf8', '#c084fc', '#f43f5e', '#a855f7'];
-                            const color = colors[idx % colors.length];
+                          splits.slice(firstVisibleTrack, firstVisibleTrack + trackSlots).map((split, slotIndex) => {
+                            const idx = firstVisibleTrack + slotIndex;
                             const isThisPlaying = isPlaying && currentTime >= split.startTime - 0.05 && currentTime <= split.endTime + 0.05;
-                            const isCompact = splits.length > 8;
-                            const isUltraCompact = splits.length > 13;
-                            const isHyperCompact = splits.length > 20;
-
                             return (
                               <div
                                 key={split.id}
-                                className={`group flex items-center justify-between bg-slate-950/70 border border-slate-800/40 hover:border-slate-700/60 hover:bg-slate-900/60 rounded-lg transition shrink-0 ${
-                                  isHyperCompact
-                                    ? 'py-0 px-1 text-[9px]'
-                                    : isUltraCompact
-                                    ? 'py-0.5 px-1.5 text-[10px]'
-                                    : isCompact
-                                    ? 'py-1 px-2 text-[11px]'
-                                    : 'py-2 px-2.5 text-xs'
-                                }`}
+                                className={`group grid grid-cols-[28px_22px_minmax(0,1fr)_52px_58px_24px] items-center gap-1 h-8 border-b border-slate-800/80 text-xs transition ${isThisPlaying ? 'bg-emerald-500/10' : 'hover:bg-slate-800/40'}`}
                               >
                                 {/* 1. Play button at the start */}
                                 <button
@@ -1194,33 +1214,21 @@ export default function App() {
                                       handlePlaySelection(split.startTime, split.endTime);
                                     }
                                   }}
-                                  className={`rounded-md flex items-center justify-center transition cursor-pointer shrink-0 border ${
-                                    isHyperCompact ? 'w-4 h-4' : isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
-                                  } ${
-                                    isThisPlaying
-                                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm animate-pulse'
-                                      : 'bg-slate-900 hover:bg-emerald-600/20 text-emerald-400 hover:text-emerald-300 border-slate-800/60 hover:border-emerald-500/40'
-                                  }`}
+                                  aria-label={isThisPlaying ? `Pause track ${split.index}` : `Play track ${split.index}`}
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center border transition cursor-pointer ${isThisPlaying ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/60' : 'text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15'}`}
                                   title={isThisPlaying ? 'Pause split preview' : `Play Region ${split.index} (${formatTime(split.duration, false)})`}
                                 >
                                   {isThisPlaying ? (
-                                    <Pause className={`fill-current ${isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'}`} />
+                                    <Pause className="fill-current w-3 h-3" />
                                   ) : (
-                                    <Play className={`fill-current ml-0.5 ${isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'}`} />
+                                    <Play className="fill-current ml-0.5 w-3 h-3" />
                                   )}
                                 </button>
 
                                 {/* 2. Middle: Track number, name input, start, and duration */}
-                                <div className="flex-1 min-w-0 mx-2 flex items-center space-x-1.5">
-                                  <span
-                                    className="font-mono text-[9px] font-bold px-1 rounded shrink-0 leading-none py-0.5"
-                                    style={{
-                                      backgroundColor: `${color}22`,
-                                      color: color,
-                                      border: `1px solid ${color}44`,
-                                    }}
-                                  >
-                                    #{String(split.index).padStart(2, '0')}
+                                <div className="contents">
+                                  <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                                    {String(split.index).padStart(2, '0')}
                                   </span>
                                   <input
                                     type="text"
@@ -1230,23 +1238,18 @@ export default function App() {
                                       setTrackNames((prev) => ({ ...prev, [split.id]: e.target.value }));
                                     }}
                                     onClick={(e) => e.stopPropagation()}
-                                    className={`flex-1 min-w-0 bg-transparent text-slate-200 font-bold truncate leading-tight focus:outline-none focus:bg-slate-800/50 rounded px-1 -mx-1 group-hover:text-amber-400 transition placeholder-slate-600 ${
-                                      isHyperCompact ? 'text-[9px]' : isUltraCompact ? 'text-[10px]' : isCompact ? 'text-[11px]' : 'text-xs'
-                                    }`}
+                                    aria-label={`Track ${split.index} name`}
+                                    className="w-full min-w-0 bg-transparent text-slate-200 truncate py-1 px-1 rounded focus:outline-none focus:ring-1 focus:ring-sky-500/60 focus:bg-slate-800"
                                     placeholder={`Track ${String(split.index).padStart(2, '0')}...`}
                                   />
                                   <span
-                                    className={`w-[54px] text-right font-mono text-sky-400/80 shrink-0 leading-none ${
-                                      isUltraCompact ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-[11px]'
-                                    }`}
+                                    className="text-right font-mono text-[11px] text-sky-400/80 tabular-nums"
                                     title={`Start time: ${formatTime(split.startTime, false)}`}
                                   >
                                     {formatTime(split.startTime, false)}
                                   </span>
                                   <span
-                                    className={`w-[54px] text-right font-mono text-slate-400 shrink-0 leading-none ${
-                                      isUltraCompact ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-[11px]'
-                                    }`}
+                                    className="text-right font-mono text-[11px] text-slate-400 tabular-nums"
                                     title={`${formatTime(split.startTime, false)} - ${formatTime(split.endTime, false)}`}
                                   >
                                     {formatTime(split.duration, false)}
@@ -1261,13 +1264,8 @@ export default function App() {
                                     e.stopPropagation();
                                     handleDeleteSplit(idx);
                                   }}
-                                  className={`rounded-md flex items-center justify-center transition cursor-pointer shrink-0 border ${
-                                    isHyperCompact ? 'w-4 h-4' : isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
-                                  } ${
-                                    markers.length === 0
-                                      ? 'opacity-20 cursor-not-allowed border-transparent text-slate-600'
-                                      : 'bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border-slate-800/60 hover:border-rose-800/50'
-                                  }`}
+                                  aria-label={`Delete split ${split.index}`}
+                                  className="w-6 h-6 rounded flex items-center justify-center text-rose-400/80 hover:text-rose-300 hover:bg-rose-950/60 transition cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
                                   title={
                                     markers.length === 0
                                       ? 'No split marker to delete'
@@ -1276,81 +1274,88 @@ export default function App() {
                                       : 'Delete split marker (merge with next region)'
                                   }
                                 >
-                                  <Trash2 className={isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'} />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             );
                           })
                         )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Left, bottom: Transport/View controls + Artist/Album. The list on the right spans both rows, so nothing here costs it any height. */}
-                    <div className="col-start-1 row-start-2 min-w-0 flex flex-wrap items-start gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
+                    {/* Transport and compact recording metadata sit directly under the waveform. */}
+                    <div className="col-start-1 row-start-2 min-w-0 grid grid-cols-[minmax(176px,0.7fr)_minmax(0,1.3fr)] gap-2.5 text-xs">
                       {/* Transport */}
-                      <div className="flex flex-col items-center gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0">
-                        <span className="text-[7px] font-bold uppercase tracking-wider text-slate-500">Transport</span>
-                        <div className="flex items-center gap-1">
+                      <div className="flex flex-col gap-2 bg-slate-900/60 px-3 py-2.5 rounded-xl border border-slate-700/70">
+                        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Transport</h2>
+                        <div className="grid grid-cols-2 gap-2 flex-1">
                           <button
                             type="button"
                             onClick={handlePlayPause}
                             disabled={!audioBuffer}
                             title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                            className={`w-16 h-16 flex items-center justify-center rounded-md border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            className={`min-h-20 flex flex-col gap-1.5 items-center justify-center rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               isPlaying
                                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                                : 'bg-emerald-950/30 hover:bg-emerald-900/30 text-emerald-400 border-emerald-500/40 hover:border-emerald-400'
                             }`}
                           >
-                            {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
+                            {isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
+                            <span>{isPlaying ? 'Pause' : 'Play'}</span>
                           </button>
                           <button
                             type="button"
                             onClick={handleStop}
                             disabled={!audioBuffer}
                             title="Stop Playback"
-                            className="w-16 h-16 flex items-center justify-center rounded-md border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="min-h-20 flex flex-col gap-1.5 items-center justify-center rounded-lg border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            <Square className="w-5 h-5 fill-current" />
+                            <Square className="w-6 h-6 fill-current" />
+                            <span>Stop</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Artist / Album: stacked. Safe to do now - the list spans both grid rows, so this row's height no longer affects it. */}
-                      <div className="flex-1 min-w-[140px] flex flex-col justify-center gap-1 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2 py-1">
+                      {/* Recording Info */}
+                      <div className="min-w-0 flex flex-col justify-center gap-1.5 bg-slate-900/60 border border-slate-700/70 rounded-xl px-3 py-2.5">
+                        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Recording Info</h2>
                         <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-name" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Recording name:</label>
+                          <label htmlFor="recording-name" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Recording name:</label>
                           <input
                             id="recording-name"
                             type="text"
                             value={mainFileName}
                             onChange={(e) => setMainFileName(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
+                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
                             title="Recording name used for default split names"
                           />
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-artist" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Artist:</label>
+                          <label htmlFor="recording-artist" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Artist:</label>
                           <input
                             id="recording-artist"
                             type="text"
                             value={preRecordArtist}
                             onChange={(e) => setPreRecordArtist(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
+                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
                           />
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-album" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Album:</label>
+                          <label htmlFor="recording-album" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Album:</label>
                           <input
                             id="recording-album"
                             type="text"
                             value={preRecordAlbum}
                             onChange={(e) => setPreRecordAlbum(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
+                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
                           />
                         </div>
                       </div>
                     </div>
+
+                  {/* The waveform owns processing state; its controls render into this full-width row. */}
+                  <div ref={setProcessingPanelContainer} className="col-span-2 row-start-3 min-w-0" />
 
                   {/* Confirm Dialog: Discard / Import Overwrite */}
                   {confirmDialog && (
