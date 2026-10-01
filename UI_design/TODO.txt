@@ -1,15 +1,2 @@
-record panel
-- preamp knob larger and down a bit
-- centre input strip with rec button?
-
-Edit panel
-- needs an import button
-- should still display all panels and controls, just with 'no audio loaded' text in the waveform.
-- bottom buttons need text descriptions removing (they will be labelled next to the buttons), and to fit on one line
-- space created by previous step can be used to unclutter the tools above waveform display
-- Selection text is still in the wrong place (should be above buttons)
-- Crop and Cut buttons appear twice.
-- zoom buttons should just be icon buttons inside waveform display (bottom-right corner)
-- 'snap' effect that gives gentle cursor snap to detected noise floor.  when cursor passes over one of these points it should 'ping' visually like a radar display
-- move 'Discard Recording' button to the bottom , below Split Regions panel (needs a confirm dialog).
-- a lot of horizontal space is being wasted at the top.  Artist and album input fields need re-thinking (maybe above split regions, now discard button has moved.
+1. (Rec panel) Preamp detector - hold a button during a loud part to detect how much preamp would bring it to a good level and auto set preamp to peak at -6db(or -1db?)
+2. (rec panel) could move the transport section over to the Controls panel

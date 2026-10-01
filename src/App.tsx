@@ -352,6 +352,7 @@ export default function App() {
     (offsetTime: number, forceLoop?: boolean) => {
       const buffer = audioBufferRef.current;
       if (!buffer) return;
+      const activeLoop = forceLoop !== undefined ? forceLoop : isLoopingRef.current;
       stopPlayback();
 
       if (isStandbyMode) {
@@ -362,8 +363,6 @@ export default function App() {
       if (ctx.state === 'suspended') {
         ctx.resume();
       }
-
-      const activeLoop = forceLoop !== undefined ? forceLoop : isLoopingRef.current;
 
       const sel = selectionRef.current;
       const hasSelection = sel && Math.abs(sel.end - sel.start) > 0.02;
@@ -400,6 +399,8 @@ export default function App() {
       }
 
       sourceNodeRef.current = source;
+      isLoopingRef.current = source.loop;
+      setIsLooping(source.loop);
       playheadStartTimeRef.current = safeStart;
       contextStartTimeRef.current = ctx.currentTime;
       playbackWallStartTimeRef.current = performance.now();
@@ -453,15 +454,40 @@ export default function App() {
     [startPlayback]
   );
 
-  // Instant audition / preview
-  const handlePreviewStart = useCallback(
+  // Release selection and seek/audition atomically, creating at most one audio source.
+  const handleWaveformClick = useCallback(
     (newTime: number) => {
-      currentTimeRef.current = newTime;
-      setCurrentTime(newTime);
-      startPlayback(newTime);
+      const buffer = audioBufferRef.current;
+      if (!buffer) return;
+      const end = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
+      const time = Math.max(cropStartRef.current, Math.min(end, newTime));
+      selectionRef.current = null;
+      setSelection(null);
+      isLoopingRef.current = false;
+      setIsLooping(false);
+      currentTimeRef.current = time;
+      setCurrentTime(time);
+      if (isPlayingRef.current || autoPreviewOnClick) {
+        startPlayback(time, false);
+      }
     },
-    [startPlayback]
+    [startPlayback, autoPreviewOnClick]
   );
+
+  // Keep playback bounds in sync immediately when the waveform clears its selection.
+  const handleSelectionChange = useCallback((nextSelection: TimeSelection | null) => {
+    const hadSelection = selectionRef.current !== null;
+    selectionRef.current = nextSelection;
+    setSelection(nextSelection);
+
+    if (!nextSelection) {
+      isLoopingRef.current = false;
+      setIsLooping(false);
+      if (isPlayingRef.current && (hadSelection || sourceNodeRef.current?.loop)) {
+        startPlayback(currentTimeRef.current, false);
+      }
+    }
+  }, [startPlayback]);
 
   // Load new audio buffer (recording finished or imported file)
   const loadAudio = (buffer: AudioBuffer, fileName: string, artist?: string, album?: string, markerTimes: number[] = []) => {
@@ -680,15 +706,12 @@ export default function App() {
       const e = Math.min(buffer.duration, Math.max(startSec, endSec));
       if (e - s <= 0.02) return;
 
-      stopPlayback();
-      setIsLooping(true);
-      isLoopingRef.current = true;
       setSelection({ start: s, end: e });
       selectionRef.current = { start: s, end: e };
 
       startPlayback(s, true);
     },
-    [stopPlayback, startPlayback]
+    [startPlayback]
   );
 
   // Audition / Play Selection region once or looped
@@ -1120,8 +1143,8 @@ export default function App() {
                         onPlayPause={handlePlayPause}
                         onStop={handleStop}
                         onSeek={handleSeek}
-                        onPreviewStart={handlePreviewStart}
-                        onSelectionChange={setSelection}
+                        onWaveformClick={handleWaveformClick}
+                        onSelectionChange={handleSelectionChange}
                         onLoopSelection={handleLoopSelection}
                         onCropToSelection={handleCropToSelection}
                         onCutSelection={handleCutSelection}
