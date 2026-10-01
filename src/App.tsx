@@ -22,6 +22,8 @@ import {
   Volume2,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  StickyNote,
 } from 'lucide-react';
 
 export default function App() {
@@ -70,6 +72,8 @@ export default function App() {
   // Pre-Record metadata cache
   const [preRecordArtist, setPreRecordArtist] = useState<string>('');
   const [preRecordAlbum, setPreRecordAlbum] = useState<string>('');
+  // Collapses the Recording Info fields into a small post-it style tag to free up waveform space.
+  const [recordingInfoCollapsed, setRecordingInfoCollapsed] = useState<boolean>(true);
 
   // Per-split track names (maps split ID to user-entered track name)
   const [trackNames, setTrackNames] = useState<{ [splitId: string]: string }>({});
@@ -1119,7 +1123,7 @@ export default function App() {
 
             {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
             {workflowTab === 'edit' && (
-                <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,480px)] grid-rows-[minmax(0,1fr)_auto_auto] gap-2.5">
+                <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,480px)] grid-rows-[minmax(0,1fr)_auto] gap-2.5">
                     {/* Left, top: Waveform canvas & toolbar (Full dynamic height) */}
                     <div className="col-start-1 row-start-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                       <WaveformCanvas
@@ -1171,10 +1175,23 @@ export default function App() {
 
                     {/* Tracks span waveform and transport, with only as many fixed-height slots as fit. */}
                     <div className="col-start-2 row-start-1 row-span-2 min-w-0 bg-slate-900/60 border border-slate-700/70 px-2 py-2 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
-                      {/* Header */}
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 px-1 flex-shrink-0">
-                        <div className="flex items-center text-slate-100 font-semibold text-base">
+                      {/* Header: relative so the Recording Info note can overlay downward into the
+                          track list below without ever resizing this panel or the waveform. */}
+                      <div className="relative flex items-center justify-between border-b border-slate-800 pb-2 px-1 flex-shrink-0">
+                        <div className="flex items-center gap-2 text-slate-100 font-semibold text-base">
                           <h2>Tracks</h2>
+                          {!recordingInfoCollapsed ? null : (
+                            <button
+                              type="button"
+                              onClick={() => setRecordingInfoCollapsed(false)}
+                              className="flex items-center gap-1 -rotate-1 rounded-sm border border-amber-900/30 bg-amber-200 px-2 py-1 text-slate-900 shadow-md transition hover:rotate-0 hover:bg-amber-100 cursor-pointer"
+                              title="Edit Recording Info"
+                              aria-label="Expand Recording Info"
+                            >
+                              <StickyNote className="w-3 h-3 shrink-0 text-amber-700" />
+                              <span className="max-w-[120px] truncate text-[10px] font-bold tracking-tight">Info</span>
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-center space-x-1.5">
                           <span className="text-[11px] font-mono text-sky-300 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/20">
@@ -1201,6 +1218,57 @@ export default function App() {
                             <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
+
+                        {/* Expanded Recording Info overlays downward into the track list; it is taken
+                            out of flow so it can never resize this panel or the waveform. Nested inside
+                            this relatively-positioned header so top-full anchors correctly. */}
+                        {!recordingInfoCollapsed && (
+                          <div className="absolute top-full left-0 right-0 z-20 flex flex-col gap-1.5 rounded-b-xl border border-t-0 border-amber-500/30 bg-slate-900/97 p-3 shadow-2xl backdrop-blur-sm">
+                            <div className="flex items-center justify-between">
+                              <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Recording Info</h2>
+                              <button
+                                type="button"
+                                onClick={() => setRecordingInfoCollapsed(true)}
+                                className="flex w-5 h-5 items-center justify-center rounded text-slate-500 transition hover:bg-slate-800 hover:text-amber-300 cursor-pointer"
+                                title="Collapse to a note tag"
+                                aria-label="Collapse Recording Info"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label htmlFor="recording-name" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Recording name:</label>
+                              <input
+                                id="recording-name"
+                                type="text"
+                                value={mainFileName}
+                                onChange={(e) => setMainFileName(e.target.value)}
+                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
+                                title="Recording name used for default split names"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label htmlFor="recording-artist" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Artist:</label>
+                              <input
+                                id="recording-artist"
+                                type="text"
+                                value={preRecordArtist}
+                                onChange={(e) => setPreRecordArtist(e.target.value)}
+                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label htmlFor="recording-album" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Album:</label>
+                              <input
+                                id="recording-album"
+                                type="text"
+                                value={preRecordAlbum}
+                                onChange={(e) => setPreRecordAlbum(e.target.value)}
+                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Consistent columns keep names and timing readable at every track count. */}
@@ -1307,24 +1375,25 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Transport and compact recording metadata sit directly under the waveform. */}
-                    <div className="col-start-1 row-start-2 min-w-0 grid grid-cols-[minmax(176px,0.7fr)_minmax(0,1.3fr)] gap-2.5 text-xs">
-                      {/* Transport */}
-                      <div className="flex flex-col gap-2 bg-slate-900/60 px-3 py-2.5 rounded-xl border border-slate-700/70">
+                    {/* Transport sits directly under the waveform; the freed space beside it
+                        (after moving Recording Info out) now hosts the Tools panel portal. */}
+                    <div className="col-start-1 row-start-2 min-w-0 flex items-stretch gap-2.5 text-xs">
+                      {/* Transport: sized at 75% (25% smaller) of its original footprint. */}
+                      <div className="flex max-w-[195px] flex-col gap-1.5 bg-slate-900/60 px-[9px] py-[7.5px] rounded-xl border border-slate-700/70">
                         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Transport</h2>
-                        <div className="grid grid-cols-2 gap-2 flex-1">
+                        <div className="grid grid-cols-2 gap-1.5 flex-1">
                           <button
                             type="button"
                             onClick={handlePlayPause}
                             disabled={!audioBuffer}
                             title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                            className={`min-h-20 flex flex-col gap-1.5 items-center justify-center rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            className={`min-h-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               isPlaying
                                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
                                 : 'bg-emerald-950/30 hover:bg-emerald-900/30 text-emerald-400 border-emerald-500/40 hover:border-emerald-400'
                             }`}
                           >
-                            {isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
+                            {isPlaying ? <Pause className="w-[21px] h-[21px] fill-current" /> : <Play className="w-[21px] h-[21px] fill-current" />}
                             <span>{isPlaying ? 'Pause' : 'Play'}</span>
                           </button>
                           <button
@@ -1332,53 +1401,18 @@ export default function App() {
                             onClick={handleStop}
                             disabled={!audioBuffer}
                             title="Stop Playback"
-                            className="min-h-20 flex flex-col gap-1.5 items-center justify-center rounded-lg border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="min-h-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            <Square className="w-6 h-6 fill-current" />
+                            <Square className="w-[18px] h-[18px] fill-current" />
                             <span>Stop</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Recording Info */}
-                      <div className="min-w-0 flex flex-col justify-center gap-1.5 bg-slate-900/60 border border-slate-700/70 rounded-xl px-3 py-2.5">
-                        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Recording Info</h2>
-                        <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-name" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Recording name:</label>
-                          <input
-                            id="recording-name"
-                            type="text"
-                            value={mainFileName}
-                            onChange={(e) => setMainFileName(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
-                            title="Recording name used for default split names"
-                          />
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-artist" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Artist:</label>
-                          <input
-                            id="recording-artist"
-                            type="text"
-                            value={preRecordArtist}
-                            onChange={(e) => setPreRecordArtist(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
-                          />
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-album" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Album:</label>
-                          <input
-                            id="recording-album"
-                            type="text"
-                            value={preRecordAlbum}
-                            onChange={(e) => setPreRecordAlbum(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
-                          />
-                        </div>
-                      </div>
+                      {/* Tools panel: a tab bar whose flyout is portaled here, anchored to open
+                          upward over the waveform so it's never clipped by the window edge. */}
+                      <div ref={setProcessingPanelContainer} className="relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] py-[7.5px]" />
                     </div>
-
-                  {/* The waveform owns processing state; its controls render into this full-width row. */}
-                  <div ref={setProcessingPanelContainer} className="col-span-2 row-start-3 min-w-0" />
 
                   {/* Confirm Dialog: Discard / Import Overwrite */}
                   {confirmDialog && (

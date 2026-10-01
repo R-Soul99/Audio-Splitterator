@@ -7,26 +7,33 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
    Appearance approved; preserve as much waveform height as possible in later edits.
 2. Done: predicted auto-split boundaries shown as dashed amber guides
    on the waveform while Detection is open, so I can check slice positions.
-3. Ready for review: restored immediate single-click selection/loop clearing and
+3. Done: restored immediate single-click selection/loop clearing and
    seeking on the waveform. Audition on Click controls whether stopped audio starts.
    Double-click the bottom zoom bar to reset to 1.0x and show the full recording.
    Keep the Selection loop playback fix so it repeats beyond the first pass.
-4. Add a time ruler along the top of the waveform.
-5. Replace the permanent Recording Info section with a small collapsible panel/tag in
-   the notepad area, possibly styled like a post-it note. Edit the recording info once,
-   then collapse it away to free screen space for the waveform.
-6. Detection: replace the Noise Floor number input with a knob, a label above,
+4. Done: time ruler along the top of the waveform.
+5. Done: Recording panel Mark button now flashes on drop, shows a running count, and
+   draws an amber flag + timestamp line on the scrolling waveform at the marker's position
+   as it scrolls away.
+6. Done: Recording Info moved into the Tracks panel header as a small amber post-it
+   tag. Expanding it renders an absolutely-positioned overlay that drops down over the
+   track list (not in document flow), so it can never resize the Tracks panel, Transport,
+   or the waveform — fixed the earlier version that shrank the waveform on toggle.
+7. Tools panel follow-up (in progress, needs more work): expand Transport controls
+   outward. Tools section is taking up way too much blank space — either align the
+   Tools tabs to the top or bottom of the box, then use the rest of the box to display
+   settings. Peak Tamer's explanation text is too verbose, just needs to be a set of
+   controls. Detection, Peak Tamer, and Normalise controls could easily fit in that
+   area without changing the size of the box.
+8. Detection: replace the Noise Floor number input with a knob, a label above,
    and a small digital value readout (potentially in the centre of the knob).
-7. Detection: replace the Min. Silence number input with a matching knob and
+9. Detection: replace the Min. Silence number input with a matching knob and
    a clearly labelled time readout. Keep the panel layout stable while adjusting.
-8. Recording panel: add a press-and-hold preamp detector. Hold the button during
-   a loud passage to measure its peak, then automatically set preamp gain on release
-   to reach the target peak. Target still to decide: -6 dBFS or -1 dBFS.
-9. Recording panel: move the Transport section into the Controls panel.
-10. Recording panel: make the Mark button give clear feedback when a marker is
-    dropped, ideally a line at its timestamp on the scrolling waveform that moves
-    with the audio as it scrolls away.
-11. Loop/sample creator: activating Selection's loop button opens a compact pop-up
+10. Recording panel: add a press-and-hold preamp detector. Hold the button during
+    a loud passage to measure its peak, then automatically set preamp gain on release
+    to reach the target peak. Target still to decide: -6 dBFS or -1 dBFS.
+11. Recording panel: move the Transport section into the Controls panel.
+12. Loop/sample creator: activating Selection's loop button opens a compact pop-up
     for auditioning, adjusting and saving the selected region. Preserve the fixed
     device layout; the controls must not resize or move the waveform.
     - Halve/double the selection length, with a choice of which edge stays fixed.

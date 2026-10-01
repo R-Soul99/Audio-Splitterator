@@ -149,6 +149,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [durationSec, setDurationSec] = useState<number>(0);
   const [recordingMarkerCount, setRecordingMarkerCount] = useState<number>(0);
+  const [markerFlashKey, setMarkerFlashKey] = useState<number>(0);
 
   // Independent Live Monitoring State
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(false);
@@ -198,6 +199,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const recordedChunksRightRef = useRef<Float32Array[]>([]);
   const totalRecordedSamplesRef = useRef<number>(0);
   const recordingMarkerTimesRef = useRef<number[]>([]);
+  // Scrolling waveform position (write-index space, not wall-clock) for each dropped marker.
+  const recordingMarkerWriteIndicesRef = useRef<number[]>([]);
   const recordingStartTimeRef = useRef<number>(0);
   const pausedDurationRef = useRef<number>(0);
   const pauseStartTimeRef = useRef<number>(0);
@@ -580,6 +583,43 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             }
             waveformCtx.stroke();
           }
+
+          // Marker drop lines: positioned in write-index space so they scroll with the waveform
+          // and vanish off the left edge exactly like the audio data they tag.
+          const firstVisibleIndex = recordingWaveformWriteIndexRef.current - count;
+          waveformCtx.font = '8px ui-monospace, monospace';
+          for (let m = 0; m < recordingMarkerWriteIndicesRef.current.length; m++) {
+            const markerIndex = recordingMarkerWriteIndicesRef.current[m];
+            const i = markerIndex - firstVisibleIndex;
+            if (i < 0 || i >= count) continue;
+            const x = plotRight - (count - 1 - i) * 3;
+
+            waveformCtx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+            waveformCtx.lineWidth = 1.5;
+            waveformCtx.setLineDash([3, 2]);
+            waveformCtx.beginPath();
+            waveformCtx.moveTo(x, plotTop - 10);
+            waveformCtx.lineTo(x, plotBottom);
+            waveformCtx.stroke();
+            waveformCtx.setLineDash([]);
+
+            const label = formatTime(recordingMarkerTimesRef.current[m] ?? 0, false);
+            const labelWidth2 = waveformCtx.measureText(label).width;
+            const labelX = Math.min(Math.max(x - labelWidth2 / 2, plotLeft), plotRight - labelWidth2);
+            waveformCtx.fillStyle = '#f59e0b';
+            waveformCtx.beginPath();
+            waveformCtx.moveTo(x, plotTop - 10);
+            waveformCtx.lineTo(x - 4, plotTop - 16);
+            waveformCtx.lineTo(x + 4, plotTop - 16);
+            waveformCtx.closePath();
+            waveformCtx.fill();
+            waveformCtx.fillStyle = 'rgba(2, 6, 23, 0.9)';
+            waveformCtx.fillRect(labelX - 2, plotTop - 28, labelWidth2 + 4, 10);
+            waveformCtx.fillStyle = '#fbbf24';
+            waveformCtx.textAlign = 'left';
+            waveformCtx.textBaseline = 'top';
+            waveformCtx.fillText(label, labelX, plotTop - 27);
+          }
         }
       }
     }
@@ -797,6 +837,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     recordedChunksRightRef.current = [];
     totalRecordedSamplesRef.current = 0;
     recordingMarkerTimesRef.current = [];
+    recordingMarkerWriteIndicesRef.current = [];
     setRecordingMarkerCount(0);
     pausedDurationRef.current = 0;
     setDurationSec(0);
@@ -886,7 +927,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     }
 
     recordingMarkerTimesRef.current = [...recordingMarkerTimesRef.current, markerTime];
+    recordingMarkerWriteIndicesRef.current = [...recordingMarkerWriteIndicesRef.current, recordingWaveformWriteIndexRef.current];
     setRecordingMarkerCount(recordingMarkerTimesRef.current.length);
+    setMarkerFlashKey((k) => k + 1);
   }, []);
 
   useEffect(() => {
@@ -1024,14 +1067,15 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
                 <button
                   type="button"
+                  key={markerFlashKey}
                   onClick={dropRecordingMarker}
                   disabled={!isRecording || isPaused}
-                  className="flex w-[118px] shrink-0 items-center justify-center gap-2 rounded border border-amber-500/40 bg-amber-400/10 px-3 font-mono text-[12px] font-bold uppercase tracking-wider text-amber-300 transition hover:bg-amber-400/20 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-35"
+                  className={`flex w-[118px] shrink-0 items-center justify-center gap-2 rounded border border-amber-500/40 bg-amber-400/10 px-3 font-mono text-[12px] font-bold uppercase tracking-wider text-amber-300 transition hover:bg-amber-400/20 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-35 ${markerFlashKey > 0 ? 'flash-once' : ''}`}
                   title={!isRecording ? 'Start recording to add a marker' : isPaused ? 'Resume recording to add a marker' : 'Add a marker at the current recording position (M)'}
                   aria-label="Add recording marker"
                 >
                   <BookmarkPlus className="h-4 w-4" />
-                  <span>Mark</span>
+                  <span>Mark{recordingMarkerCount > 0 ? ` (${recordingMarkerCount})` : ''}</span>
                   <kbd className="rounded border border-amber-200/20 bg-slate-950/70 px-1 py-0.5 text-[9px] text-amber-100">M</kbd>
                 </button>
               </div>
