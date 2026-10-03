@@ -6,7 +6,10 @@ import {
   MicOff,
   Radio,
   BookmarkPlus,
+  Ear,
 } from 'lucide-react';
+import { RotaryKnob } from './RotaryKnob';
+import { useKnobDrag } from '../hooks/useKnobDrag';
 import { AudioDeviceOption } from '../types';
 import { formatTime } from '../utils/audioProcessing';
 
@@ -20,8 +23,24 @@ interface AudioRecorderProps {
   onWakeAudioEngine?: () => void;
 }
 
-// Needle sweep: -20 dB .. +3 dB maps to -55deg .. +55deg around the pivot.
-const vuAngle = (db: number) => -55 + (Math.max(-20, Math.min(3, db)) + 20) / 23 * 110;
+// Needle sweep uses the full digital input range, but gives the important upper
+// levels more physical travel so quiet signals still move the needle smoothly.
+const vuAngle = (db: number) => {
+  const value = Math.max(-60, Math.min(3, db));
+
+  if (value <= -20) {
+    // -60 .. -20 dBFS => -55 .. -30 degrees
+    return -55 + ((value + 60) / 40) * 25;
+  }
+
+  if (value <= 0) {
+    // -20 .. 0 dBFS => -30 .. +40 degrees
+    return -30 + ((value + 20) / 20) * 70;
+  }
+
+  // 0 .. +3 dBFS => +40 .. +55 degrees
+  return 40 + (value / 3) * 15;
+};
 interface VuMeterProps {
   label: string;
   peakDb: number;
@@ -56,8 +75,11 @@ const VuMeter: React.FC<VuMeterProps> = ({ label, peakDb, peakHoldDb, onResetPea
   const cornerX = w * 0.42;
   const cornerY = (pivot.y - 3) * 0.8;
   const housing = `M 3 ${h - 2} V ${3 + cornerY} A ${cornerX} ${cornerY} 0 0 1 ${3 + cornerX} 3 H ${w - 3 - cornerX} A ${cornerX} ${cornerY} 0 0 1 ${w - 3} ${3 + cornerY} V ${h - 2} Z`;
-  const ticks = Array.from({ length: 24 }, (_, i) => i - 20);
-  const labelled = [-20, -12, -6, 0, 3];
+  const ticks = [
+    -60, -55, -50, -45, -40, -35, -30, -25, -20,
+    -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 1, 2, 3,
+  ];
+  const labelled = [-60, -40, -20, -12, -6, 0, 3];
   const arcStart = at(radius, -60);
   const arcEnd = at(radius, 60);
   const redStart = at(radius + 10 * k, vuAngle(0));
@@ -181,6 +203,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [durationSec, setDurationSec] = useState<number>(0);
   const [recordingMarkerCount, setRecordingMarkerCount] = useState<number>(0);
+  const [markerFlashKey, setMarkerFlashKey] = useState<number>(0);
 
   // Independent Live Monitoring State
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(false);
@@ -205,8 +228,40 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [inputBoostDb, setInputBoostDb] = useState<number>(0);
   const inputBoostDbRef = useRef<number>(0);
   const inputGainNodeRef = useRef<GainNode | null>(null);
-  const knobDragRef = useRef<{ startY: number; startValue: number } | null>(null);
-  const monitorKnobDragRef = useRef<{ startY: number; startValue: number } | null>(null);
+  const [targetDbfs, setTargetDbfs] = useState(-6);
+  const targetDbfsRef = useRef(targetDbfs);
+  targetDbfsRef.current = targetDbfs;
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  const [calibrationFeedback, setCalibrationFeedback] = useState('');
+  const calibrationHoldRef = useRef(false);
+  const calibrationPeakRef = useRef(0);
+  const calibrationProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { dragging: gainDragging, fineAdjusting: gainFineAdjusting, ...gainDragHandlers } = useKnobDrag({ value: inputBoostDb, min: 0, max: 36, sensitivity: 0.28, step: 1, fineStep: 0.1, disabled: isRecording || isCalibrating, onChange: setInputBoostDb });
+  const { dragging: monitorDragging, fineAdjusting: monitorFineAdjusting, ...monitorDragHandlers } = useKnobDrag({ value: monitorVolume, min: 0, max: 1, sensitivity: 0.0078, step: 0.01, disabled: !monitoringAudioOutput, onChange: setMonitorVolume });
+  const beginCalibration = () => {
+    if (!isMonitoringActive || isRecording || !calibrationProcessorRef.current) return;
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    calibrationPeakRef.current = 0;
+    calibrationHoldRef.current = true;
+    setIsCalibrating(true);
+    setCalibrationFeedback('LISTENING');
+  };
+  const finishCalibration = (cancelled = false) => {
+    if (!calibrationHoldRef.current) return;
+    calibrationHoldRef.current = false;
+    setIsCalibrating(false);
+    const peak = calibrationPeakRef.current;
+    if (cancelled) setCalibrationFeedback('');
+    else if (peak <= 0.000001) setCalibrationFeedback('NO SIGNAL');
+    else {
+      const requiredGainDb = targetDbfsRef.current - 20 * Math.log10(peak);
+      const gain = Math.round(Math.max(0, Math.min(36, requiredGainDb)) * 10) / 10;
+      setInputBoostDb(gain);
+      setCalibrationFeedback(requiredGainDb < 0 ? 'INPUT HOT' : `SET +${gain.toFixed(1)} dB`);
+    }
+    feedbackTimerRef.current = setTimeout(() => setCalibrationFeedback(''), 2500);
+  };
 
   // Audio Context & stream refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -230,6 +285,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const recordedChunksRightRef = useRef<Float32Array[]>([]);
   const totalRecordedSamplesRef = useRef<number>(0);
   const recordingMarkerTimesRef = useRef<number[]>([]);
+  // Scrolling waveform position (write-index space, not wall-clock) for each dropped marker.
+  const recordingMarkerWriteIndicesRef = useRef<number[]>([]);
   const recordingStartTimeRef = useRef<number>(0);
   const pausedDurationRef = useRef<number>(0);
   const pauseStartTimeRef = useRef<number>(0);
@@ -336,6 +393,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   // Clean up all audio nodes on unmount
   useEffect(() => {
     return () => {
+      calibrationHoldRef.current = false;
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      calibrationProcessorRef.current?.disconnect();
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -389,6 +449,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       }
       rmsR = Math.sqrt(sumSquaresR / Math.max(1, bufferR.length));
     }
+
+    if (calibrationHoldRef.current && calibrationPeakRef.current > 0) setCalibrationFeedback(`PEAK ${(20 * Math.log10(calibrationPeakRef.current)).toFixed(1)}`);
 
     const dbL = maxL > 0 ? 20 * Math.log10(maxL) : -60;
     const dbR = maxR > 0 ? 20 * Math.log10(maxR) : -60;
@@ -582,6 +644,43 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             }
             waveformCtx.stroke();
           }
+
+          // Marker drop lines: positioned in write-index space so they scroll with the waveform
+          // and vanish off the left edge exactly like the audio data they tag.
+          const firstVisibleIndex = recordingWaveformWriteIndexRef.current - count;
+          waveformCtx.font = '8px ui-monospace, monospace';
+          for (let m = 0; m < recordingMarkerWriteIndicesRef.current.length; m++) {
+            const markerIndex = recordingMarkerWriteIndicesRef.current[m];
+            const i = markerIndex - firstVisibleIndex;
+            if (i < 0 || i >= count) continue;
+            const x = plotRight - (count - 1 - i) * 3;
+
+            waveformCtx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+            waveformCtx.lineWidth = 1.5;
+            waveformCtx.setLineDash([3, 2]);
+            waveformCtx.beginPath();
+            waveformCtx.moveTo(x, plotTop - 10);
+            waveformCtx.lineTo(x, plotBottom);
+            waveformCtx.stroke();
+            waveformCtx.setLineDash([]);
+
+            const label = formatTime(recordingMarkerTimesRef.current[m] ?? 0, false);
+            const labelWidth2 = waveformCtx.measureText(label).width;
+            const labelX = Math.min(Math.max(x - labelWidth2 / 2, plotLeft), plotRight - labelWidth2);
+            waveformCtx.fillStyle = '#f59e0b';
+            waveformCtx.beginPath();
+            waveformCtx.moveTo(x, plotTop - 10);
+            waveformCtx.lineTo(x - 4, plotTop - 16);
+            waveformCtx.lineTo(x + 4, plotTop - 16);
+            waveformCtx.closePath();
+            waveformCtx.fill();
+            waveformCtx.fillStyle = 'rgba(2, 6, 23, 0.9)';
+            waveformCtx.fillRect(labelX - 2, plotTop - 28, labelWidth2 + 4, 10);
+            waveformCtx.fillStyle = '#fbbf24';
+            waveformCtx.textAlign = 'left';
+            waveformCtx.textBaseline = 'top';
+            waveformCtx.fillText(label, labelX, plotTop - 27);
+          }
         }
       }
     }
@@ -614,6 +713,13 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         const chMode = mode !== undefined ? mode : channelMode;
         const targetSampleRate = sampleRate !== undefined ? sampleRate : recordingSampleRate;
         const isStereo = chMode === 'stereo';
+
+        // A device/rate change invalidates an in-progress measurement.
+        calibrationHoldRef.current = false;
+        setIsCalibrating(false);
+        setCalibrationFeedback('');
+        calibrationProcessorRef.current?.disconnect();
+        calibrationProcessorRef.current = null;
 
         if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -676,6 +782,22 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         inputGainNodeRef.current = inputGain;
         source.connect(inputGain);
 
+        // Capture every raw input block before boost; output is silent and never recorded.
+        const calibrationProcessor = audioCtx.createScriptProcessor(2048, isStereo ? 2 : 1, 1);
+        calibrationProcessor.onaudioprocess = (event) => {
+          event.outputBuffer.getChannelData(0).fill(0);
+          if (!calibrationHoldRef.current) return;
+          let peak = calibrationPeakRef.current;
+          for (let channel = 0; channel < event.inputBuffer.numberOfChannels; channel++) {
+            const samples = event.inputBuffer.getChannelData(channel);
+            for (let index = 0; index < samples.length; index++) peak = Math.max(peak, Math.abs(samples[index]));
+          }
+          calibrationPeakRef.current = peak;
+        };
+        source.connect(calibrationProcessor);
+        calibrationProcessor.connect(audioCtx.destination);
+        calibrationProcessorRef.current = calibrationProcessor;
+
         const splitter = audioCtx.createChannelSplitter(2);
         inputGain.connect(splitter);
 
@@ -725,6 +847,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       audioContextRef.current = null;
     }
 
+    calibrationHoldRef.current = false;
+    setIsCalibrating(false);
+    setCalibrationFeedback('');
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    calibrationProcessorRef.current?.disconnect();
+    calibrationProcessorRef.current = null;
     analyserNodeLeftRef.current = null;
     analyserNodeRightRef.current = null;
     sourceNodeRef.current = null;
@@ -799,6 +927,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     recordedChunksRightRef.current = [];
     totalRecordedSamplesRef.current = 0;
     recordingMarkerTimesRef.current = [];
+    recordingMarkerWriteIndicesRef.current = [];
     setRecordingMarkerCount(0);
     pausedDurationRef.current = 0;
     setDurationSec(0);
@@ -888,7 +1017,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     }
 
     recordingMarkerTimesRef.current = [...recordingMarkerTimesRef.current, markerTime];
+    recordingMarkerWriteIndicesRef.current = [...recordingMarkerWriteIndicesRef.current, recordingWaveformWriteIndexRef.current];
     setRecordingMarkerCount(recordingMarkerTimesRef.current.length);
+    setMarkerFlashKey((k) => k + 1);
   }, []);
 
   useEffect(() => {
@@ -995,36 +1126,44 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               <div className="relative min-h-0 flex-1">
                 <canvas ref={recordingWaveformCanvasRef} width={1000} height={232} className="absolute inset-0 block h-full w-full bg-slate-950" />
                 <span className="pointer-events-none absolute left-2 top-0 font-mono text-xs font-bold tracking-wider text-slate-300">RECORDING WAVEFORM</span>
-                {isRecording && (
-                  <div className="absolute left-14 top-9 z-10 flex items-center gap-1.5 border border-dashed border-amber-400/80 bg-slate-950/90 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-500">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-                    CAPTURING: {formatTime(durationSec, true)} @ {recordingSampleRate / 1000} kHz {channelMode === 'stereo' ? 'Stereo' : 'Mono'}
-                  </div>
-                )}
               </div>
 
-              <div className="relative mt-3 flex shrink-0 items-center justify-center">
+              <div className="mt-auto flex shrink-0 items-stretch gap-3 pt-3">
+                <div className="flex min-w-0 flex-1 items-center justify-between rounded border border-slate-700 bg-black/85 px-4 py-3 shadow-inner">
+                  <div className="flex items-center gap-3">
+                    <span className={`h-3 w-3 rounded-full ${isRecording ? (isPaused ? 'bg-amber-400' : 'animate-pulse bg-red-500') : 'bg-slate-700'}`} />
+                    <span className={`font-mono text-[12px] font-bold uppercase tracking-[0.22em] ${isRecording ? (isPaused ? 'text-amber-300' : 'text-red-400') : 'text-slate-500'}`}>
+                      {isRecording ? (isPaused ? 'Paused' : 'Rec') : 'Ready'}
+                    </span>
+                  </div>
+
+                  <div className={`font-mono text-[30px] font-bold tracking-[0.16em] ${isRecording ? 'text-amber-200' : 'text-slate-500'}`}>
+                    {formatTime(durationSec, true)}
+                  </div>
+
+                  <span className="flex items-center gap-1.5 font-mono text-[11px] font-bold tracking-wider">
+                    <span className={`h-2.5 w-2.5 rounded-full ${isStandbyMode ? 'bg-amber-500' : clipped ? 'animate-ping bg-red-500' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                    <span className={isStandbyMode ? 'text-amber-400' : clipped ? 'font-extrabold text-red-400' : 'text-slate-300'}>
+                      {isStandbyMode ? 'STANDBY' : clipped ? 'CLIP' : 'SIGNAL OK'}
+                    </span>
+                  </span>
+                </div>
+
+                <div className="relative flex shrink-0 items-center justify-center">
                 <button
                   type="button"
+                  key={markerFlashKey}
                   onClick={dropRecordingMarker}
                   disabled={!isRecording || isPaused}
-                  className="flex items-center gap-2 rounded border border-amber-300/60 bg-amber-400/15 px-4 py-2 font-sans text-xs font-bold tracking-wide text-amber-200 transition hover:border-amber-200 hover:bg-amber-400/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-70"
-                  title={!isRecording ? 'Start recording to drop a split marker' : isPaused ? 'Resume recording to drop a split marker' : 'Drop a split marker at the current recording position (M)'}
-                  aria-label="Drop recording marker"
+                  className={`flex w-[118px] shrink-0 items-center justify-center gap-2 rounded border border-amber-500/40 bg-amber-400/10 px-3 font-mono text-[12px] font-bold uppercase tracking-wider text-amber-300 transition hover:bg-amber-400/20 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-35 ${markerFlashKey > 0 ? 'flash-once' : ''}`}
+                  title={!isRecording ? 'Start recording to add a marker' : isPaused ? 'Resume recording to add a marker' : 'Add a marker at the current recording position (M)'}
+                  aria-label="Add recording marker"
                 >
                   <BookmarkPlus className="h-4 w-4" />
-                  <span>DROP MARKER</span>
-                  <kbd className="rounded border border-amber-200/30 bg-slate-950/70 px-1 py-0.5 font-mono text-[9px] text-amber-100">M</kbd>
-                  {recordingMarkerCount > 0 && (
-                    <span className="rounded bg-amber-400/20 px-1 font-mono">{recordingMarkerCount}</span>
-                  )}
+                  <span>Mark{recordingMarkerCount > 0 ? ` (${recordingMarkerCount})` : ''}</span>
+                  <kbd className="rounded border border-amber-200/20 bg-slate-950/70 px-1 py-0.5 text-[9px] text-amber-100">M</kbd>
                 </button>
-                <span className="absolute right-1 flex items-center gap-1.5 font-mono text-[11px] font-bold tracking-wider">
-                  <span className={`h-2.5 w-2.5 rounded-full ${isStandbyMode ? 'bg-amber-500' : clipped ? 'animate-ping bg-red-500' : isMonitoringActive ? 'bg-emerald-500' : 'bg-slate-700'}`} />
-                  <span className={isStandbyMode ? 'text-amber-400' : clipped ? 'font-extrabold text-red-400' : 'text-slate-300'}>
-                    {isStandbyMode ? 'STANDBY' : clipped ? 'CLIP' : 'SIGNAL OK'}
-                  </span>
-                </span>
+              </div>
               </div>
 
               {/* Standby Mode Overlay */}
@@ -1054,10 +1193,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             {/* Oscilloscope */}
             <div className="flex min-h-0 flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Oscilloscope</span>
-              <div className="flex min-h-0 w-full flex-1 items-center justify-center" style={{ containerType: 'size' }}><div className="relative aspect-square w-[min(100cqw,100cqh)] overflow-hidden rounded-full border-[6px] border-slate-700 bg-slate-950 shadow-[inset_0_0_24px_rgba(0,0,0,0.85)]">
+              <div className="flex min-h-0 w-full flex-1 items-center justify-center" style={{ containerType: 'size' }}>
+                <div className="relative aspect-square w-[min(100cqw,100cqh)] overflow-hidden rounded-full border-[6px] border-slate-700 bg-slate-950 shadow-[inset_0_0_24px_rgba(0,0,0,0.85)]">
                 <canvas ref={liveCanvasRef} width={360} height={360} className="block h-full w-full rounded-full" />
                 <div className="pointer-events-none absolute inset-4 rounded-full border border-slate-600/50" />
-              </div></div>
+                </div>
+              </div>
               <span className={`font-mono text-xs font-bold tracking-wider ${clipped ? 'text-red-400' : isMonitoringActive ? 'text-emerald-400' : 'text-slate-500'}`}>
                 {isStandbyMode ? 'STANDBY' : clipped ? 'CLIP' : isMonitoringActive ? 'SIGNAL' : 'NO SIGNAL'}
               </span>
@@ -1069,7 +1210,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             {/* Transport */}
             <div className="flex min-h-0 flex-col items-center justify-between overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
               <span className="self-start text-xs font-bold uppercase tracking-wider text-slate-300">Transport</span>
-              <div className="flex flex-col items-center gap-1.5">
+              <div className="flex flex-col items-center gap-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -1096,7 +1237,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : 'RECORD'}</span>
               </div>
 
-              <div className="flex flex-col items-center gap-1.5">
+              <div className="flex flex-col items-center gap-1">
                 <button
                   type="button"
                   disabled={!isRecording}
@@ -1113,7 +1254,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">{isPaused ? 'Resume' : 'Pause'}</span>
               </div>
 
-              <div className="flex flex-col items-center gap-1.5">
+              <div className="flex flex-col items-center gap-1">
                 <button
                   type="button"
                   disabled={!isRecording}
@@ -1137,7 +1278,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <VuMeter label="L VU" peakDb={leftPeakDb} peakHoldDb={leftPeakHoldDb} onResetPeak={handleResetLeftPeak} />
                 <VuMeter label="R VU" peakDb={rightPeakDb} peakHoldDb={rightPeakHoldDb} onResetPeak={handleResetRightPeak} hidden={channelMode !== 'stereo'} />
                 {/* Sits in the top row above the gap between the two domes, so the meters can expand inward */}
-                <div className="absolute left-1/2 top-2 flex -translate-x-1/2 flex-col items-center gap-1.5">
+                <div className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5">
                   <button
                     type="button"
                     onClick={handleResetPeak}
@@ -1191,20 +1332,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   }}
                 />
                 <div
-                  className={`relative h-[68px] w-[68px] touch-none rounded-full border border-slate-700 bg-slate-950 shadow-inner ${!monitoringAudioOutput ? 'opacity-40' : 'cursor-ns-resize'}`}
+                  className={`relative h-[68px] w-[68px] touch-none rounded-full border border-slate-700 bg-slate-950 shadow-inner ${!monitoringAudioOutput ? 'opacity-40' : 'cursor-ns-resize'} ${monitorFineAdjusting ? 'ring-1 ring-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : ''}`}
                   title="Monitor volume"
-                  onPointerDown={(e) => {
-                    if (!monitoringAudioOutput) return;
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                    monitorKnobDragRef.current = { startY: e.clientY, startValue: monitorVolume };
-                  }}
-                  onPointerMove={(e) => {
-                    if (!monitorKnobDragRef.current) return;
-                    const deltaVolume = Math.round((monitorKnobDragRef.current.startY - e.clientY) * 0.0078 * 100) / 100;
-                    setMonitorVolume(Math.max(0, Math.min(1, monitorKnobDragRef.current.startValue + deltaVolume)));
-                  }}
-                  onPointerUp={() => { monitorKnobDragRef.current = null; }}
-                  onPointerCancel={() => { monitorKnobDragRef.current = null; }}
+                  {...monitorDragHandlers}
                 >
                   <div className="absolute inset-1.5 rounded-full border-2 border-slate-700" style={{ background: `conic-gradient(from 225deg, #10b981 ${monitorVolume * 270}deg, #1e293b ${monitorVolume * 270}deg 270deg, transparent 270deg)` }}>
                     <div className="absolute left-1/2 top-1/2 h-5 w-0.5 origin-bottom rounded-full bg-emerald-300" style={{ transform: `translate(-50%, -100%) rotate(${-135 + monitorVolume * 270}deg)` }} />
@@ -1240,22 +1370,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             </div>
 
             <div className="flex flex-1 flex-col pt-[clamp(6px,1.5vh,16px)]">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Preamp</span>
-              <div className="flex flex-1 flex-col items-center justify-center gap-2">
+              <div className="flex items-center justify-between"><span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Preamp</span><span className="text-[8px] text-slate-500">Shift + Knob = Fine</span></div>
+              <div className="relative flex flex-1 flex-col items-center justify-center gap-1">
+                <span className="text-[10px] text-slate-400">Gain</span>
                 <div
-                  className={`relative h-[clamp(104px,16vh,144px)] w-[clamp(104px,16vh,144px)] touch-none ${isRecording ? 'opacity-40' : 'cursor-ns-resize'}`}
-                  onPointerDown={(e) => {
-                    if (isRecording) return;
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                    knobDragRef.current = { startY: e.clientY, startValue: inputBoostDb };
-                  }}
-                  onPointerMove={(e) => {
-                    if (!knobDragRef.current) return;
-                    const deltaDb = Math.round((knobDragRef.current.startY - e.clientY) * 0.28);
-                    setInputBoostDb(Math.max(0, Math.min(36, knobDragRef.current.startValue + deltaDb)));
-                  }}
-                  onPointerUp={() => { knobDragRef.current = null; }}
-                  onPointerCancel={() => { knobDragRef.current = null; }}
+                  className={`relative h-[clamp(104px,16vh,144px)] w-[clamp(104px,16vh,144px)] touch-none ${isRecording || isCalibrating ? 'opacity-40' : 'cursor-ns-resize'} ${gainFineAdjusting ? 'rounded-full ring-1 ring-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : ''}`}
+                  {...gainDragHandlers}
                   title="Preamp boost gain (drag up / down)"
                 >
                   <svg viewBox="0 0 124 124" className="pointer-events-none absolute inset-0">
@@ -1270,7 +1390,27 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                     <div className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300" />
                   </div>
                 </div>
-                <span className="font-mono text-base font-bold text-amber-400">+{inputBoostDb.toFixed(0)} dB</span>
+                <span className="font-mono text-base font-bold text-amber-400">+{inputBoostDb.toFixed(1)} dB</span>
+                <div className="flex items-start justify-center gap-10">
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[9px] uppercase text-slate-400">Detect</span>
+                    <button type="button" aria-label="Detect preamp level" aria-pressed={isCalibrating} disabled={!isMonitoringActive || isRecording} title="Hold while playing a loud passage to set the preamp level automatically." className={`flex h-[26px] w-[26px] items-center justify-center rounded border touch-none select-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${isCalibrating ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-950 border-slate-700 text-slate-300'}`}
+                      onPointerDown={(event) => { if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); beginCalibration(); }}
+                      onPointerUp={(event) => { finishCalibration(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
+                      onPointerCancel={() => finishCalibration(true)} onLostPointerCapture={() => finishCalibration(true)}
+                      onKeyDown={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); if (!event.repeat) beginCalibration(); } }}
+                      onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); finishCalibration(); } }}
+                      onBlur={() => finishCalibration(true)}>
+                      <Ear aria-hidden="true" className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="flex flex-col items-center gap-1" title="Target peak level for automatic preamp calibration.">
+                    <span className="text-[9px] uppercase text-slate-400">Target</span>
+                    <RotaryKnob value={targetDbfs} min={-12} max={0} step={3} fineStep={0.5} size={26} title="Target peak level" onChange={setTargetDbfs} formatValue={(value) => `${value.toFixed(1)} dB`} />
+                    <output className="font-mono text-[10px] text-amber-300">{targetDbfs.toFixed(1)} dB</output>
+                  </div>
+                </div>
+                <output aria-live="polite" className="h-3 font-mono text-[9px] text-amber-300">{calibrationFeedback}</output>
               </div>
             </div>
           </div>

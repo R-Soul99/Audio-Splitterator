@@ -1,0 +1,46 @@
+Work through these one at a time, stopping for me to check after each edit.
+
+Device layout: opening panels and changing values must not move or resize the waveform.
+Done: Processing & Detection opens upward over the editor from its fixed bottom bar.
+
+1. Done: compact Region and Noise Floor readouts above the waveform.
+   Appearance approved; preserve as much waveform height as possible in later edits.
+2. Done: predicted auto-split boundaries shown as dashed amber guides
+   on the waveform while Detection is open, so I can check slice positions.
+3. Done: restored immediate single-click selection/loop clearing and
+   seeking on the waveform. Audition on Click controls whether stopped audio starts.
+   Double-click the bottom zoom bar to reset to 1.0x and show the full recording.
+   Keep the Selection loop playback fix so it repeats beyond the first pass.
+4. Done: time ruler along the top of the waveform.
+5. Done: Recording panel Mark button now flashes on drop, shows a running count, and
+   draws an amber flag + timestamp line on the scrolling waveform at the marker's position
+   as it scrolls away.
+6. Done: Recording Info moved into the Tracks panel header as a small amber post-it
+   tag. Expanding it renders an absolutely-positioned overlay that drops down over the
+   track list (not in document flow), so it can never resize the Tracks panel, Transport,
+   or the waveform — fixed the earlier version that shrank the waveform on toggle.
+7. Tools panel follow-up (in progress, needs more work): expand Transport controls
+   outward. Tools section is taking up way too much blank space — either align the
+   Tools tabs to the top or bottom of the box, then use the rest of the box to display
+   settings. Peak Tamer's explanation text is too verbose, just needs to be a set of
+   controls. Detection, Peak Tamer, and Normalise controls could easily fit in that
+   area without changing the size of the box.
+8. Detection: replace the Noise Floor number input with a knob, a label above,
+   and a small digital value readout (potentially in the centre of the knob).
+9. Detection: replace the Min. Silence number input with a matching knob and
+   a clearly labelled time readout. Keep the panel layout stable while adjusting.
+10. Recording panel: add a press-and-hold preamp detector. Hold the button during
+    a loud passage to measure its peak, then automatically set preamp gain on release
+    to reach the target peak. Target still to decide: -6 dBFS or -1 dBFS.
+11. Recording panel: move the Transport section into the Controls panel.
+12. Loop/sample creator: activating Selection's loop button opens a compact pop-up
+    for auditioning, adjusting and saving the selected region. Preserve the fixed
+    device layout; the controls must not resize or move the waveform.
+    - Halve/double the selection length, with a choice of which edge stays fixed.
+    - Jump left/right by one selection length (e.g. to the previous/next 4-bar span).
+    - Slide the entire selection left/right while it continues looping.
+    - Fine-tune start/end independently with precise readouts and small nudges.
+    - Export exactly one cycle of the selected region as an individual WAV or FLAC.
+    - Choose and remember a default destination folder for subsequent saves, with
+      a way to change it. Provide editable filenames and avoid accidental overwrites.
+    Build in reviewable stages: loop controls first, then region export and saved folder.

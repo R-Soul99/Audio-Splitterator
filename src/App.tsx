@@ -10,22 +10,40 @@ import {
   Radio,
   BookmarkPlus,
   FolderOpen,
-  Layers,
   Trash2,
   Zap,
   Play,
   Pause,
   Square,
+  SkipBack,
   Tag,
   CheckCircle2,
   RotateCcw,
   Navigation,
   Volume2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  StickyNote,
 } from 'lucide-react';
 
 export default function App() {
   // 3-Workflow sequential tabs state based on mockup (Record -> Edit -> Save)
   const [workflowTab, setWorkflowTab] = useState<'record' | 'edit' | 'save'>('record');
+  const [processingPanelContainer, setProcessingPanelContainer] = useState<HTMLDivElement | null>(null);
+  const trackRowsRef = useRef<HTMLDivElement | null>(null);
+  const [trackSlots, setTrackSlots] = useState(15);
+  const [trackPage, setTrackPage] = useState(0);
+
+  useEffect(() => {
+    if (workflowTab !== 'edit' || !trackRowsRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      // Match the fixed h-8 rows; never compress rows or show a partial slot.
+      setTrackSlots(Math.max(1, Math.floor(entry.contentRect.height / 32)));
+    });
+    observer.observe(trackRowsRef.current);
+    return () => observer.disconnect();
+  }, [workflowTab]);
 
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [mainFileName, setMainFileName] = useState<string>('Recording');
@@ -48,6 +66,19 @@ export default function App() {
   // Split markers
   const [markers, setMarkers] = useState<Marker[]>([]);
 
+  const markersRef = useRef<Marker[]>([]);
+  const markerUndoRef = useRef<{ markers: Marker[]; trackNames: Record<string, string> }[]>([]);
+  const [canUndoMarkers, setCanUndoMarkers] = useState(false);
+  const replaceMarkers = useCallback((next: Marker[] | ((previous: Marker[]) => Marker[])) => {
+    const updated = typeof next === 'function' ? next(markersRef.current) : next;
+    markersRef.current = updated;
+    setMarkers(updated);
+  }, []);
+  const resetMarkerUndo = useCallback(() => {
+    markerUndoRef.current = [];
+    setCanUndoMarkers(false);
+  }, []);
+
   // Waveform View Zoom & Offset
   const [zoom, setZoom] = useState<number>(1);
   const [viewOffsetSec, setViewOffsetSec] = useState<number>(0);
@@ -55,9 +86,24 @@ export default function App() {
   // Pre-Record metadata cache
   const [preRecordArtist, setPreRecordArtist] = useState<string>('');
   const [preRecordAlbum, setPreRecordAlbum] = useState<string>('');
+  // Collapses the Recording Info fields into a small post-it style tag to free up waveform space.
+  const [recordingInfoCollapsed, setRecordingInfoCollapsed] = useState<boolean>(true);
 
   // Per-split track names (maps split ID to user-entered track name)
   const [trackNames, setTrackNames] = useState<{ [splitId: string]: string }>({});
+
+  const pushMarkerUndo = useCallback(() => {
+    markerUndoRef.current.push({ markers: markersRef.current.map(marker => ({ ...marker })), trackNames: { ...trackNames } });
+    if (markerUndoRef.current.length > 30) markerUndoRef.current.shift();
+    setCanUndoMarkers(true);
+  }, [trackNames]);
+  const handleMarkerUndo = useCallback(() => {
+    const previous = markerUndoRef.current.pop();
+    if (!previous) return;
+    replaceMarkers(previous.markers);
+    setTrackNames(previous.trackNames);
+    setCanUndoMarkers(markerUndoRef.current.length > 0);
+  }, [replaceMarkers]);
 
   // Silence Detection Parameters
   const [silenceThreshold, setSilenceThreshold] = useState<number>(-42);
@@ -95,6 +141,12 @@ export default function App() {
     cropEnd: number;
     mainFileName: string;
     actionName: string;
+    selection: TimeSelection | null;
+    currentTime: number;
+    zoom: number;
+    viewOffsetSec: number;
+    trackNames: Record<string, string>;
+    fadeSettings: FadeSettings;
   }
   const undoStackRef = useRef<UndoState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
@@ -145,17 +197,24 @@ export default function App() {
     if (!audioBufferRef.current) return;
     undoStackRef.current.push({
       buffer: audioBufferRef.current,
-      markers: [...markers],
+      markers: markersRef.current.map(marker => ({ ...marker })),
       cropStart: cropStartRef.current,
       cropEnd: cropEndRef.current,
       mainFileName,
       actionName,
+      selection: selectionRef.current ? { ...selectionRef.current } : null,
+      currentTime: currentTimeRef.current,
+      zoom,
+      viewOffsetSec,
+      trackNames: { ...trackNames },
+      fadeSettings: { ...fadeSettings },
     });
     if (undoStackRef.current.length > 10) {
       undoStackRef.current.shift();
     }
+    resetMarkerUndo();
     setCanUndo(true);
-  }, [markers, mainFileName]);
+  }, [mainFileName, zoom, viewOffsetSec, trackNames, fadeSettings, resetMarkerUndo]);
 
   const handleUndo = useCallback(() => {
     const prev = undoStackRef.current.pop();
@@ -179,18 +238,24 @@ export default function App() {
     audioBufferRef.current = prev.buffer;
     cropStartRef.current = prev.cropStart;
     cropEndRef.current = prev.cropEnd;
-    currentTimeRef.current = 0;
+    currentTimeRef.current = prev.currentTime;
+    selectionRef.current = prev.selection;
+    isLoopingRef.current = false;
+    setIsLooping(false);
+    resetMarkerUndo();
 
     setAudioBuffer(prev.buffer);
-    setMarkers(prev.markers);
+    replaceMarkers(prev.markers);
     setCropStart(prev.cropStart);
     setCropEnd(prev.cropEnd);
     setMainFileName(prev.mainFileName);
-    setCurrentTime(0);
-    setSelection(null);
-    setZoom(1);
-    setViewOffsetSec(0);
-  }, []);
+    setCurrentTime(prev.currentTime);
+    setSelection(prev.selection);
+    setZoom(prev.zoom);
+    setViewOffsetSec(prev.viewOffsetSec);
+    setTrackNames(prev.trackNames);
+    setFadeSettings(prev.fadeSettings);
+  }, [replaceMarkers, resetMarkerUndo]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<'discard' | 'import' | null>(null);
@@ -337,6 +402,7 @@ export default function App() {
     (offsetTime: number, forceLoop?: boolean) => {
       const buffer = audioBufferRef.current;
       if (!buffer) return;
+      const activeLoop = forceLoop !== undefined ? forceLoop : isLoopingRef.current;
       stopPlayback();
 
       if (isStandbyMode) {
@@ -347,8 +413,6 @@ export default function App() {
       if (ctx.state === 'suspended') {
         ctx.resume();
       }
-
-      const activeLoop = forceLoop !== undefined ? forceLoop : isLoopingRef.current;
 
       const sel = selectionRef.current;
       const hasSelection = sel && Math.abs(sel.end - sel.start) > 0.02;
@@ -385,6 +449,8 @@ export default function App() {
       }
 
       sourceNodeRef.current = source;
+      isLoopingRef.current = source.loop;
+      setIsLooping(source.loop);
       playheadStartTimeRef.current = safeStart;
       contextStartTimeRef.current = ctx.currentTime;
       playbackWallStartTimeRef.current = performance.now();
@@ -438,20 +504,57 @@ export default function App() {
     [startPlayback]
   );
 
-  // Instant audition / preview
-  const handlePreviewStart = useCallback(
+  // Return to the absolute start independently of crop and selection bounds.
+  const handleReturnToStart = useCallback(() => {
+    if (!audioBufferRef.current) return;
+    stopPlayback();
+    handleSeek(0);
+    setViewOffsetSec(0);
+  }, [stopPlayback, handleSeek]);
+
+  // Release selection and seek/audition atomically, creating at most one audio source.
+  const handleWaveformClick = useCallback(
     (newTime: number) => {
-      currentTimeRef.current = newTime;
-      setCurrentTime(newTime);
-      startPlayback(newTime);
+      const buffer = audioBufferRef.current;
+      if (!buffer) return;
+      const end = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
+      const time = Math.max(cropStartRef.current, Math.min(end, newTime));
+      selectionRef.current = null;
+      setSelection(null);
+      isLoopingRef.current = false;
+      setIsLooping(false);
+      currentTimeRef.current = time;
+      setCurrentTime(time);
+      if (isPlayingRef.current || autoPreviewOnClick) {
+        startPlayback(time, false);
+      }
     },
-    [startPlayback]
+    [startPlayback, autoPreviewOnClick]
   );
+
+  // Keep playback bounds in sync immediately when the waveform clears its selection.
+  const handleSelectionChange = useCallback((nextSelection: TimeSelection | null) => {
+    const hadSelection = selectionRef.current !== null;
+    selectionRef.current = nextSelection;
+    setSelection(nextSelection);
+
+    if (!nextSelection) {
+      isLoopingRef.current = false;
+      setIsLooping(false);
+      if (isPlayingRef.current && (hadSelection || sourceNodeRef.current?.loop)) {
+        startPlayback(currentTimeRef.current, false);
+      }
+    }
+  }, [startPlayback]);
 
   // Load new audio buffer (recording finished or imported file)
   const loadAudio = (buffer: AudioBuffer, fileName: string, artist?: string, album?: string, markerTimes: number[] = []) => {
     stopPlayback();
     audioBufferRef.current = buffer;
+    undoStackRef.current = [];
+    setCanUndo(false);
+    resetMarkerUndo();
+    setTrackNames({});
     cropStartRef.current = 0;
     cropEndRef.current = buffer.duration;
     currentTimeRef.current = 0;
@@ -465,7 +568,7 @@ export default function App() {
     setSelection(null);
     setCurrentTime(0);
     const markerIdPrefix = `marker-recording-${Date.now()}`;
-    setMarkers(
+    replaceMarkers(
       markerTimes
         .filter((time) => time > 0.01 && time < buffer.duration - 0.01)
         .map((time, index) => ({ id: `${markerIdPrefix}-${index}`, time }))
@@ -479,6 +582,10 @@ export default function App() {
 
   const handleClearRecording = () => {
     stopPlayback();
+    undoStackRef.current = [];
+    setCanUndo(false);
+    resetMarkerUndo();
+    setTrackNames({});
     audioBufferRef.current = null;
     cropStartRef.current = 0;
     cropEndRef.current = 0;
@@ -490,7 +597,7 @@ export default function App() {
     setCropEnd(0);
     setSelection(null);
     setCurrentTime(0);
-    setMarkers([]);
+    replaceMarkers([]);
     setZoom(1);
     setViewOffsetSec(0);
     setPreRecordArtist('');
@@ -535,7 +642,7 @@ export default function App() {
     setCropStart(0);
     setCropEnd(cropped.duration);
     setCurrentTime(0);
-    setMarkers(updatedMarkers);
+    replaceMarkers(updatedMarkers);
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
@@ -575,7 +682,7 @@ export default function App() {
     setCropStart(0);
     setCropEnd(spliced.duration);
     setCurrentTime(nextTime);
-    setMarkers(updatedMarkers);
+    replaceMarkers(updatedMarkers);
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
@@ -615,7 +722,7 @@ export default function App() {
     setCropStart(0);
     setCropEnd(cropped.duration);
     setCurrentTime(0);
-    setMarkers(updatedMarkers);
+    replaceMarkers(updatedMarkers);
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
@@ -650,7 +757,7 @@ export default function App() {
     setCropStart(0);
     setCropEnd(cropped.duration);
     setCurrentTime(Math.min(currentTimeRef.current, cropped.duration));
-    setMarkers(updatedMarkers);
+    replaceMarkers(updatedMarkers);
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
@@ -665,15 +772,12 @@ export default function App() {
       const e = Math.min(buffer.duration, Math.max(startSec, endSec));
       if (e - s <= 0.02) return;
 
-      stopPlayback();
-      setIsLooping(true);
-      isLoopingRef.current = true;
       setSelection({ start: s, end: e });
       selectionRef.current = { start: s, end: e };
 
       startPlayback(s, true);
     },
-    [stopPlayback, startPlayback]
+    [startPlayback]
   );
 
   // Audition / Play Selection region once or looped
@@ -686,11 +790,12 @@ export default function App() {
 
   // Peak Normalise (UK spelling)
   const handleNormalizeAudio = (targetPeakDb: number) => {
-    if (!audioBuffer) return;
+    const buffer = audioBufferRef.current;
+    if (!buffer) return;
 
     let maxPeak = 0;
-    for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
-      const channelData = audioBuffer.getChannelData(c);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      const channelData = buffer.getChannelData(c);
       for (let i = 0; i < channelData.length; i++) {
         const val = Math.abs(channelData[i]);
         if (val > maxPeak) maxPeak = val;
@@ -709,13 +814,13 @@ export default function App() {
     const ctx = new (window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     const newBuffer = ctx.createBuffer(
-      audioBuffer.numberOfChannels,
-      audioBuffer.length,
-      audioBuffer.sampleRate
+      buffer.numberOfChannels,
+      buffer.length,
+      buffer.sampleRate
     );
 
-    for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
-      const src = audioBuffer.getChannelData(c);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      const src = buffer.getChannelData(c);
       const dst = newBuffer.getChannelData(c);
       for (let i = 0; i < src.length; i++) {
         dst[i] = Math.max(-1, Math.min(1, src[i] * gainMultiplier));
@@ -767,19 +872,11 @@ export default function App() {
     const endLimit = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
     const clampedTime = Math.max(startLimit, Math.min(endLimit, time));
 
-    setMarkers((prev) => {
-      if (prev.some((m) => Math.abs(m.time - clampedTime) < 0.05)) {
-        return prev;
-      }
-
-      const newMarker: Marker = {
-        id: `marker-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        time: clampedTime,
-      };
-
-      return [...prev, newMarker].sort((a, b) => a.time - b.time);
-    });
-  }, []);
+    if (markersRef.current.some(marker => Math.abs(marker.time - clampedTime) < 0.05)) return;
+    pushMarkerUndo();
+    const newMarker: Marker = { id: `marker-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, time: clampedTime };
+    replaceMarkers(previous => [...previous, newMarker].sort((a, b) => a.time - b.time));
+  }, [pushMarkerUndo, replaceMarkers]);
 
   const handleAddMarkerAtPlayhead = useCallback(() => {
     handleAddMarker(currentTimeRef.current);
@@ -787,15 +884,16 @@ export default function App() {
 
   const handleMarkerMove = (id: string, newTime: number) => {
     const clampedTime = Math.max(cropStart, Math.min(cropEnd, newTime));
-    setMarkers((prev) =>
+    replaceMarkers((prev) =>
       prev.map((m) => (m.id === id ? { ...m, time: clampedTime } : m)).sort((a, b) => a.time - b.time)
     );
   };
 
-  const handleRemoveMarker = (id: string) => {
-    pushUndo('Delete Split Marker');
-    setMarkers((prev) => prev.filter((m) => m.id !== id));
-  };
+  const handleRemoveMarker = useCallback((id: string) => {
+    if (!markersRef.current.some(marker => marker.id === id)) return;
+    pushMarkerUndo();
+    replaceMarkers((prev) => prev.filter((m) => m.id !== id));
+  }, [pushMarkerUndo, replaceMarkers]);
 
   // Delete a split region by removing its boundary marker (incorporating into previous split)
   const handleDeleteSplit = useCallback(
@@ -812,7 +910,6 @@ export default function App() {
 
       if (activeMarkers.length === 0) return;
 
-      pushUndo('Delete Split Marker');
 
       let markerToRemove: Marker | undefined;
       if (splitIndex > 0 && splitIndex - 1 < activeMarkers.length) {
@@ -824,15 +921,16 @@ export default function App() {
       }
 
       if (markerToRemove) {
-        setMarkers((prev) => prev.filter((m) => m.id !== markerToRemove!.id));
+        handleRemoveMarker(markerToRemove.id);
       }
     },
-    [markers, pushUndo]
+    [markers, handleRemoveMarker]
   );
 
   const handleClearMarkers = () => {
-    pushUndo('Clear Split Markers');
-    setMarkers([]);
+    if (markersRef.current.length === 0) return;
+    pushMarkerUndo();
+    replaceMarkers([]);
   };
 
   const handleAutoSplit = useCallback(
@@ -853,15 +951,15 @@ export default function App() {
 
       if (detectedTimes.length === 0) return 0;
 
-      pushUndo('Auto-Split Silence');
+      pushMarkerUndo();
       const newMarkers: Marker[] = detectedTimes.map((time, idx) => ({
         id: `marker-auto-${Date.now()}-${idx}`,
         time,
       }));
-      setMarkers(newMarkers);
+      replaceMarkers(newMarkers);
       return newMarkers.length;
     },
-    [pushUndo]
+    [pushMarkerUndo, replaceMarkers]
   );
 
   // Calculate split segments
@@ -899,9 +997,18 @@ export default function App() {
     return segments;
   }, [audioBuffer, cropStart, cropEnd, markers, mainFileName]);
 
+  const trackPageCount = Math.max(1, Math.ceil(splits.length / trackSlots));
+  const visibleTrackPage = Math.min(trackPage, trackPageCount - 1);
+  const firstVisibleTrack = visibleTrackPage * trackSlots;
+
+  useEffect(() => {
+    setTrackPage((page) => Math.min(page, trackPageCount - 1));
+  }, [trackPageCount]);
+
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
@@ -910,7 +1017,10 @@ export default function App() {
         return;
       }
 
-      if (e.code === 'Space') {
+      if (e.key === 'Home' && workflowTab === 'edit') {
+        e.preventDefault();
+        handleReturnToStart();
+      } else if (e.code === 'Space') {
         e.preventDefault();
         handlePlayPause();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -947,7 +1057,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [workflowTab, isRecordingActive, handlePlayPause, handleAddMarkerAtPlayhead, handleCutSelection, handleCropToSelection, handleUndo]);
+  }, [workflowTab, isRecordingActive, handlePlayPause, handleReturnToStart, handleAddMarkerAtPlayhead, handleCutSelection, handleCropToSelection, handleUndo]);
 
   return (
     <div className="h-screen max-h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
@@ -1049,10 +1159,10 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 min-h-0 w-full p-4 lg:p-6 lg:pb-4 flex flex-col">
+      <main className={`flex-1 min-h-0 w-full flex flex-col ${workflowTab === 'edit' ? 'px-3 py-2 lg:px-4' : 'p-4 lg:p-6 lg:pb-4'}`}>
         <div className="flex-1 flex flex-col min-h-0 relative">
           {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
-          <div className="flex-1 flex flex-col relative bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 min-h-0 select-none shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]">
+          <div className={`flex-1 flex flex-col relative min-h-0 select-none ${workflowTab === 'edit' ? '' : 'bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]'}`}>
             
             {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
             {workflowTab === 'record' && (
@@ -1073,10 +1183,11 @@ export default function App() {
 
             {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
             {workflowTab === 'edit' && (
-                <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_320px] grid-rows-[minmax(0,1fr)_auto] gap-3 overflow-hidden">
+                <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,480px)] grid-rows-[minmax(0,1fr)_auto] gap-2.5">
                     {/* Left, top: Waveform canvas & toolbar (Full dynamic height) */}
                     <div className="col-start-1 row-start-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                       <WaveformCanvas
+                        processingPanelContainer={processingPanelContainer}
                         audioBuffer={audioBuffer}
                         currentTime={currentTime}
                         cropStart={cropStart}
@@ -1088,6 +1199,8 @@ export default function App() {
                         fadeSettings={fadeSettings}
                         isPlaying={isPlaying}
                         isLooping={isLooping}
+                        canUndoMarkers={canUndoMarkers}
+                        onMarkerUndo={handleMarkerUndo}
                         canUndo={canUndo}
                         followPlayhead={followPlayhead}
                         autoPreviewOnClick={autoPreviewOnClick}
@@ -1096,8 +1209,8 @@ export default function App() {
                         onPlayPause={handlePlayPause}
                         onStop={handleStop}
                         onSeek={handleSeek}
-                        onPreviewStart={handlePreviewStart}
-                        onSelectionChange={setSelection}
+                        onWaveformClick={handleWaveformClick}
+                        onSelectionChange={handleSelectionChange}
                         onLoopSelection={handleLoopSelection}
                         onCropToSelection={handleCropToSelection}
                         onCutSelection={handleCutSelection}
@@ -1109,6 +1222,7 @@ export default function App() {
                           setCropStart(start);
                           setCropEnd(end);
                         }}
+                        onMarkerMoveStart={pushMarkerUndo}
                         onMarkerMove={handleMarkerMove}
                         onAddMarker={handleAddMarker}
                         onRemoveMarker={handleRemoveMarker}
@@ -1122,18 +1236,41 @@ export default function App() {
                       />
                     </div>
 
-                    {/* Right: Split Regions List, spans BOTH grid rows so it's never shortened by the bottom toolbar row (Never a scroll list - all entries visible at all times) */}
-                    <div className="col-start-2 row-start-1 row-span-2 w-[320px] min-w-0 bg-slate-900/60 border border-slate-700/70 p-3 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
-                      {/* Header */}
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 flex-shrink-0">
-                        <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
-                          <Layers className="w-3.5 h-3.5 text-amber-500" />
-                          <span>Split Regions</span>
+                    {/* Tracks span waveform and transport, with only as many fixed-height slots as fit. */}
+                    <div className="col-start-2 row-start-1 row-span-2 min-w-0 bg-slate-900/60 border border-slate-700/70 px-2 py-2 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
+                      {/* Header: relative so the Recording Info note can overlay downward into the
+                          track list below without ever resizing this panel or the waveform. */}
+                      <div className="relative flex items-center justify-between border-b border-slate-800 pb-2 px-1 flex-shrink-0">
+                        <div className="flex items-center gap-2 text-slate-100 font-semibold text-base">
+                          <h2>Tracks</h2>
+                          {!recordingInfoCollapsed ? null : (
+                            <button
+                              type="button"
+                              onClick={() => setRecordingInfoCollapsed(false)}
+                              className="flex items-center gap-1 -rotate-1 rounded-sm border border-amber-900/30 bg-amber-200 px-2 py-1 text-slate-900 shadow-md transition hover:rotate-0 hover:bg-amber-100 cursor-pointer"
+                              title="Edit Recording Info"
+                              aria-label="Expand Recording Info"
+                            >
+                              <StickyNote className="w-3 h-3 shrink-0 text-amber-700" />
+                              <span className="max-w-[120px] truncate text-[10px] font-bold tracking-tight">Info</span>
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-center space-x-1.5">
-                          <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                            {splits.length} {splits.length === 1 ? 'Track' : 'Tracks'}
+                          <span className="text-[11px] font-mono text-sky-300 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/20">
+                            {splits.length} {splits.length === 1 ? 'track' : 'tracks'}
                           </span>
+                          {trackPageCount > 1 && (
+                            <div className="flex items-center gap-1 text-[10px] text-slate-400" aria-label="Track pages">
+                              <button type="button" aria-label="Previous tracks" disabled={visibleTrackPage === 0} onClick={() => setTrackPage(visibleTrackPage - 1)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-800 hover:text-sky-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="font-mono tabular-nums" aria-live="polite">{firstVisibleTrack + 1}–{Math.min(firstVisibleTrack + trackSlots, splits.length)}</span>
+                              <button type="button" aria-label="Next tracks" disabled={visibleTrackPage === trackPageCount - 1} onClick={() => setTrackPage(visibleTrackPage + 1)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-800 hover:text-sky-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                           <button
                             type="button"
                             disabled={!audioBuffer}
@@ -1144,45 +1281,82 @@ export default function App() {
                             <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
+
+                        {/* Expanded Recording Info overlays downward into the track list; it is taken
+                            out of flow so it can never resize this panel or the waveform. Nested inside
+                            this relatively-positioned header so top-full anchors correctly. */}
+                        {!recordingInfoCollapsed && (
+                          <div className="absolute top-full left-0 right-0 z-20 flex flex-col gap-1.5 rounded-b-xl border border-t-0 border-amber-500/30 bg-slate-900/97 p-3 shadow-2xl backdrop-blur-sm">
+                            <div className="flex items-center justify-between">
+                              <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Recording Info</h2>
+                              <button
+                                type="button"
+                                onClick={() => setRecordingInfoCollapsed(true)}
+                                className="flex w-5 h-5 items-center justify-center rounded text-slate-500 transition hover:bg-slate-800 hover:text-amber-300 cursor-pointer"
+                                title="Collapse to a note tag"
+                                aria-label="Collapse Recording Info"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label htmlFor="recording-name" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Recording name:</label>
+                              <input
+                                id="recording-name"
+                                type="text"
+                                value={mainFileName}
+                                onChange={(e) => setMainFileName(e.target.value)}
+                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
+                                title="Recording name used for default split names"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label htmlFor="recording-artist" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Artist:</label>
+                              <input
+                                id="recording-artist"
+                                type="text"
+                                value={preRecordArtist}
+                                onChange={(e) => setPreRecordArtist(e.target.value)}
+                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label htmlFor="recording-album" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Album:</label>
+                              <input
+                                id="recording-album"
+                                type="text"
+                                value={preRecordAlbum}
+                                onChange={(e) => setPreRecordAlbum(e.target.value)}
+                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
 
-                      {/* Entries Container (NO scrollbar, strictly overflow-hidden, dynamically fitted) */}
-                      <div className={`flex-1 min-h-0 flex flex-col justify-start overflow-hidden ${splits.length > 13 ? 'gap-0.5' : 'gap-1'}`}>
-                        <div className="flex items-center justify-between px-1.5 pb-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-500 shrink-0">
-                          <span className="w-6 shrink-0" />
-                          <div className="flex-1 min-w-0 mx-2 flex items-center space-x-1.5">
-                            <span className="shrink-0 px-1" />
-                            <span className="flex-1 min-w-0" />
-                            <span className="w-[54px] text-right">Start</span>
-                            <span className="w-[54px] text-right">Duration</span>
-                          </div>
-                          <span className="w-6 shrink-0" />
+                      {/* Consistent columns keep names and timing readable at every track count. */}
+                      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                        <div className="shrink-0 grid grid-cols-[28px_22px_minmax(0,1fr)_52px_58px_24px] items-center gap-1 h-7 border-b border-slate-700/70 text-[10px] text-slate-400">
+                          <span />
+                          <span>#</span>
+                          <span>Track name</span>
+                          <span className="text-right">Start</span>
+                          <span className="text-right">Duration</span>
+                          <span />
                         </div>
+                        <div ref={trackRowsRef} className="flex-1 min-h-0 overflow-hidden" aria-label="Track slots">
                         {splits.length === 0 ? (
                           <div className="flex-1 flex flex-col items-center justify-center text-center p-4 text-slate-500 text-xs italic">
-                            No split regions detected.
+                            Import or record audio to create tracks.
                           </div>
                         ) : (
-                          splits.map((split, idx) => {
-                            const colors = ['#f87171', '#fb923c', '#4ade80', '#38bdf8', '#c084fc', '#f43f5e', '#a855f7'];
-                            const color = colors[idx % colors.length];
+                          splits.slice(firstVisibleTrack, firstVisibleTrack + trackSlots).map((split, slotIndex) => {
+                            const idx = firstVisibleTrack + slotIndex;
                             const isThisPlaying = isPlaying && currentTime >= split.startTime - 0.05 && currentTime <= split.endTime + 0.05;
-                            const isCompact = splits.length > 8;
-                            const isUltraCompact = splits.length > 13;
-                            const isHyperCompact = splits.length > 20;
-
                             return (
                               <div
                                 key={split.id}
-                                className={`group flex items-center justify-between bg-slate-950/70 border border-slate-800/40 hover:border-slate-700/60 hover:bg-slate-900/60 rounded-lg transition shrink-0 ${
-                                  isHyperCompact
-                                    ? 'py-0 px-1 text-[9px]'
-                                    : isUltraCompact
-                                    ? 'py-0.5 px-1.5 text-[10px]'
-                                    : isCompact
-                                    ? 'py-1 px-2 text-[11px]'
-                                    : 'py-2 px-2.5 text-xs'
-                                }`}
+                                className={`group grid grid-cols-[28px_22px_minmax(0,1fr)_52px_58px_24px] items-center gap-1 h-8 border-b border-slate-800/80 text-xs transition ${isThisPlaying ? 'bg-emerald-500/10' : 'hover:bg-slate-800/40'}`}
                               >
                                 {/* 1. Play button at the start */}
                                 <button
@@ -1194,33 +1368,21 @@ export default function App() {
                                       handlePlaySelection(split.startTime, split.endTime);
                                     }
                                   }}
-                                  className={`rounded-md flex items-center justify-center transition cursor-pointer shrink-0 border ${
-                                    isHyperCompact ? 'w-4 h-4' : isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
-                                  } ${
-                                    isThisPlaying
-                                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm animate-pulse'
-                                      : 'bg-slate-900 hover:bg-emerald-600/20 text-emerald-400 hover:text-emerald-300 border-slate-800/60 hover:border-emerald-500/40'
-                                  }`}
+                                  aria-label={isThisPlaying ? `Pause track ${split.index}` : `Play track ${split.index}`}
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center border transition cursor-pointer ${isThisPlaying ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/60' : 'text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15'}`}
                                   title={isThisPlaying ? 'Pause split preview' : `Play Region ${split.index} (${formatTime(split.duration, false)})`}
                                 >
                                   {isThisPlaying ? (
-                                    <Pause className={`fill-current ${isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'}`} />
+                                    <Pause className="fill-current w-3 h-3" />
                                   ) : (
-                                    <Play className={`fill-current ml-0.5 ${isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'}`} />
+                                    <Play className="fill-current ml-0.5 w-3 h-3" />
                                   )}
                                 </button>
 
                                 {/* 2. Middle: Track number, name input, start, and duration */}
-                                <div className="flex-1 min-w-0 mx-2 flex items-center space-x-1.5">
-                                  <span
-                                    className="font-mono text-[9px] font-bold px-1 rounded shrink-0 leading-none py-0.5"
-                                    style={{
-                                      backgroundColor: `${color}22`,
-                                      color: color,
-                                      border: `1px solid ${color}44`,
-                                    }}
-                                  >
-                                    #{String(split.index).padStart(2, '0')}
+                                <div className="contents">
+                                  <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                                    {String(split.index).padStart(2, '0')}
                                   </span>
                                   <input
                                     type="text"
@@ -1230,23 +1392,18 @@ export default function App() {
                                       setTrackNames((prev) => ({ ...prev, [split.id]: e.target.value }));
                                     }}
                                     onClick={(e) => e.stopPropagation()}
-                                    className={`flex-1 min-w-0 bg-transparent text-slate-200 font-bold truncate leading-tight focus:outline-none focus:bg-slate-800/50 rounded px-1 -mx-1 group-hover:text-amber-400 transition placeholder-slate-600 ${
-                                      isHyperCompact ? 'text-[9px]' : isUltraCompact ? 'text-[10px]' : isCompact ? 'text-[11px]' : 'text-xs'
-                                    }`}
+                                    aria-label={`Track ${split.index} name`}
+                                    className="w-full min-w-0 bg-transparent text-slate-200 truncate py-1 px-1 rounded focus:outline-none focus:ring-1 focus:ring-sky-500/60 focus:bg-slate-800"
                                     placeholder={`Track ${String(split.index).padStart(2, '0')}...`}
                                   />
                                   <span
-                                    className={`w-[54px] text-right font-mono text-sky-400/80 shrink-0 leading-none ${
-                                      isUltraCompact ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-[11px]'
-                                    }`}
+                                    className="text-right font-mono text-[11px] text-sky-400/80 tabular-nums"
                                     title={`Start time: ${formatTime(split.startTime, false)}`}
                                   >
                                     {formatTime(split.startTime, false)}
                                   </span>
                                   <span
-                                    className={`w-[54px] text-right font-mono text-slate-400 shrink-0 leading-none ${
-                                      isUltraCompact ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-[11px]'
-                                    }`}
+                                    className="text-right font-mono text-[11px] text-slate-400 tabular-nums"
                                     title={`${formatTime(split.startTime, false)} - ${formatTime(split.endTime, false)}`}
                                   >
                                     {formatTime(split.duration, false)}
@@ -1261,13 +1418,8 @@ export default function App() {
                                     e.stopPropagation();
                                     handleDeleteSplit(idx);
                                   }}
-                                  className={`rounded-md flex items-center justify-center transition cursor-pointer shrink-0 border ${
-                                    isHyperCompact ? 'w-4 h-4' : isUltraCompact ? 'w-5 h-5' : 'w-6 h-6'
-                                  } ${
-                                    markers.length === 0
-                                      ? 'opacity-20 cursor-not-allowed border-transparent text-slate-600'
-                                      : 'bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border-slate-800/60 hover:border-rose-800/50'
-                                  }`}
+                                  aria-label={`Delete split ${split.index}`}
+                                  className="w-6 h-6 rounded flex items-center justify-center text-rose-400/80 hover:text-rose-300 hover:bg-rose-950/60 transition cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
                                   title={
                                     markers.length === 0
                                       ? 'No split marker to delete'
@@ -1276,80 +1428,64 @@ export default function App() {
                                       : 'Delete split marker (merge with next region)'
                                   }
                                 >
-                                  <Trash2 className={isHyperCompact ? 'w-2 h-2' : 'w-2.5 h-2.5'} />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             );
                           })
                         )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Left, bottom: Transport/View controls + Artist/Album. The list on the right spans both rows, so nothing here costs it any height. */}
-                    <div className="col-start-1 row-start-2 min-w-0 flex flex-wrap items-start gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
-                      {/* Transport */}
-                      <div className="flex flex-col items-center gap-1 bg-slate-950/60 px-1.5 py-1 rounded-lg border border-slate-800/80 shrink-0">
-                        <span className="text-[7px] font-bold uppercase tracking-wider text-slate-500">Transport</span>
-                        <div className="flex items-center gap-1">
+                    {/* Transport sits directly under the waveform; the freed space beside it
+                        (after moving Recording Info out) now hosts the Tools panel portal. */}
+                    <div className="col-start-1 row-start-2 min-w-0 flex items-stretch gap-2.5 text-xs">
+                      {/* Square controls keep the transport compact without increasing row height. */}
+                      <div className="flex w-[152px] shrink-0 flex-col gap-1.5 bg-slate-900/60 px-[9px] py-[7.5px] rounded-xl border border-slate-700/70">
+                        <div className="flex h-[15px] items-center justify-between">
+                          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Transport</h2>
+                          <button
+                            type="button"
+                            onClick={handleReturnToStart}
+                            disabled={!audioBuffer}
+                            title="Return to start (Home)"
+                            aria-label="Return to start"
+                            className="flex h-[14px] w-[18px] items-center justify-center rounded border border-slate-700 bg-slate-950 text-slate-400 hover:text-slate-200 hover:border-slate-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <SkipBack aria-hidden="true" className="h-2.5 w-2.5" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 flex-1 text-sm font-medium">
                           <button
                             type="button"
                             onClick={handlePlayPause}
                             disabled={!audioBuffer}
                             title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                            className={`w-16 h-16 flex items-center justify-center rounded-md border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            className={`h-[60px] w-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               isPlaying
                                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                                : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                                : 'bg-emerald-950/30 hover:bg-emerald-900/30 text-emerald-400 border-emerald-500/40 hover:border-emerald-400'
                             }`}
                           >
-                            {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
+                            {isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
+                            <span>{isPlaying ? 'Pause' : 'Play'}</span>
                           </button>
                           <button
                             type="button"
                             onClick={handleStop}
                             disabled={!audioBuffer}
                             title="Stop Playback"
-                            className="w-16 h-16 flex items-center justify-center rounded-md border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="h-[60px] w-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            <Square className="w-5 h-5 fill-current" />
+                            <Square className="w-6 h-6 fill-current" />
+                            <span>Stop</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Artist / Album: stacked. Safe to do now - the list spans both grid rows, so this row's height no longer affects it. */}
-                      <div className="flex-1 min-w-[140px] flex flex-col justify-center gap-1 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2 py-1">
-                        <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-name" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Recording name:</label>
-                          <input
-                            id="recording-name"
-                            type="text"
-                            value={mainFileName}
-                            onChange={(e) => setMainFileName(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
-                            title="Recording name used for default split names"
-                          />
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-artist" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Artist:</label>
-                          <input
-                            id="recording-artist"
-                            type="text"
-                            value={preRecordArtist}
-                            onChange={(e) => setPreRecordArtist(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
-                          />
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <label htmlFor="recording-album" className="w-[72px] shrink-0 text-[9px] font-semibold text-slate-400">Album:</label>
-                          <input
-                            id="recording-album"
-                            type="text"
-                            value={preRecordAlbum}
-                            onChange={(e) => setPreRecordAlbum(e.target.value)}
-                            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
-                          />
-                        </div>
-                      </div>
+                      {/* Tools controls are portaled into the space beside Transport. */}
+                      <div ref={setProcessingPanelContainer} className="relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] pt-1 pb-[7.5px]" />
                     </div>
 
                   {/* Confirm Dialog: Discard / Import Overwrite */}
