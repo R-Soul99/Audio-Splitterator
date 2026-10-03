@@ -1,0 +1,305 @@
+Please investigate and fix the Splitter detection/snapping behaviour in the EDIT screen.
+
+Do not modify the Export screen.
+Do not redesign the Edit layout.
+Do not change the fixed window dimensions.
+Do not change marker styling unless required for debugging/fixing behaviour.
+
+The current symptoms
+====================
+
+Using a recording of one side of a vinyl album:
+
+1. I select a known silent/gap section and press Detect.
+2. The detected noise floor is around -46.5 dB.
+3. Auto-split does not reliably find the other obvious gaps between tracks.
+4. Lowering the Gap control eventually creates split previews, but they often appear in strange positions.
+5. Multiple preview markers can cluster together around the same area instead of producing one sensible split per gap.
+6. The Snap control does not feel correct when manually placing/dragging markers:
+   - markers do not reliably snap to visually obvious gaps
+   - snapping sometimes appears to favour odd nearby positions
+   - behaviour does not match the visible waveform
+
+This looks like there may be a deeper issue in how silence regions / candidate points are being calculated.
+
+Goal
+====
+
+The Splitter should behave naturally for vinyl recordings.
+
+A valid gap should generally mean:
+
+- audio remains below the selected Noise Floor threshold
+- for at least the selected Gap duration
+- one contiguous quiet region should normally produce ONE sensible candidate split
+- not many clustered candidates within the same quiet region
+
+Snap should use the same sensible gap logic rather than snapping to arbitrary threshold crossings or noisy candidate points.
+
+Please inspect the current implementation first and identify exactly why the behaviour is wrong.
+
+Important: do not assume the current algorithm is conceptually correct.
+
+==================================================
+PART 1 — INSPECT CURRENT DETECTION LOGIC
+==================================================
+
+Please inspect:
+
+- how Detect derives the Noise Floor value from the selected region
+- whether it uses:
+  - peak
+  - RMS
+  - average absolute amplitude
+  - minimum
+  - stereo max
+  - stereo average
+  - some other metric
+
+Also inspect:
+
+- how auto-split scans the waveform
+- whether it detects:
+  - threshold crossings
+  - individual low-level samples/windows
+  - contiguous silent regions
+  - local minima
+  - something else
+
+Look specifically for reasons why one real gap could produce several nearby candidate markers.
+
+Please confirm:
+- analysis window size
+- hop/step size
+- whether stereo channels are combined correctly
+- whether short spikes inside silence split one gap into multiple regions
+- whether the Gap control is interpreted as:
+  - total continuous silence duration
+  - number of windows
+  - debounce time
+  - distance between candidates
+  - something else
+
+==================================================
+PART 2 — DESIRED SILENCE REGION MODEL
+==================================================
+
+If the current implementation is based on threshold crossings or isolated analysis windows, replace/refine it so that detection works on CONTIGUOUS SILENT REGIONS.
+
+Conceptually:
+
+1. Analyse waveform level over small windows.
+2. Mark windows below Noise Floor as "quiet".
+3. Merge consecutive quiet windows into one contiguous quiet region.
+4. Allow very short non-quiet spikes inside an otherwise silent region to be tolerated if appropriate for vinyl surface noise/clicks.
+5. Discard quiet regions shorter than the selected Gap duration.
+6. Produce ONE split candidate per accepted quiet region.
+
+Do not produce multiple candidates for multiple windows inside the same silence region.
+
+==================================================
+PART 3 — CHOOSE A SENSIBLE SPLIT POINT
+==================================================
+
+For each accepted silent region, choose one sensible marker location.
+
+Preferred behaviour:
+
+- choose the quietest point or quietest short sub-window near the centre of the valid silent region
+
+or, if simpler and robust:
+
+- use the centre of the contiguous silent region
+
+Avoid placing the marker right on the leading/trailing threshold crossing unless there is a strong reason.
+
+The goal is for the marker to land naturally "inside the gap" between songs.
+
+==================================================
+PART 4 — VINYL ROBUSTNESS
+==================================================
+
+Vinyl gaps may contain:
+
+- low-level hiss
+- rumble
+- clicks/pops
+- brief noise spikes
+- imperfectly flat silence
+
+The detector should not fragment one genuine inter-track gap into several regions because of one or two brief spikes.
+
+Please add a small tolerance/debounce mechanism if needed.
+
+Examples of acceptable approaches:
+- merge quiet regions separated by very short loud interruptions
+- median/smoothed analysis level
+- hysteresis around the threshold
+- short spike tolerance
+
+Use the simplest approach that fits the existing architecture.
+
+Do not aggressively smooth enough to hide real short musical passages.
+
+==================================================
+PART 5 — SNAP BEHAVIOUR
+==================================================
+
+Inspect exactly what the current Snap control does.
+
+Determine whether it currently snaps to:
+- preview candidates
+- threshold crossings
+- marker positions
+- local minima
+- silence windows
+- nearest time point
+- something else
+
+Desired behaviour:
+
+When manually placing or dragging a marker near a gap:
+
+1. Search around the intended marker position within the selected Snap distance.
+2. Identify valid nearby silent/gap regions using the same silence logic as auto-detection.
+3. Snap to ONE sensible position within the nearest valid gap.
+4. Prefer the nearest valid gap to the user's intended position.
+5. Do not snap to multiple internal points within the same gap.
+6. If no valid gap exists within Snap distance, leave the marker at the user's chosen position rather than jumping somewhere unrelated.
+
+The Snap value should represent the maximum search distance from the user's intended marker position.
+
+Please verify its units and conversion are correct.
+
+Example:
+150 ms should mean approximately ±150 ms search distance, unless the existing UI clearly defines it otherwise.
+
+==================================================
+PART 6 — DETECTED NOISE FLOOR
+==================================================
+
+The selected-region Detect function should produce a threshold that is actually useful for finding similar gaps elsewhere.
+
+Please verify the current selected-region analysis.
+
+For a selected silent section, a robust threshold should not be based on a single extreme sample.
+
+Consider using an appropriate robust metric such as:
+- RMS
+- percentile-based level
+- smoothed window level
+
+depending on the existing implementation.
+
+Do not arbitrarily change the user's chosen threshold after Detect.
+
+The purpose is:
+the selected silent region teaches the detector what "silence/background noise" looks like.
+
+If necessary, add a small documented margin above the measured noise level, but only if the current design already implies that Detect should produce a usable threshold rather than the exact measured noise level.
+
+If you add a margin, make it a named constant and explain it in your summary.
+
+==================================================
+PART 7 — DEBUG / VERIFICATION
+==================================================
+
+Please verify the fix using synthetic or existing audio-analysis tests if practical.
+
+At minimum, reason through/test cases such as:
+
+Case A:
+music
+2.5 sec quiet gap
+music
+
+Expected:
+1 split candidate in the gap
+
+Case B:
+music
+2.5 sec quiet gap containing one short click/pop
+music
+
+Expected:
+still 1 split candidate
+
+Case C:
+music
+0.3 sec quiet dip
+music
+
+with Gap = 1.0 sec
+
+Expected:
+no candidate
+
+Case D:
+one 4 sec quiet gap
+
+Expected:
+1 candidate, not several clustered markers
+
+Case E:
+manual marker placed 100 ms away from a valid gap with Snap = 150 ms
+
+Expected:
+marker snaps into the gap
+
+Case F:
+manual marker placed 500 ms away from a valid gap with Snap = 150 ms
+
+Expected:
+no snap
+
+==================================================
+DO NOT TOUCH YET
+==================================================
+
+Do not change:
+
+- Export screen
+- Export completion behaviour
+- Export folder layout
+- Splitter panel layout
+- "existing markers kept" scrollbar/status issue
+- Undo/Redo buttons
+- vintage styling
+- other processing tools
+
+Those will be handled separately.
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+This task is complete when:
+
+- obvious inter-track gaps are detected more reliably
+- one contiguous gap produces one preview candidate
+- clustered preview markers are eliminated or greatly reduced
+- short vinyl clicks/pops do not fragment one genuine gap
+- Gap represents minimum valid silence duration
+- Snap searches locally around the intended marker position
+- Snap lands in a sensible nearby gap
+- Snap does not jump to unrelated positions
+- no snap occurs when no valid gap is within the Snap range
+- existing manual marker behaviour remains intact
+- no layout changes are introduced
+
+==================================================
+FINALLY
+==================================================
+
+After making the changes:
+
+1. run the TypeScript/lint check
+2. run any relevant tests
+3. summarise:
+   - root cause(s) found
+   - files changed
+   - how silence regions are now detected
+   - how one candidate per gap is chosen
+   - how vinyl noise/click tolerance is handled
+   - how Snap now searches for nearby gaps
+   - whether Detect's Noise Floor calculation was changed, and why

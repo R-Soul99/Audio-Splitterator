@@ -4,6 +4,7 @@ import { WaveformCanvas } from './components/WaveformCanvas';
 import { SplitsManager } from './components/SplitsManager';
 import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
 import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
+import { mergeAutoSplitMarkers } from './utils/autoSplitPolicy';
 import {
   Mic,
   MicOff,
@@ -53,8 +54,8 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isLooping, setIsLooping] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
-  const [followPlayhead, setFollowPlayhead] = useState<boolean>(true);
-  const [autoPreviewOnClick, setAutoPreviewOnClick] = useState<boolean>(true);
+  const [followPlayhead, setFollowPlayhead] = useState<boolean>(false);
+  const [autoPreviewOnClick, setAutoPreviewOnClick] = useState<boolean>(false);
 
   // Crop boundaries
   const [cropStart, setCropStart] = useState<number>(0);
@@ -956,7 +957,7 @@ export default function App() {
         id: `marker-auto-${Date.now()}-${idx}`,
         time,
       }));
-      replaceMarkers(newMarkers);
+      replaceMarkers(mergeAutoSplitMarkers(markersRef.current, newMarkers));
       return newMarkers.length;
     },
     [pushMarkerUndo, replaceMarkers]

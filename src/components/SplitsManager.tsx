@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import { AudioMetadata, AudioFormat, Mp3Bitrate, WavBitDepth, FlacBitDepth, FlacCompressionLevel, FolderHierarchyType, NamingPattern } from '../types';
 import { formatTime, extractSlice } from '../utils/audioProcessing';
-import { saveFilesPrompt, FileToSave } from '../utils/fileSaver';
+import { saveFilesPrompt, FileToSave, resolveFolderSegments } from '../utils/fileSaver';
+import { getDesktopExport } from '../utils/desktopExport';
 
 interface SplitsManagerProps {
   sourceBuffer: AudioBuffer;
@@ -51,7 +52,16 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const [startTrackNumber] = useState<number>(1);
   const [padTrackNumbers] = useState<boolean>(true);
   const [namingPattern] = useState<NamingPattern>('track_title');
-  const [createSubfolders, setCreateSubfolders] = useState<boolean>(true);
+  const [createSubfolders, setCreateSubfolders] = useState<boolean>(() => localStorage.getItem('exportNestedFolders') === 'true');
+  const [exportFolder, setExportFolder] = useState('');
+  const desktopExport = getDesktopExport();
+  useEffect(() => {
+    desktopExport?.getExportFolder().then(setExportFolder).catch((error) => setSaveResultNotice(String(error)));
+  }, []);
+  const browseExportFolder = async () => {
+    try { const folder = await desktopExport?.chooseExportFolder(); if (folder) setExportFolder(folder); }
+    catch (error) { setSaveResultNotice(`Unable to select export folder: ${String(error)}`); }
+  };
   const [folderHierarchyType] = useState<FolderHierarchyType>('artist_album');
 
   // Automatic split micro-fades toggle (defaults to true)
@@ -234,18 +244,19 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
       trackNumber,
     };
 
-    let encoderModule;
+    const encoderModule = await import('../utils/audioEncoder');
+    const exportMetadata = includeTags ? metadata : undefined;
     if (format === 'flac') {
-      encoderModule = await import('../utils/audioEncoder');
-      const blob = await encoderModule.encodeWavToFlac(rawSlice, flacBitDepth, flacCompression, metadata);
+      const bytes = await encoderModule.encodeFlac(rawSlice, { bitDepth: flacBitDepth, compressionLevel: flacCompression, metadata: exportMetadata });
+      const blob = new Blob([bytes], { type: 'audio/flac' });
       return { blob, fileName: `${constructFileName(trackNumber, trackArtist, trackTitle, namingPattern, padTrackNumbers)}.flac` };
     } else if (format === 'mp3') {
-      encoderModule = await import('../utils/audioEncoder');
-      const blob = await encoderModule.encodeWavToMp3(rawSlice, mp3Bitrate, metadata);
+      const bytes = await encoderModule.encodeMp3(rawSlice, { kbps: mp3Bitrate, metadata: exportMetadata });
+      const blob = new Blob([bytes], { type: 'audio/mpeg' });
       return { blob, fileName: `${constructFileName(trackNumber, trackArtist, trackTitle, namingPattern, padTrackNumbers)}.mp3` };
     } else {
-      encoderModule = await import('../utils/audioEncoder');
-      const blob = await encoderModule.encodeWavToRaw(rawSlice, wavBitDepth, metadata);
+      const bytes = encoderModule.encodeWav(rawSlice, { bitDepth: wavBitDepth, metadata: exportMetadata });
+      const blob = new Blob([bytes], { type: 'audio/wav' });
       return { blob, fileName: `${constructFileName(trackNumber, trackArtist, trackTitle, namingPattern, padTrackNumbers)}.wav` };
     }
   };
@@ -253,6 +264,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const handleExportAllTracks = async () => {
     const exportSplits = splits.filter((s) => selectedTracks[s.id]);
     if (exportSplits.length === 0) { alert("No tracks selected for export."); return; }
+    if (desktopExport && !exportFolder) { await browseExportFolder(); return; }
 
     setIsSavingAll(true);
     setSaveProgress({ current: 0, total: exportSplits.length, message: 'Preparing tracks for export...' });
@@ -260,26 +272,37 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
     try {
       const filesToSave: FileToSave[] = [];
+      const folderStructure = { enabled: createSubfolders, type: folderHierarchyType, artist: albumArtist, album: albumTitle };
+      const segments = resolveFolderSegments(folderStructure);
       for (let i = 0; i < exportSplits.length; i++) {
         const split = exportSplits[i];
         const track = tracksData[split.id];
         const trackTitle = (track?.title || getTrackTitle(split, (split.trackNumber ?? split.index ?? 1) - 1)).trim();
         setSaveProgress({ current: i, total: exportSplits.length, message: `Encoding split ${i + 1} of ${exportSplits.length}: ${trackTitle}...` });
         const encoded = await encodeSplitSlice(split);
-        filesToSave.push({ blob: encoded.blob, name: encoded.fileName });
+        if (desktopExport) {
+          await desktopExport.saveExportFile({ name: encoded.fileName, data: new Uint8Array(await encoded.blob.arrayBuffer()), segments });
+        } else {
+          filesToSave.push({ blob: encoded.blob, name: encoded.fileName });
+        }
       }
 
       setSaveProgress({ current: exportSplits.length, total: exportSplits.length, message: 'Saving tracks to disk...' });
-      const result = await saveFilesPrompt(filesToSave, { zipDefaultName: `${albumTitle.trim() || 'Slices'}_Archive`, mode: 'zip' });
+      if (desktopExport) {
+        setSaveResultNotice(`Saved ${exportSplits.length} audio files to ${[exportFolder, ...segments].join(' / ')}`);
+        return;
+      }
+      const result = await saveFilesPrompt(filesToSave, { mode: 'individual', folderStructure });
 
       if (result.method !== 'iframe_blocked') {
-        setSaveResultNotice(`Successfully exported ${exportSplits.length} tracks to folder/ZIP!`);
+        setSaveResultNotice(result.message);
       } else if (result.files) {
         setFallbackModalData({ isOpen: true, files: result.files });
       }
     } catch (err) {
       console.error('Failed to export tracks:', err);
-      alert('Failed to encode and save track slices.');
+      const detail = err instanceof Error ? err.message : String(err);
+      alert(`Failed to encode and save track slices.\n\n${detail}`);
     } finally {
       setIsSavingAll(false);
     }
@@ -355,6 +378,17 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
         {/* Export button */}
         <div className="flex-shrink-0 pt-3 mt-2 border-t border-slate-800 text-center">
+          <div className="mb-2 space-y-1 text-left text-[10px]">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-slate-400">Export folder</span>
+              <span className="min-w-0 flex-1 truncate text-slate-200" title={exportFolder}>{exportFolder || 'Choose a folder'}</span>
+              <button type="button" onClick={browseExportFolder} disabled={isSavingAll || !desktopExport} className="rounded border border-slate-700 px-2 py-1 text-emerald-300 cursor-pointer disabled:opacity-40">Browse…</button>
+            </div>
+            <label className="flex items-center gap-2 text-slate-300">
+              <input type="checkbox" checked={createSubfolders} disabled={isSavingAll} onChange={(event) => { setCreateSubfolders(event.target.checked); localStorage.setItem('exportNestedFolders', String(event.target.checked)); }} className="accent-emerald-500" />
+              Save in nested folders: Artist → Album → audio files
+            </label>
+          </div>
           <div className="mb-2 flex flex-wrap items-center justify-center gap-3">
             <label className="flex max-w-[170px] items-center gap-1.5 text-left text-[9px] font-semibold leading-tight text-slate-300 cursor-pointer select-none" title="Apply a 10ms micro fade between splits to prevent pops or clicks">
               <input type="checkbox" checked={autoSplitFades} onChange={(e) => setAutoSplitFades(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
@@ -366,6 +400,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
             </button>
           </div>
           <div className="text-[10px] font-mono text-slate-500 mt-2">Ready to export <strong className="text-emerald-400">{selectedCount}</strong> out of <strong className="text-slate-300">{splits.length}</strong> slices</div>
+          <div role="status" className="mt-1 text-[10px] text-emerald-300 break-all">{isSavingAll ? saveProgress.message : saveResultNotice}</div>
         </div>
       </div>
 

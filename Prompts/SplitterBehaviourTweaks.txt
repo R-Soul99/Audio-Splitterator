@@ -1,0 +1,105 @@
+Please make two small Splitter behaviour refinements only.
+
+1. Hide/clear detected preview markers after Apply
+2. Suppress useless auto-detected candidates near the recording boundaries
+
+Do not change the detection algorithm itself.
+Do not change the current Noise Floor / Gap / Snap behaviour.
+Do not modify Export.
+Do not redesign the UI.
+
+==================================================
+1 — CLEAR DETECTED PREVIEWS AFTER APPLY
+==================================================
+
+Current behaviour:
+After clicking Apply, the yellow detected split previews remain visible alongside the real split markers.
+
+This is confusing because the previews no longer serve a purpose once they have been applied.
+
+Desired behaviour:
+
+Before Apply:
+- detected auto-split previews remain visible as they are now
+
+On Apply:
+- convert/apply the detected candidates to the actual split/marker state exactly as currently
+- immediately clear/hide the detected preview markers
+- keep the newly applied real markers visible
+- do not remove existing manual markers
+
+If the user later:
+- runs Detect again
+- changes detection settings in a way that regenerates candidates
+then fresh preview markers may appear normally.
+
+Do not change marker styling.
+
+==================================================
+2 — EXCLUDE START/END AUTO-SPLITS
+==================================================
+
+Current behaviour:
+The detector can propose candidates very close to:
+- the absolute start of the recording
+- the absolute end of the recording
+
+These are not useful track split points and are awkward to remove manually.
+
+Add an edge exclusion rule for AUTO-DETECTED candidates only.
+
+Preferred initial value:
+
+5.0 second from the start
+5.0 second from the end
+
+So:
+- discard any detected candidate where time < 5.0 s
+- discard any detected candidate where time > duration - 5.0 s
+
+Please implement the edge distance as a named constant such as:
+
+AUTO_SPLIT_EDGE_EXCLUSION_SECONDS = 5.0
+
+Do not hard-code the value in multiple places.
+
+Important:
+- this restriction applies only to auto-detected preview candidates
+- do not restrict manual marker placement
+- do not restrict marker dragging
+- do not alter existing applied/manual splits unless they came from a newly generated auto-detection result
+
+==================================================
+DO NOT CHANGE
+==================================================
+
+Do not change:
+- shared 20 ms stereo RMS analysis
+- louder-channel behaviour
+- 40 ms interruption tolerance
+- 90th-percentile + 3 dB Detect calculation
+- Gap semantics
+- Snap semantics
+- current Splitter layout
+- Export screen
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+Complete when:
+
+- yellow preview markers are visible before Apply
+- clicking Apply creates/keeps the actual split markers
+- yellow detected previews disappear immediately after Apply
+- existing manual markers are preserved
+- rerunning detection can create fresh previews
+- auto-detection no longer proposes a split within 5 seconds of the start
+- auto-detection no longer proposes a split within 5 seconds of the end
+- manual markers can still be placed anywhere
+- TypeScript/tests/build still pass
+
+Finally, summarise:
+- files changed
+- where preview clearing was implemented
+- where the edge exclusion was implemented
