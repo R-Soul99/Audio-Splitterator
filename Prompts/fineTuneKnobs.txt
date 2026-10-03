@@ -1,0 +1,367 @@
+Please implement two related rotary-control improvements:
+
+1. Add a Target knob + Detect calibration workflow to the Record screen Preamp section.
+2. Add a consistent Shift + Knob fine-adjustment mode to rotary controls, especially the Edit/Splitter knobs.
+
+Do not redesign the overall layout.
+Preserve the fixed window size.
+Preserve current panel heights unless absolutely necessary.
+Avoid wrapping or adding vertical scroll.
+
+==================================================
+PART 1 — PREAMP TARGET KNOB + DETECT CALIBRATION
+==================================================
+
+Goal
+----
+
+Add a Target control to the Preamp section so the user can choose the desired peak level for automatic preamp calibration.
+
+Target knob
+-----------
+
+Add a rotary knob labelled:
+
+TARGET
+
+with a digital readout directly beneath it.
+
+Default value:
+-6.0 dB
+
+Main stepped positions:
+-12
+-9
+-6
+-3
+0 dBFS
+
+Normal dragging should snap to these five values.
+
+Hard limits:
+minimum = -12 dBFS
+maximum = 0 dBFS
+
+The knob must never go above 0 dBFS.
+
+Shift + drag behaviour
+----------------------
+
+When Shift is held while dragging the Target knob:
+
+- disable the normal 3 dB stepping
+- allow fine movement between the stepped values
+- use 0.5 dB increments
+- still clamp strictly between -12 and 0 dBFS
+
+Example:
+
+normal drag:
+-12 → -9 → -6 → -3 → 0
+
+Shift + drag:
+-6.0 → -5.5 → -5.0 → -4.5 etc.
+
+Digital readout should show one decimal place:
+
+-6.0 dB
+-4.5 dB
+0.0 dB
+
+The visible scale/tick marks can still represent only the five main values.
+
+Detect button
+-------------
+
+Add a Detect control associated with Preamp calibration.
+
+This is a PRESS-AND-HOLD operation.
+
+Preferred visual structure:
+
+PREAMP
+
+        Gain
+        knob
+      +12.0 dB
+
+Detect              Target
+[ button ]            knob
+                     -6.0 dB
+
+Keep this compact and consistent with the current Record panel styling.
+
+Detect behaviour
+----------------
+
+While the Detect button is being held:
+
+1. Monitor the live incoming audio.
+2. Measure the highest incoming peak seen during the hold period.
+3. In stereo, use the hotter of the two channels.
+4. Do NOT continuously alter the Preamp gain while measurement is taking place.
+5. Remember the maximum observed peak until the Detect button is released.
+
+On release:
+
+calculate the required preamp gain using:
+
+requiredGainDb = targetDbfs - measuredPeakDbfs
+
+Example:
+
+target = -6 dBFS
+observed peak = -18.4 dBFS
+
+required preamp gain = +12.4 dB
+
+Then set the existing Preamp gain control to that result.
+
+Clamp the calculated gain to the existing valid Preamp range.
+
+IMPORTANT:
+Use the signal level appropriate for calculating required preamp gain.
+
+If the current signal pipeline already exposes a pre-gain/input level, use that.
+
+Do not accidentally calculate from a value that already contains the gain being calibrated unless the maths explicitly compensates for the current gain.
+
+Inspect the current audio path before implementing this.
+
+Hot input case
+--------------
+
+If the incoming signal is already louder than the chosen target and the Preamp control cannot attenuate below 0 dB:
+
+- set Preamp gain to 0 dB
+- do not attempt negative gain
+- optionally provide a compact temporary indication such as:
+  INPUT HOT
+
+Do not introduce a large warning dialog.
+
+While Detect is held
+--------------------
+
+If practical within the existing compact UI, temporarily show useful feedback such as:
+
+PEAK -18.4
+
+On release it may briefly show something like:
+
+SET +12.4 dB
+
+Only do this if it fits naturally without changing layout dimensions.
+
+==================================================
+PART 2 — UNIVERSAL SHIFT + KNOB FINE CONTROL
+==================================================
+
+Goal
+----
+
+Make Shift mean "precision/fine adjustment" for rotary controls throughout the app.
+
+This is particularly important for:
+
+Edit > Tools > Splitter
+
+where Noise Floor, Gap and Snap can currently be difficult to adjust precisely.
+
+Before implementation
+---------------------
+
+Inspect whether the app already has a shared rotary/knob component.
+
+If it does:
+- implement fine-drag support there wherever practical
+- avoid duplicating drag logic in every individual knob
+
+If different controls need different fine sensitivities, expose that through component props/configuration.
+
+General behaviour
+-----------------
+
+Normal drag:
+- retain the knob's existing behaviour
+
+Shift + drag:
+- greatly reduce drag sensitivity
+- allow much finer adjustment
+- movement should feel smooth and precise
+- do not unexpectedly jump when Shift is pressed or released during a drag
+
+For normal continuous knobs, fine mode should remain continuous rather than becoming stepped.
+
+Suggested fine sensitivity:
+approximately 5x–10x finer than normal.
+
+Use values appropriate to each control rather than forcing one arbitrary universal increment.
+
+==================================================
+SPLITTER KNOBS
+==================================================
+
+Apply fine adjustment specifically to:
+
+Noise floor
+Gap
+Snap
+
+Suggested fine resolution:
+
+Noise floor:
+approximately 0.1 dB precision
+
+Gap:
+approximately 0.01–0.05 s precision
+
+Snap:
+approximately 5–10 ms precision
+
+Keep existing normal-drag behaviour unchanged.
+
+Do not alter their current ranges unless required to fix an existing bug.
+
+Their displayed readouts should update accurately in fine mode.
+
+==================================================
+TARGET KNOB SPECIAL CASE
+==================================================
+
+The new Preamp Target knob intentionally behaves differently:
+
+Normal drag:
+stepped values only:
+-12 / -9 / -6 / -3 / 0
+
+Shift + drag:
+0.5 dB fine increments between those positions
+
+This special behaviour should still use the same general concept that:
+
+SHIFT = FINE CONTROL
+
+==================================================
+UI REMINDER LABEL
+==================================================
+
+Do NOT add "Hold Shift..." to every tooltip.
+
+Instead add one small unobtrusive helper label in a sensible place near the rotary controls, reading exactly:
+
+Shift + Knob = Fine
+
+For now:
+- use the existing dark UI styling
+- keep it visually subtle
+- small text
+- do not consume significant vertical space
+
+The intent is that in the final vintage skin this may become a small handwritten note on masking tape.
+
+Do not implement the masking-tape styling yet.
+
+If one global reminder can naturally serve multiple nearby knobs, prefer that rather than duplicating the label repeatedly.
+
+==================================================
+INTERACTION QUALITY
+==================================================
+
+Please pay particular attention to drag behaviour.
+
+Fine mode should not:
+
+- jump to a different value when Shift is pressed
+- reset the drag origin unexpectedly
+- reverse direction
+- become overly sluggish
+- cause excessive state updates
+- interfere with click behaviour
+- interfere with mouse capture/pointer capture
+
+If the knob currently uses pointer events, preserve that approach.
+
+==================================================
+ACCESSIBILITY / TOOLTIP
+==================================================
+
+Keep existing knob tooltips where useful.
+
+The Target control can have a tooltip like:
+
+"Target peak level for automatic preamp calibration."
+
+The Detect control can have:
+
+"Hold while playing a loud passage to set the preamp level automatically."
+
+Do not add redundant Shift instructions to every tooltip because the UI reminder label covers that.
+
+==================================================
+DO NOT CHANGE
+==================================================
+
+Do not:
+
+- change overall Record screen layout
+- disturb the existing large VU meters
+- disturb the recording timer
+- alter recording behaviour
+- change Edit panel dimensions
+- move the Splitter preview/apply area
+- alter marker behaviour
+- change Undo behaviour
+- introduce popups for this feature
+- add new vertical scrolling
+- resize the Electron window
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+This is complete when:
+
+PREAMP:
+- Target knob exists
+- digital readout appears beneath it
+- normal drag snaps to -12/-9/-6/-3/0
+- default is -6.0 dB
+- Shift + drag allows 0.5 dB values
+- Target never exceeds 0 dBFS
+- Detect is press-and-hold
+- Detect measures the loudest peak during the hold period
+- Detect uses the hotter stereo channel
+- releasing Detect calculates and sets appropriate Preamp gain
+- calibration does not continually chase itself while held
+- calculated gain is clamped to the valid Preamp range
+- hot input is handled safely
+
+KNOBS:
+- Shift + drag gives fine control
+- normal drag remains unchanged
+- Noise Floor is significantly easier to tune
+- Gap is significantly easier to tune
+- Snap is significantly easier to tune
+- no value jumps occur when entering fine mode
+
+UI:
+- "Shift + Knob = Fine" appears subtly near the knob controls
+- no panel becomes taller
+- no controls wrap
+- fixed-size layout remains intact
+
+==================================================
+FINALLY
+==================================================
+
+After making the changes:
+
+1. run the existing TypeScript/lint check
+2. fix any errors caused by the changes
+3. summarise:
+   - files changed
+   - how fine-drag was implemented
+   - how Target stepping/fine mode works
+   - how Detect calculates the Preamp setting
+   - what signal level is being measured for calibration

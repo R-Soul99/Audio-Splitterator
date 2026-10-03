@@ -1,0 +1,131 @@
+Please add a compact "Return to Start" transport control to the EDIT screen.
+
+Important constraints
+=====================
+
+- Do not change the overall window size.
+- Do not change the Transport panel height.
+- Do not make the Transport panel wider unless absolutely necessary.
+- Do not move the existing large Pause/Play and Stop buttons.
+- Preserve the current fixed layout and alignment.
+- This should be a very small UI addition.
+
+Desired UI
+==========
+
+In the EDIT screen Transport panel, add a small secondary button on the same header row as the "TRANSPORT" label.
+
+Target layout:
+
+TRANSPORT        [ |◀ ]
+
+[ large Pause/Play ]   [ large Stop ]
+
+The new button should:
+- sit to the right of the TRANSPORT label
+- be much smaller than the main transport buttons
+- use a "skip to start" / "return to start" icon, visually similar to:
+  |◀
+- match the existing small utility-button styling
+- not dominate the panel
+
+Behaviour
+=========
+
+When clicked:
+
+1. Stop playback if audio is currently playing.
+2. Move the playhead/current cursor position to exactly 0:00.000.
+3. Do NOT:
+   - clear the current selection
+   - change zoom
+   - change waveform view unnecessarily
+   - delete or move markers
+   - change crop boundaries
+   - alter track splits
+
+If the editor is zoomed or scrolled away from the beginning:
+- move the playhead to 0
+- also ensure the beginning of the track is visible if necessary
+- do this using the existing view offset / seek infrastructure rather than introducing a new navigation system
+
+Keyboard shortcut
+=================
+
+Add the same action to the Home key.
+
+Home should:
+- stop playback
+- move playhead to 0:00.000
+- preserve current selection
+- preserve markers
+- preserve zoom level
+
+If Home is already used anywhere in the current editor, inspect that first and avoid conflicts. I do not believe it is currently assigned.
+
+Tooltip / accessibility
+=======================
+
+Button tooltip:
+"Return to start (Home)"
+
+aria-label:
+"Return to start"
+
+Implementation guidance
+=======================
+
+Before editing:
+- inspect the current EDIT Transport panel in App.tsx
+- inspect the current play/stop/seek handlers
+- inspect the existing global keyboard handler
+- reuse existing handleStop / handleSeek / view offset helpers where practical
+
+Please avoid duplicating playback logic.
+
+Preferred implementation:
+- create a small shared handler such as handleReturnToStart()
+- have both:
+  - the new Transport button
+  - the Home keyboard shortcut
+  call that same handler
+
+Visual guidance
+===============
+
+Keep the current Transport panel structure.
+
+The header row should become something like:
+
+<div className="flex items-center justify-between">
+  <span>TRANSPORT</span>
+  <small return-to-start button />
+</div>
+
+The new button should be compact, approximately in the same visual scale as the other small utility controls elsewhere in the app.
+
+Do not:
+- put it beneath the main buttons
+- add extra text beside the icon
+- enlarge the Transport panel
+- create a new row
+
+Acceptance criteria
+===================
+
+This is complete when:
+
+- a small |◀ return-to-start button appears beside the TRANSPORT label
+- clicking it stops playback and moves the playhead to 0:00.000
+- Home performs the same action
+- current selection remains intact
+- markers remain intact
+- zoom remains intact
+- the beginning of the waveform is visible after using it
+- main Transport button sizing/layout is unchanged
+- fixed window layout is unaffected
+
+After editing:
+- run the TypeScript/lint check if available
+- summarise the files changed
+- briefly explain how the button and Home shortcut share the same handler

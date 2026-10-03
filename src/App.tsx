@@ -15,6 +15,7 @@ import {
   Play,
   Pause,
   Square,
+  SkipBack,
   Tag,
   CheckCircle2,
   RotateCcw,
@@ -65,6 +66,19 @@ export default function App() {
   // Split markers
   const [markers, setMarkers] = useState<Marker[]>([]);
 
+  const markersRef = useRef<Marker[]>([]);
+  const markerUndoRef = useRef<{ markers: Marker[]; trackNames: Record<string, string> }[]>([]);
+  const [canUndoMarkers, setCanUndoMarkers] = useState(false);
+  const replaceMarkers = useCallback((next: Marker[] | ((previous: Marker[]) => Marker[])) => {
+    const updated = typeof next === 'function' ? next(markersRef.current) : next;
+    markersRef.current = updated;
+    setMarkers(updated);
+  }, []);
+  const resetMarkerUndo = useCallback(() => {
+    markerUndoRef.current = [];
+    setCanUndoMarkers(false);
+  }, []);
+
   // Waveform View Zoom & Offset
   const [zoom, setZoom] = useState<number>(1);
   const [viewOffsetSec, setViewOffsetSec] = useState<number>(0);
@@ -77,6 +91,19 @@ export default function App() {
 
   // Per-split track names (maps split ID to user-entered track name)
   const [trackNames, setTrackNames] = useState<{ [splitId: string]: string }>({});
+
+  const pushMarkerUndo = useCallback(() => {
+    markerUndoRef.current.push({ markers: markersRef.current.map(marker => ({ ...marker })), trackNames: { ...trackNames } });
+    if (markerUndoRef.current.length > 30) markerUndoRef.current.shift();
+    setCanUndoMarkers(true);
+  }, [trackNames]);
+  const handleMarkerUndo = useCallback(() => {
+    const previous = markerUndoRef.current.pop();
+    if (!previous) return;
+    replaceMarkers(previous.markers);
+    setTrackNames(previous.trackNames);
+    setCanUndoMarkers(markerUndoRef.current.length > 0);
+  }, [replaceMarkers]);
 
   // Silence Detection Parameters
   const [silenceThreshold, setSilenceThreshold] = useState<number>(-42);
@@ -114,6 +141,12 @@ export default function App() {
     cropEnd: number;
     mainFileName: string;
     actionName: string;
+    selection: TimeSelection | null;
+    currentTime: number;
+    zoom: number;
+    viewOffsetSec: number;
+    trackNames: Record<string, string>;
+    fadeSettings: FadeSettings;
   }
   const undoStackRef = useRef<UndoState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
@@ -164,17 +197,24 @@ export default function App() {
     if (!audioBufferRef.current) return;
     undoStackRef.current.push({
       buffer: audioBufferRef.current,
-      markers: [...markers],
+      markers: markersRef.current.map(marker => ({ ...marker })),
       cropStart: cropStartRef.current,
       cropEnd: cropEndRef.current,
       mainFileName,
       actionName,
+      selection: selectionRef.current ? { ...selectionRef.current } : null,
+      currentTime: currentTimeRef.current,
+      zoom,
+      viewOffsetSec,
+      trackNames: { ...trackNames },
+      fadeSettings: { ...fadeSettings },
     });
     if (undoStackRef.current.length > 10) {
       undoStackRef.current.shift();
     }
+    resetMarkerUndo();
     setCanUndo(true);
-  }, [markers, mainFileName]);
+  }, [mainFileName, zoom, viewOffsetSec, trackNames, fadeSettings, resetMarkerUndo]);
 
   const handleUndo = useCallback(() => {
     const prev = undoStackRef.current.pop();
@@ -198,18 +238,24 @@ export default function App() {
     audioBufferRef.current = prev.buffer;
     cropStartRef.current = prev.cropStart;
     cropEndRef.current = prev.cropEnd;
-    currentTimeRef.current = 0;
+    currentTimeRef.current = prev.currentTime;
+    selectionRef.current = prev.selection;
+    isLoopingRef.current = false;
+    setIsLooping(false);
+    resetMarkerUndo();
 
     setAudioBuffer(prev.buffer);
-    setMarkers(prev.markers);
+    replaceMarkers(prev.markers);
     setCropStart(prev.cropStart);
     setCropEnd(prev.cropEnd);
     setMainFileName(prev.mainFileName);
-    setCurrentTime(0);
-    setSelection(null);
-    setZoom(1);
-    setViewOffsetSec(0);
-  }, []);
+    setCurrentTime(prev.currentTime);
+    setSelection(prev.selection);
+    setZoom(prev.zoom);
+    setViewOffsetSec(prev.viewOffsetSec);
+    setTrackNames(prev.trackNames);
+    setFadeSettings(prev.fadeSettings);
+  }, [replaceMarkers, resetMarkerUndo]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<'discard' | 'import' | null>(null);
@@ -458,6 +504,14 @@ export default function App() {
     [startPlayback]
   );
 
+  // Return to the absolute start independently of crop and selection bounds.
+  const handleReturnToStart = useCallback(() => {
+    if (!audioBufferRef.current) return;
+    stopPlayback();
+    handleSeek(0);
+    setViewOffsetSec(0);
+  }, [stopPlayback, handleSeek]);
+
   // Release selection and seek/audition atomically, creating at most one audio source.
   const handleWaveformClick = useCallback(
     (newTime: number) => {
@@ -497,6 +551,10 @@ export default function App() {
   const loadAudio = (buffer: AudioBuffer, fileName: string, artist?: string, album?: string, markerTimes: number[] = []) => {
     stopPlayback();
     audioBufferRef.current = buffer;
+    undoStackRef.current = [];
+    setCanUndo(false);
+    resetMarkerUndo();
+    setTrackNames({});
     cropStartRef.current = 0;
     cropEndRef.current = buffer.duration;
     currentTimeRef.current = 0;
@@ -510,7 +568,7 @@ export default function App() {
     setSelection(null);
     setCurrentTime(0);
     const markerIdPrefix = `marker-recording-${Date.now()}`;
-    setMarkers(
+    replaceMarkers(
       markerTimes
         .filter((time) => time > 0.01 && time < buffer.duration - 0.01)
         .map((time, index) => ({ id: `${markerIdPrefix}-${index}`, time }))
@@ -524,6 +582,10 @@ export default function App() {
 
   const handleClearRecording = () => {
     stopPlayback();
+    undoStackRef.current = [];
+    setCanUndo(false);
+    resetMarkerUndo();
+    setTrackNames({});
     audioBufferRef.current = null;
     cropStartRef.current = 0;
     cropEndRef.current = 0;
@@ -535,7 +597,7 @@ export default function App() {
     setCropEnd(0);
     setSelection(null);
     setCurrentTime(0);
-    setMarkers([]);
+    replaceMarkers([]);
     setZoom(1);
     setViewOffsetSec(0);
     setPreRecordArtist('');
@@ -580,7 +642,7 @@ export default function App() {
     setCropStart(0);
     setCropEnd(cropped.duration);
     setCurrentTime(0);
-    setMarkers(updatedMarkers);
+    replaceMarkers(updatedMarkers);
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
@@ -620,7 +682,7 @@ export default function App() {
     setCropStart(0);
     setCropEnd(spliced.duration);
     setCurrentTime(nextTime);
-    setMarkers(updatedMarkers);
+    replaceMarkers(updatedMarkers);
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
@@ -660,7 +722,7 @@ export default function App() {
     setCropStart(0);
     setCropEnd(cropped.duration);
     setCurrentTime(0);
-    setMarkers(updatedMarkers);
+    replaceMarkers(updatedMarkers);
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
@@ -695,7 +757,7 @@ export default function App() {
     setCropStart(0);
     setCropEnd(cropped.duration);
     setCurrentTime(Math.min(currentTimeRef.current, cropped.duration));
-    setMarkers(updatedMarkers);
+    replaceMarkers(updatedMarkers);
     setSelection(null);
     setZoom(1);
     setViewOffsetSec(0);
@@ -728,11 +790,12 @@ export default function App() {
 
   // Peak Normalise (UK spelling)
   const handleNormalizeAudio = (targetPeakDb: number) => {
-    if (!audioBuffer) return;
+    const buffer = audioBufferRef.current;
+    if (!buffer) return;
 
     let maxPeak = 0;
-    for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
-      const channelData = audioBuffer.getChannelData(c);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      const channelData = buffer.getChannelData(c);
       for (let i = 0; i < channelData.length; i++) {
         const val = Math.abs(channelData[i]);
         if (val > maxPeak) maxPeak = val;
@@ -751,13 +814,13 @@ export default function App() {
     const ctx = new (window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     const newBuffer = ctx.createBuffer(
-      audioBuffer.numberOfChannels,
-      audioBuffer.length,
-      audioBuffer.sampleRate
+      buffer.numberOfChannels,
+      buffer.length,
+      buffer.sampleRate
     );
 
-    for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
-      const src = audioBuffer.getChannelData(c);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      const src = buffer.getChannelData(c);
       const dst = newBuffer.getChannelData(c);
       for (let i = 0; i < src.length; i++) {
         dst[i] = Math.max(-1, Math.min(1, src[i] * gainMultiplier));
@@ -809,19 +872,11 @@ export default function App() {
     const endLimit = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
     const clampedTime = Math.max(startLimit, Math.min(endLimit, time));
 
-    setMarkers((prev) => {
-      if (prev.some((m) => Math.abs(m.time - clampedTime) < 0.05)) {
-        return prev;
-      }
-
-      const newMarker: Marker = {
-        id: `marker-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        time: clampedTime,
-      };
-
-      return [...prev, newMarker].sort((a, b) => a.time - b.time);
-    });
-  }, []);
+    if (markersRef.current.some(marker => Math.abs(marker.time - clampedTime) < 0.05)) return;
+    pushMarkerUndo();
+    const newMarker: Marker = { id: `marker-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, time: clampedTime };
+    replaceMarkers(previous => [...previous, newMarker].sort((a, b) => a.time - b.time));
+  }, [pushMarkerUndo, replaceMarkers]);
 
   const handleAddMarkerAtPlayhead = useCallback(() => {
     handleAddMarker(currentTimeRef.current);
@@ -829,15 +884,16 @@ export default function App() {
 
   const handleMarkerMove = (id: string, newTime: number) => {
     const clampedTime = Math.max(cropStart, Math.min(cropEnd, newTime));
-    setMarkers((prev) =>
+    replaceMarkers((prev) =>
       prev.map((m) => (m.id === id ? { ...m, time: clampedTime } : m)).sort((a, b) => a.time - b.time)
     );
   };
 
-  const handleRemoveMarker = (id: string) => {
-    pushUndo('Delete Split Marker');
-    setMarkers((prev) => prev.filter((m) => m.id !== id));
-  };
+  const handleRemoveMarker = useCallback((id: string) => {
+    if (!markersRef.current.some(marker => marker.id === id)) return;
+    pushMarkerUndo();
+    replaceMarkers((prev) => prev.filter((m) => m.id !== id));
+  }, [pushMarkerUndo, replaceMarkers]);
 
   // Delete a split region by removing its boundary marker (incorporating into previous split)
   const handleDeleteSplit = useCallback(
@@ -854,7 +910,6 @@ export default function App() {
 
       if (activeMarkers.length === 0) return;
 
-      pushUndo('Delete Split Marker');
 
       let markerToRemove: Marker | undefined;
       if (splitIndex > 0 && splitIndex - 1 < activeMarkers.length) {
@@ -866,15 +921,16 @@ export default function App() {
       }
 
       if (markerToRemove) {
-        setMarkers((prev) => prev.filter((m) => m.id !== markerToRemove!.id));
+        handleRemoveMarker(markerToRemove.id);
       }
     },
-    [markers, pushUndo]
+    [markers, handleRemoveMarker]
   );
 
   const handleClearMarkers = () => {
-    pushUndo('Clear Split Markers');
-    setMarkers([]);
+    if (markersRef.current.length === 0) return;
+    pushMarkerUndo();
+    replaceMarkers([]);
   };
 
   const handleAutoSplit = useCallback(
@@ -895,15 +951,15 @@ export default function App() {
 
       if (detectedTimes.length === 0) return 0;
 
-      pushUndo('Auto-Split Silence');
+      pushMarkerUndo();
       const newMarkers: Marker[] = detectedTimes.map((time, idx) => ({
         id: `marker-auto-${Date.now()}-${idx}`,
         time,
       }));
-      setMarkers(newMarkers);
+      replaceMarkers(newMarkers);
       return newMarkers.length;
     },
-    [pushUndo]
+    [pushMarkerUndo, replaceMarkers]
   );
 
   // Calculate split segments
@@ -952,6 +1008,7 @@ export default function App() {
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
@@ -960,7 +1017,10 @@ export default function App() {
         return;
       }
 
-      if (e.code === 'Space') {
+      if (e.key === 'Home' && workflowTab === 'edit') {
+        e.preventDefault();
+        handleReturnToStart();
+      } else if (e.code === 'Space') {
         e.preventDefault();
         handlePlayPause();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -997,7 +1057,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [workflowTab, isRecordingActive, handlePlayPause, handleAddMarkerAtPlayhead, handleCutSelection, handleCropToSelection, handleUndo]);
+  }, [workflowTab, isRecordingActive, handlePlayPause, handleReturnToStart, handleAddMarkerAtPlayhead, handleCutSelection, handleCropToSelection, handleUndo]);
 
   return (
     <div className="h-screen max-h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
@@ -1139,6 +1199,8 @@ export default function App() {
                         fadeSettings={fadeSettings}
                         isPlaying={isPlaying}
                         isLooping={isLooping}
+                        canUndoMarkers={canUndoMarkers}
+                        onMarkerUndo={handleMarkerUndo}
                         canUndo={canUndo}
                         followPlayhead={followPlayhead}
                         autoPreviewOnClick={autoPreviewOnClick}
@@ -1160,6 +1222,7 @@ export default function App() {
                           setCropStart(start);
                           setCropEnd(end);
                         }}
+                        onMarkerMoveStart={pushMarkerUndo}
                         onMarkerMove={handleMarkerMove}
                         onAddMarker={handleAddMarker}
                         onRemoveMarker={handleRemoveMarker}
@@ -1378,22 +1441,34 @@ export default function App() {
                     {/* Transport sits directly under the waveform; the freed space beside it
                         (after moving Recording Info out) now hosts the Tools panel portal. */}
                     <div className="col-start-1 row-start-2 min-w-0 flex items-stretch gap-2.5 text-xs">
-                      {/* Transport: sized at 75% (25% smaller) of its original footprint. */}
-                      <div className="flex max-w-[195px] flex-col gap-1.5 bg-slate-900/60 px-[9px] py-[7.5px] rounded-xl border border-slate-700/70">
-                        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Transport</h2>
-                        <div className="grid grid-cols-2 gap-1.5 flex-1">
+                      {/* Square controls keep the transport compact without increasing row height. */}
+                      <div className="flex w-[152px] shrink-0 flex-col gap-1.5 bg-slate-900/60 px-[9px] py-[7.5px] rounded-xl border border-slate-700/70">
+                        <div className="flex h-[15px] items-center justify-between">
+                          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Transport</h2>
+                          <button
+                            type="button"
+                            onClick={handleReturnToStart}
+                            disabled={!audioBuffer}
+                            title="Return to start (Home)"
+                            aria-label="Return to start"
+                            className="flex h-[14px] w-[18px] items-center justify-center rounded border border-slate-700 bg-slate-950 text-slate-400 hover:text-slate-200 hover:border-slate-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <SkipBack aria-hidden="true" className="h-2.5 w-2.5" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 flex-1 text-sm font-medium">
                           <button
                             type="button"
                             onClick={handlePlayPause}
                             disabled={!audioBuffer}
                             title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                            className={`min-h-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            className={`h-[60px] w-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               isPlaying
                                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
                                 : 'bg-emerald-950/30 hover:bg-emerald-900/30 text-emerald-400 border-emerald-500/40 hover:border-emerald-400'
                             }`}
                           >
-                            {isPlaying ? <Pause className="w-[21px] h-[21px] fill-current" /> : <Play className="w-[21px] h-[21px] fill-current" />}
+                            {isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
                             <span>{isPlaying ? 'Pause' : 'Play'}</span>
                           </button>
                           <button
@@ -1401,17 +1476,16 @@ export default function App() {
                             onClick={handleStop}
                             disabled={!audioBuffer}
                             title="Stop Playback"
-                            className="min-h-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="h-[60px] w-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            <Square className="w-[18px] h-[18px] fill-current" />
+                            <Square className="w-6 h-6 fill-current" />
                             <span>Stop</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Tools panel: a tab bar whose flyout is portaled here, anchored to open
-                          upward over the waveform so it's never clipped by the window edge. */}
-                      <div ref={setProcessingPanelContainer} className="relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] py-[7.5px]" />
+                      {/* Tools controls are portaled into the space beside Transport. */}
+                      <div ref={setProcessingPanelContainer} className="relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] pt-1 pb-[7.5px]" />
                     </div>
 
                   {/* Confirm Dialog: Discard / Import Overwrite */}

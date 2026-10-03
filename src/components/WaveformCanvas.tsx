@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { RotaryKnob } from './RotaryKnob';
 import { Marker, FadeSettings, TimeSelection } from '../types';
 import {
   formatTime,
@@ -13,10 +14,9 @@ import {
   AnomalousPeakEvent,
 } from '../utils/audioProcessing';
 import {
+  Ear,
   ZoomIn,
   ZoomOut,
-  BookmarkPlus,
-  BookmarkMinus,
   ScanLine,
   Crop,
   Scissors,
@@ -24,7 +24,6 @@ import {
   RotateCcw,
   Repeat,
   Activity,
-  Trash2,
   AudioWaveform,
   UnfoldVertical,
   Volume2,
@@ -44,6 +43,8 @@ interface WaveformCanvasProps {
   isPlaying: boolean;
   isLooping?: boolean;
   canUndo?: boolean;
+  canUndoMarkers?: boolean;
+  onMarkerUndo?: () => void;
   followPlayhead: boolean;
   autoPreviewOnClick: boolean;
   onFollowPlayheadChange: (enabled: boolean) => void;
@@ -61,6 +62,7 @@ interface WaveformCanvasProps {
   onTrimEnd?: () => void;
   onUndo?: () => void;
   onCropChange?: (start: number, end: number) => void;
+  onMarkerMoveStart?: () => void;
   onMarkerMove: (id: string, newTime: number) => void;
   onAddMarker: (time: number) => void;
   onRemoveMarker: (id: string) => void;
@@ -156,88 +158,6 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
   );
 };
 
-// Draggable rotary knob (vertical drag: up increases, down decreases), 270-degree sweep
-interface RotaryKnobProps {
-  value: number;
-  min: number;
-  max: number;
-  onChange: (value: number) => void;
-  size?: number;
-  title: string;
-  formatValue?: (value: number) => string;
-}
-
-const RotaryKnob: React.FC<RotaryKnobProps> = ({
-  value,
-  min,
-  max,
-  onChange,
-  size = 26,
-  title,
-  formatValue = (v) => v.toFixed(2),
-}) => {
-  const [dragging, setDragging] = useState(false);
-  const dragStartRef = useRef<{ y: number; value: number } | null>(null);
-
-  const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
-  const angle = -135 + pct * 270;
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragStartRef.current = { y: e.clientY, value };
-    setDragging(true);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragStartRef.current) return;
-    const deltaY = dragStartRef.current.y - e.clientY;
-    const sensitivity = (max - min) / 120;
-    const next = Math.max(min, Math.min(max, dragStartRef.current.value + deltaY * sensitivity));
-    onChange(next);
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    dragStartRef.current = null;
-    setDragging(false);
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
-  };
-
-  return (
-    <div className="relative flex items-center justify-center">
-      <div
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        style={{ width: size, height: size }}
-        className={`relative rounded-full bg-slate-800/90 border touch-none select-none cursor-ns-resize transition-colors ${
-          dragging ? 'border-sky-500' : pct > 0 ? 'border-sky-600/60 hover:border-slate-600' : 'border-slate-700 hover:border-slate-600'
-        }`}
-        title={`${title}: ${formatValue(value)} (drag up/down to adjust)`}
-      >
-        <div
-          className="absolute left-1/2 bottom-1/2 w-0.5 rounded-full bg-sky-400"
-          style={{
-            height: `${size * 0.38}px`,
-            transform: `translateX(-50%) rotate(${angle}deg)`,
-            transformOrigin: 'bottom center',
-          }}
-        />
-        <div className="absolute inset-0 rounded-full pointer-events-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]" />
-      </div>
-      {dragging && (
-        <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[9px] font-mono text-sky-400 whitespace-nowrap z-50 pointer-events-none">
-          {formatValue(value)}
-        </div>
-      )}
-    </div>
-  );
-};
-
 export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   audioBuffer,
   currentTime,
@@ -251,6 +171,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   isPlaying,
   isLooping = false,
   canUndo = false,
+  canUndoMarkers = false,
+  onMarkerUndo,
   followPlayhead,
   autoPreviewOnClick,
   onFollowPlayheadChange,
@@ -268,6 +190,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onTrimEnd,
   onUndo,
   onCropChange,
+  onMarkerMoveStart,
   onMarkerMove,
   onAddMarker,
   onRemoveMarker,
@@ -294,7 +217,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const pingRafRef = useRef<number | null>(null);
 
   const [canvasDimensions, setCanvasDimensions] = useState({ width: 600, height: 180 });
-  const [markerTool, setMarkerTool] = useState<'none' | 'add' | 'remove'>('none');
+  const markerMoveStartedRef = useRef(false);
   const [verticalZoom, setVerticalZoom] = useState(1);
   const verticalZoomRef = useRef(1);
 
@@ -351,20 +274,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const [hoveredElement, setHoveredElement] = useState<'fadeIn' | 'fadeOut' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
 
-  // Compute nearest marker for cursor when in remove ('-') mode
-  const nearestMarkerId = useMemo(() => {
-    if (markerTool !== 'remove' || hoverTime === null || markers.length === 0) return null;
-    let nearest = markers[0];
-    let minDist = Math.abs(markers[0].time - hoverTime);
-    for (let i = 1; i < markers.length; i++) {
-      const dist = Math.abs(markers[i].time - hoverTime);
-      if (dist < minDist) {
-        minDist = dist;
-        nearest = markers[i];
-      }
-    }
-    return nearest.id;
-  }, [markerTool, hoverTime, markers]);
+
 
   // Peak Pyramids
   interface PeakLevel {
@@ -1122,7 +1032,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       if (mx < 0 || mx > width) return;
 
       const isHovered = hoveredMarkerId === m.id;
-      const isTargetedForRemoval = markerTool === 'remove' && nearestMarkerId === m.id;
+      const isTargetedForRemoval = processingOpen && hoveredMarkerId === m.id;
 
       ctx.strokeStyle = isTargetedForRemoval ? '#f43f5e' : isHovered ? '#c084fc' : '#a855f7';
       ctx.lineWidth = isTargetedForRemoval ? 3 : isHovered ? 2.5 : 1.5;
@@ -1186,7 +1096,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.arc(snappedX, 9, 4, 0, Math.PI * 2);
         ctx.fill();
       }
-      if (markerTool === 'add') {
+      if (processingOpen) {
         // Show purple preview line with top flag where marker will land
         ctx.strokeStyle = '#a855f7';
         ctx.lineWidth = 1.5;
@@ -1233,7 +1143,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX, markerTool, nearestMarkerId, snapEditTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX, snapEditTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd]);
 
   // Trigger the overlay redraw whenever any of its inputs change
   useEffect(() => {
@@ -1398,6 +1308,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       } else if (activeDrag.type === 'marker' && activeDrag.id) {
         let nextTime = Math.max(cropStart, Math.min(cropEnd, time));
         nextTime = snapEditTime(nextTime);
+        if (!markerMoveStartedRef.current && markers.some(marker => marker.id === activeDrag.id && marker.time !== nextTime)) {
+          onMarkerMoveStart?.();
+          markerMoveStartedRef.current = true;
+        }
         onMarkerMove(activeDrag.id, nextTime);
       } else if (activeDrag.type === 'fadeIn') {
         const nextMs = Math.max(0, Math.round((time - cropStart) * 1000));
@@ -1520,6 +1434,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    markerMoveStartedRef.current = false;
     canvas.setPointerCapture(e.pointerId);
 
     const rect = canvas.getBoundingClientRect();
@@ -1576,25 +1491,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       setActiveDrag({ type: 'selectionEnd' });
     } else if (hoveredElement === 'selectionBar' && selection) {
       setActiveDrag({ type: 'selectionMove', startTime: time, startX: selection.start });
-    } else if (markerTool === 'remove') {
-      // In '-' mode, each click removes the nearest marker to cursor
-      if (markers.length > 0) {
-        let nearest = markers[0];
-        let minDist = Math.abs(markers[0].time - time);
-        for (let i = 1; i < markers.length; i++) {
-          const d = Math.abs(markers[i].time - time);
-          if (d < minDist) {
-            minDist = d;
-            nearest = markers[i];
-          }
-        }
-        onRemoveMarker(nearest.id);
-      }
-    } else if (markerTool === 'add') {
-      // In '+' mode, each click adds a marker
-      let markerTime = time;
-      markerTime = snapEditTime(markerTime);
-      onAddMarker(markerTime);
     } else if (hoveredElement === 'marker' && hoveredMarkerId) {
       setActiveDrag({ type: 'marker', id: hoveredMarkerId });
     } else {
@@ -1639,16 +1535,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const selEnd = Math.max(activeDrag.startTime, endTime);
         onSelectionChange?.({ start: selStart, end: selEnd });
 
-        // User requirement: Automatically loop and play that section!
-        if (onLoopSelection) {
+        // Detection selections are measured directly from the buffer, without auditioning.
+        if (!processingOpen && onLoopSelection) {
           onLoopSelection(selStart, selEnd);
-        } else if (onPlaySelection) {
+        } else if (!processingOpen && onPlaySelection) {
           onPlaySelection(selStart, selEnd);
         }
       }
     } else if (
       (activeDrag?.type === 'selectionStart' || activeDrag?.type === 'selectionEnd' || activeDrag?.type === 'selectionMove') &&
-      selection && moved
+      selection && moved && !processingOpen
     ) {
       if (Math.abs(selection.end - selection.start) > 0.05) {
         const s = Math.min(selection.start, selection.end);
@@ -1664,10 +1560,21 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setActiveDrag(null);
   };
 
+  const handleWaveformDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!processingOpen || !audioBuffer || e.button !== 0) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    onAddMarker(snapEditTime(xToTime(e.clientX - rect.left, rect.width)));
+  };
+
   const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    if (hoveredElement === 'marker' && hoveredMarkerId) {
-      onRemoveMarker(hoveredMarkerId);
+    if (!processingOpen || !audioBuffer) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const marker = markers.find(marker => Math.abs(timeToX(marker.time, rect.width) - x) <= 6);
+    if (marker) {
+      onRemoveMarker(marker.id);
       setHoveredMarkerId(null);
       setHoveredElement(null);
     }
@@ -1871,10 +1778,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const cursorStyle = activeDrag
     ? 'cursor-grabbing'
-    : markerTool === 'add'
-    ? 'cursor-crosshair'
-    : markerTool === 'remove'
-    ? 'cursor-pointer'
     : hoveredElement === 'marker'
     ? 'cursor-ew-resize'
     : hoveredElement === 'fadeIn' || hoveredElement === 'fadeOut'
@@ -1927,7 +1830,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         });
       } else {
         setFeedbackToast({
-          text: `No silence gaps below ${noiseFloorDb.toFixed(1)} dB for ${silenceDurationSec.toFixed(1)}s were found. Try raising the threshold or lowering the duration.`,
+          text: `No silence gaps below ${noiseFloorDb.toFixed(1)} dB for ${silenceDurationSec.toFixed(2)}s were found. Try raising the threshold or lowering the duration.`,
           type: 'info',
         });
       }
@@ -2097,41 +2000,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                   onClick={onUndo}
                   disabled={!canUndo}
                   icon={<RotateCcw className="w-3.5 h-3.5 text-slate-300" />}
-                  label="Undo Audio Edit (Ctrl+Z)"
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Markers Section */}
-          <div className="flex flex-col items-start gap-1.5 px-2 py-1 shrink-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400">Markers</span>
-            <div className="flex items-center gap-1">
-              {/* Add Marker (+) Toggle */}
-              <TooltipButton
-                onClick={() => setMarkerTool(markerTool === 'add' ? 'none' : 'add')}
-                isActive={markerTool === 'add'}
-                activeClass="bg-purple-600 text-white border-purple-500 shadow-sm"
-                icon={<BookmarkPlus className="w-3.5 h-3.5" />}
-                label="Add Marker (+) Toggle - Click waveform to place split markers"
-              />
-
-              {/* Remove Marker (-) Toggle */}
-              <TooltipButton
-                onClick={() => setMarkerTool(markerTool === 'remove' ? 'none' : 'remove')}
-                isActive={markerTool === 'remove'}
-                activeClass="bg-rose-600 text-white border-rose-500 shadow-sm"
-                icon={<BookmarkMinus className="w-3.5 h-3.5" />}
-                label="Remove Marker (-) Toggle - Click waveform to remove nearest marker to cursor"
-              />
-
-              {/* Clear All Markers */}
-              {onClearMarkers && (
-                <TooltipButton
-                  onClick={onClearMarkers}
-                  disabled={markers.length === 0}
-                  icon={<Trash2 className={`w-3.5 h-3.5 ${markers.length > 0 ? 'text-slate-400 hover:text-rose-400' : 'text-slate-600'}`} />}
-                  label={markers.length > 0 ? `Clear All Split Markers (${markers.length})` : 'No markers to clear'}
+                  label="Undo last audio edit"
                 />
               )}
             </div>
@@ -2187,9 +2056,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {processingPanelContainer && createPortal(
-        <div aria-label="Tools" className="relative flex h-full items-center gap-2">
-          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
-          <div className="flex items-center gap-1">
+        <div aria-label="Tools" className="tools-panel absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1.5">
+          <div className="flex shrink-0 items-center gap-2">
+          <span className="shrink-0 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
+          <div className="flex min-w-0 items-center gap-1 overflow-x-auto custom-scrollbar">
             <button
               type="button"
               onClick={() => {
@@ -2197,11 +2067,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 setShowPeakTamerPopover(false);
                 setShowNormalisePopover(false);
               }}
-              disabled={!audioBuffer}
               aria-expanded={processingOpen}
               className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${processingOpen ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
             >
-              Detection
+              Splitter
             </button>
             <button
               type="button"
@@ -2213,7 +2082,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                   setShowNormalisePopover(false);
                 }
               }}
-              disabled={!audioBuffer}
               aria-expanded={showPeakTamerPopover}
               className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${showPeakTamerPopover ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
             >
@@ -2229,28 +2097,28 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                   setShowPeakTamerPopover(false);
                 }
               }}
-              disabled={!audioBuffer}
               aria-expanded={showNormalisePopover}
               className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${showNormalisePopover ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
             >
               Normalise
             </button>
           </div>
+          <span className="ml-auto shrink-0 text-[8px] text-slate-500">Shift + Knob = Fine</span>
+          </div>
 
-          {/* Shared flyout: opens upward from the tab row so it always stays within the
-              viewport (never clipped by the window edge), with its own internal scroll. */}
+          {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
-            <div className="absolute bottom-full left-0 z-30 mb-1.5 w-[22rem] max-w-[calc(100vw-1rem)] max-h-[70vh] overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs shadow-2xl space-y-2.5 animate-fade-in select-none custom-scrollbar">
+            <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">
               {processingOpen && (
-                <div id="processing-detection-controls" className="space-y-2.5">
+                <div id="processing-detection-controls" className="tools-detection">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                     <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
                       <Activity className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Detection</span>
+                      <span>Splitter</span>
                     </div>
                     <button
                       type="button"
-                      aria-label="Close detection"
+                      aria-label="Close splitter"
                       onClick={() => setProcessingOpen(false)}
                       className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
                     >
@@ -2258,61 +2126,64 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                     </button>
                   </div>
 
-                  <TooltipButton
+                  <div className="detection-detect text-slate-400" title="Analyse the waveform and preview proposed split points using the current settings.">
+                    <span>Detect</span>
+                  <button
+                    type="button"
                     onClick={handleSampleNoiseFloor}
                     disabled={!audioBuffer}
-                    isActive={hasSelection}
-                    activeClass="bg-amber-500/15 text-amber-300 border-amber-500/40"
-                    icon={<Activity className="w-4 h-4" />}
-                    caption="Sample Noise Floor"
-                    label={hasSelection ? 'Click to sample noise floor from active selection' : 'Select a quiet region on the waveform first, then click to sample noise floor'}
-                  />
-
-                  <label className="flex items-center justify-between gap-2 text-slate-400">
-                    <span>Noise floor</span>
-                    <span className="flex items-center gap-1">
-                      <input aria-label="Noise floor in dB" type="number" min="-96" max="0" step="0.5" value={Number(noiseFloorDb.toFixed(1))} onChange={(e) => {
-                        if (Number.isFinite(e.target.valueAsNumber)) {
-                          setNoiseFloorDb(Math.max(-96, Math.min(0, e.target.valueAsNumber)));
-                        }
-                      }} className="w-16 rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-amber-300" />
-                      dB
-                    </span>
-                  </label>
-                  <label className="flex items-center justify-between gap-2 text-slate-400">
-                    <span>Min. silence</span>
-                    <span className="flex items-center gap-1">
-                      <input aria-label="Minimum silence in seconds" type="number" min="0.1" max="10" step="0.1" value={silenceDurationSec} onChange={(e) => {
-                        if (Number.isFinite(e.target.valueAsNumber)) {
-                          setSilenceDurationSec(Math.max(0.1, Math.min(10, e.target.valueAsNumber)));
-                        }
-                      }} className="w-16 rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-slate-200" />
-                      sec
-                    </span>
-                  </label>
-                  <div className="flex items-center justify-between gap-2 text-slate-400">
-                    <span>Snap radius</span>
-                    <RotaryKnob value={snapAmountSec} min={0} max={0.5} onChange={setSnapAmountSec} title="Snap Radius" formatValue={(v) => (v <= 0 ? 'Off' : `${Math.round(v * 1000)}ms`)} />
-                  </div>
-                  <button type="button" onClick={handleTriggerAutoSplit} disabled={!audioBuffer || !onAutoSplit} className="w-full px-3 py-2 rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-300 font-semibold hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                    Auto-Split Silence
+                    aria-label="Sample noise floor from selection"
+                    className="detection-sample flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Analyse the waveform and preview proposed split points using the current settings."
+                  >
+                    <Ear aria-hidden="true" className="h-3 w-3" />
                   </button>
-                  <output aria-label="Auto-split preview" aria-live="polite" aria-busy={!!audioBuffer && previewTimes === null} title="Dashed amber lines on the waveform show predicted split positions. Press Auto-Split Silence to apply them." className="block whitespace-normal text-[11px] leading-4 font-mono tabular-nums text-slate-300">
+                  </div>
+
+                  <div title="Audio below this level is treated as silence when detecting gaps." className="detection-noise text-slate-400">
+                    <span title="Audio below this level is treated as silence when detecting gaps.">Noise floor</span>
+                    <div className="flex items-center gap-1">
+                      <RotaryKnob size={18} step={0.5} fineStep={0.1} value={noiseFloorDb} min={-96} max={0} onChange={setNoiseFloorDb} title="Noise floor" formatValue={(v) => `${v.toFixed(1)} dB`} />
+                      <output aria-label="Noise floor in dB" className="detection-value text-amber-300">{noiseFloorDb.toFixed(1)} dB</output>
+                    </div>
+                  </div>
+                  <div title="Minimum silence duration required before a split is proposed." className="detection-duration text-slate-400">
+                    <span title="Minimum silence duration required before a split is proposed.">Gap</span>
+                    <span className="flex items-center gap-1">
+                      <RotaryKnob size={18} step={0.1} fineStep={0.01} value={silenceDurationSec} min={0.1} max={10} onChange={setSilenceDurationSec} title="Minimum silence" formatValue={(v) => `${v.toFixed(2)} sec`} />
+                      <output aria-label="Minimum silence in seconds" className="detection-value text-slate-200">{silenceDurationSec.toFixed(2)} s</output>
+                    </span>
+                  </div>
+                  <div title="How close marker placement snaps to a detected split point." className="detection-snap text-slate-400">
+                    <span title="How close marker placement snaps to a detected split point.">Snap</span>
+                    <span className="flex items-center gap-1">
+                      <RotaryKnob size={18} value={snapAmountSec} min={0} max={0.5} onChange={setSnapAmountSec} title="Snap" formatValue={(v) => (v <= 0 ? 'Off' : `${Math.round(v * 1000)}ms`)} />
+                      <output className="font-mono tabular-nums text-sky-300">{snapAmountSec <= 0 ? 'Off' : `${Math.round(snapAmountSec * 1000)} ms`}</output>
+                    </span>
+                  </div>
+                  <div aria-label="Split markers" className="detection-markers">
+                    <button type="button" aria-label="Undo last marker action" title="Undo last marker action" disabled={!canUndoMarkers} onClick={onMarkerUndo} className="rounded border border-slate-700 bg-slate-950 text-slate-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Undo</button>
+                    {onClearMarkers && <button type="button" aria-label="Clear all split markers" title="Clear all split markers" disabled={markers.length === 0} onClick={onClearMarkers} className="rounded border border-slate-700 bg-slate-950 text-slate-400 hover:text-rose-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Clear All</button>}
+                  </div>
+                  <div className="detection-preview">
+                  <output aria-label="Auto-split preview" aria-live="polite" aria-busy={!!audioBuffer && previewTimes === null} title="Dashed amber lines on the waveform show predicted split positions. Press Apply to apply them." className="font-mono tabular-nums text-slate-300">
                     {!audioBuffer ? 'Load audio to preview slices' : previewTimes === null ? 'Calculating slices…' : (
                       <>
-                        <span aria-hidden="true" className="inline-block w-3 mr-1.5 align-middle border-t border-dashed border-amber-300" />
                         <span className="text-amber-300">{previewTimes.length} auto-{previewTimes.length === 1 ? 'split' : 'splits'}</span>
-                        {' · '}
                         <span className="text-sky-300">{previewSliceCount} {previewSliceCount === 1 ? 'slice' : 'slices'}</span>
-                        {previewTimes.length === 0 && markers.length > 0 ? ' · Existing markers kept' : ''}
+                        {previewTimes.length === 0 && markers.length > 0 && <span>Existing markers kept</span>}
                       </>
                     )}
                   </output>
+                  <button type="button" onClick={handleTriggerAutoSplit} disabled={!audioBuffer || !onAutoSplit} className="rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 font-semibold hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                    Apply
+                  </button>
+                  </div>
                 </div>
               )}
 
               {showPeakTamerPopover && (
-                <div className="space-y-2.5">
+                <div className="tools-peak-tamer">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                     <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
                       <AudioWaveform className="w-3.5 h-3.5 text-amber-400" />
@@ -2328,13 +2199,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                     </button>
                   </div>
 
-                  <p className="text-[10px] text-slate-400 leading-tight">
-                    Identifies anomalously high peak spikes (such as vinyl clicks or rogue transients) and smoothly attenuates them down to the musical program level to reclaim normalisation headroom.
-                  </p>
-
                   {/* Scope selector if selection active */}
                   {selection && (
-                    <div className="space-y-1">
+                    <div className="tools-peak-scope space-y-1">
                       <div className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">
                         Target Range:
                       </div>
@@ -2372,7 +2239,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
                   {/* Measured Audio Peak Profile */}
                   {peakAnalysis && (
-                    <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1 text-[10px]">
+                    <div className="tools-peak-results p-2 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1 text-[10px]">
                       <div className="grid grid-cols-2 gap-2 text-[10px] pb-1 border-b border-slate-800">
                         <div>
                           <span className="text-slate-400 block text-[9px]">Max Peak in Scope:</span>
@@ -2407,15 +2274,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                   )}
 
                   {/* Controls: Outlier Threshold and Reduction Target */}
-                  <div className="space-y-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                  <div className="tools-peak-settings space-y-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
                     {/* Threshold Slider */}
                     <div className="space-y-1">
                       <div className="flex justify-between items-center text-[10px]">
-                        <span className="text-slate-300 font-medium">Flag peaks exceeding:</span>
+                        <span className="text-slate-300 font-medium">Threshold</span>
                         <div className="flex items-center space-x-1.5">
                           <button
                             type="button"
                             onClick={handleAutoSuggestThreshold}
+                            disabled={!audioBuffer}
                             className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded text-[9px] font-mono cursor-pointer border border-slate-700"
                             title="Auto-suggest threshold based on nominal music level"
                           >
@@ -2425,6 +2293,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                         </div>
                       </div>
                       <input
+                        aria-label="Peak threshold in dB"
                         type="range"
                         min="-24"
                         max="0"
@@ -2441,10 +2310,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                     {/* Target Ceiling Slider */}
                     <div className="space-y-1 pt-1 border-t border-slate-800/80">
                       <div className="flex justify-between items-center text-[10px]">
-                        <span className="text-slate-300 font-medium">Reduce anomalous peaks down to:</span>
+                        <span className="text-slate-300 font-medium">Ceiling</span>
                         <span className="text-emerald-400 font-mono font-bold">{peakTargetCeilingDb.toFixed(1)} dB</span>
                       </div>
                       <input
+                        aria-label="Peak ceiling in dB"
                         type="range"
                         min="-24"
                         max="0"
@@ -2458,7 +2328,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
                   {/* Detected Peaks List (if any) */}
                   {peakAnalysis && peakAnalysis.detectedPeaks.length > 0 && (
-                    <div className="space-y-1">
+                    <div className="tools-peak-list space-y-1">
                       <div className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider flex justify-between">
                         <span>Detected Anomalous Peaks ({peakAnalysis.detectedPeaks.length})</span>
                         <span>Click to seek</span>
@@ -2493,10 +2363,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                   )}
 
                   {/* Actions */}
-                  <div className="space-y-1.5 pt-0.5">
-                    {!peakAnalysis && !isProcessingPeaks && (
-                      <p className="text-[10px] text-slate-400">Press Scan Peaks to detect peaks at the current settings.</p>
-                    )}
+                  <div className="tools-peak-actions space-y-1.5 pt-0.5">
                     <button
                       type="button"
                       onClick={() => handleScanAnomalousPeaks()}
@@ -2516,7 +2383,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                           : 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500/30'
                       }`}
                     >
-                      REDUCE ANOMALOUS PEAKS
+                      Reduce Peaks
                     </button>
 
                     <button
@@ -2530,14 +2397,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                       }`}
                       title="Attenuates anomalous peaks then immediately normalises entire audio to target gain"
                     >
-                      REDUCE & NORMALISE ({normaliseTargetDb.toFixed(1)} dB)
+                      Reduce & Normalise ({normaliseTargetDb.toFixed(1)} dB)
                     </button>
                   </div>
                 </div>
               )}
 
               {showNormalisePopover && (
-                <div className="space-y-2">
+                <div className="tools-normalise">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                     <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
                       <UnfoldVertical className="w-3.5 h-3.5 text-amber-400" />
@@ -2567,7 +2434,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                       onNormalise(normaliseTargetDb);
                       setShowNormalisePopover(false);
                     }}
-                    className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-[10px] tracking-wider transition cursor-pointer border border-emerald-500/30"
+                    disabled={!audioBuffer}
+                    className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-[10px] tracking-wider transition cursor-pointer border border-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     APPLY NORMALISATION
                   </button>
@@ -2636,9 +2504,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
           onContextMenu={handleContextMenu}
+          onDoubleClick={handleWaveformDoubleClick}
           className={`w-full block touch-none ${cursorStyle} ${audioBuffer ? '' : 'pointer-events-none'}`}
           style={{ height: `${canvasDimensions.height}px` }}
-          title="Click to clear selection and seek; scroll to zoom at cursor; Shift+scroll to adjust waveform height"
+          title={processingOpen ? "Double-click to add a split marker; right-click a marker to remove it; drag markers to adjust" : "Click to clear selection and seek; scroll to zoom at cursor; Shift+scroll to adjust waveform height"}
         />
         <canvas
           ref={overlayCanvasRef}
@@ -2653,11 +2522,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             style={{ left: `${hoverPosition.x}px` }}
           >
             <span className="text-emerald-400 font-bold">{formatTime(hoverTime, true)}</span>
-            {markerTool === 'add' ? (
-              <span className="text-purple-400 text-[9px] font-sans px-1 bg-purple-500/10 rounded border border-purple-500/20 font-bold">+ Add Marker</span>
-            ) : markerTool === 'remove' ? (
-              <span className="text-rose-400 text-[9px] font-sans px-1 bg-rose-500/10 rounded border border-rose-500/20 font-bold">- Remove Nearest</span>
-            ) : hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? (
+            {hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? (
               <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Bracket</span>
             ) : hoveredElement === 'selectionBar' ? (
               <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Selection</span>

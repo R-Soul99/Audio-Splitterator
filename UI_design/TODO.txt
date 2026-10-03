@@ -1,2 +1,150 @@
-1. (Rec panel) Preamp detector - hold a button during a loud part to detect how much preamp would bring it to a good level and auto set preamp to peak at -6db(or -1db?)
-2. (rec panel) could move the transport section over to the Controls panel
+Please refine ONLY the Splitter tab layout in the bottom Tools panel.
+
+Important constraints
+=====================
+
+- Do not change the overall window size.
+- Do not change the Tools panel height.
+- Do not introduce wrapping.
+- Do not move the preview/apply area on the right.
+- Keep the current Splitter / Peak Tamer / Normalise tab structure.
+- Preserve all existing functionality.
+- This is a small alignment/layout refinement only.
+
+Current issue
+=============
+
+The Splitter tab is much better now, but the left-side controls are visually uneven.
+
+There is currently a tiny ear/listen button at the far left that is:
+- poorly aligned
+- visually unclear
+- too small
+- causing uneven spacing between the Noise Floor / Gap / Snap controls
+
+Desired layout
+==============
+
+Treat Detect as a proper fourth control module in the same horizontal rhythm as the three knob modules.
+
+Target arrangement:
+
+Detect        Noise floor        Gap        Snap        Undo   Clear All
+[ ear ]          knob            knob       knob
+                 value           value      value
+
+Specific requirements
+=====================
+
+1. Detect module
+----------------
+- Keep the Detect control as a SQUARE button.
+- Use the current ear/listen icon.
+- Add a small label ABOVE the button:
+  "Detect"
+- The Detect button should be the SAME HEIGHT as the rotary knobs.
+- The button should feel like part of the same control row, not like a separate floating action.
+- Keep the icon centred.
+- Preserve the existing Detect behaviour exactly.
+
+2. Knob modules
+---------------
+Keep the current 3 modules:
+- Noise floor
+- Gap
+- Snap
+
+Each should remain:
+
+label above
+knob in middle
+readout below
+
+Example:
+
+Noise floor
+   knob
+ -45.0 dB
+
+Gap
+ knob
+ 1.0 s
+
+Snap
+ knob
+ 150 ms
+
+3. Spacing
+----------
+- Shift the Noise Floor module slightly to the right to make room for the Detect module.
+- Make the horizontal spacing between:
+  Detect
+  Noise floor
+  Gap
+  Snap
+  feel even and deliberate.
+- Do not let the controls drift into the Undo / Clear All area.
+- Do not shrink the knobs.
+- Do not change panel height.
+
+4. Alignment
+------------
+- Align the centre of the Detect button with the centres of the three knobs.
+- Align the labels horizontally above their respective controls.
+- Keep readouts directly beneath their respective knobs.
+- Detect does NOT need a readout beneath it.
+
+5. Undo / Clear All
+-------------------
+- Leave Undo and Clear All in their current compact area to the right of the knobs.
+- Do not change their behaviour.
+- Do not move them into a new row.
+
+6. Preview / Apply area
+-----------------------
+- Leave the preview/info + Apply section on the far right unchanged.
+- Do not move or resize it unless absolutely necessary for alignment.
+- Keep the vertical divider between controls and preview.
+
+7. Tooltips
+-----------
+Keep/add useful tooltips:
+
+Detect:
+"Analyse the waveform and preview proposed split points using the current settings."
+
+Noise floor:
+"Audio below this level is treated as silence when detecting gaps."
+
+Gap:
+"Minimum silence duration required before a split is proposed."
+
+Snap:
+"How close marker placement snaps to a detected split point."
+
+8. Style
+--------
+- Keep the current dark UI style.
+- Detect button should visually match the existing compact control language.
+- Do not make it oversized or brightly styled.
+- Keep it square and restrained.
+
+Implementation guidance
+=======================
+
+Before editing:
+- inspect the current Splitter tab JSX/CSS classes
+- identify the exact wrapper controlling horizontal spacing
+- make the minimum changes needed
+
+After editing:
+- confirm the panel height is unchanged
+- confirm nothing wraps
+- confirm preview/apply area is still fixed on the right
+- confirm Detect is same visual height as the knobs
+- confirm knob spacing is now even
+
+Please make the code changes directly, then summarise:
+- files changed
+- layout changes made
+- whether any spacing values were adjusted
