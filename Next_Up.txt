@@ -1,5 +1,8 @@
 Work through these one at a time, stopping for me to check after each edit.
 
+Git workflow: automatically create a fresh branch from up-to-date main for each
+new development pass. Keep experiments on that branch until reviewed and merged.
+
 Device layout: opening panels and changing values must not move or resize the waveform.
 Done: Processing & Detection opens upward over the editor from its fixed bottom bar.
 
@@ -19,21 +22,18 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
    tag. Expanding it renders an absolutely-positioned overlay that drops down over the
    track list (not in document flow), so it can never resize the Tracks panel, Transport,
    or the waveform — fixed the earlier version that shrank the waveform on toggle.
-7. Tools panel follow-up (in progress, needs more work): expand Transport controls
-   outward. Tools section is taking up way too much blank space — either align the
-   Tools tabs to the top or bottom of the box, then use the rest of the box to display
-   settings. Peak Tamer's explanation text is too verbose, just needs to be a set of
-   controls. Detection, Peak Tamer, and Normalise controls could easily fit in that
-   area without changing the size of the box.
-8. Detection: replace the Noise Floor number input with a knob, a label above,
-   and a small digital value readout (potentially in the centre of the knob).
-9. Detection: replace the Min. Silence number input with a matching knob and
-   a clearly labelled time readout. Keep the panel layout stable while adjusting.
-10. Recording panel: add a press-and-hold preamp detector. Hold the button during
-    a loud passage to measure its peak, then automatically set preamp gain on release
-    to reach the target peak. Target still to decide: -6 dBFS or -1 dBFS.
-11. Recording panel: move the Transport section into the Controls panel.
-12. Loop/sample creator: activating Selection's loop button opens a compact pop-up
+7. Tools panel follow-up: Detection's appearance and behaviour are accepted for now.
+   Pop detector / Peak Tamer and Normalise still need their own tweaking and
+   refinement. Preserve the fixed panel size and waveform layout.
+8. Implemented, awaiting user testing: Noise Floor knob with label and digital readout.
+9. Implemented, awaiting user testing: matching Min. Silence (Gap) knob and time
+   readout. Keep the panel layout stable while adjusting.
+10. Implemented, awaiting user testing: press-and-hold preamp detector measures a
+    loud passage and sets gain on release to reach the adjustable target peak.
+11. Discussion only: moving Recording Transport into Controls may no longer be
+    wanted. Discuss before implementing; this is not an approved change.
+12. Wanted, planned as a separate development pass: loop/sample creator.
+    Activating Selection's loop button opens a compact pop-up
     for auditioning, adjusting and saving the selected region. Preserve the fixed
     device layout; the controls must not resize or move the waveform.
     - Halve/double the selection length, with a choice of which edge stays fixed.
