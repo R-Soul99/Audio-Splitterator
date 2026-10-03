@@ -1,4 +1,6 @@
 import { FadeSettings, FadeCurve } from '../types';
+import { analyzeSilenceLevels, findSilenceRegions, NOISE_THRESHOLD_MARGIN_DB } from './silenceAnalysis';
+import { filterAutoSplitCandidates } from './autoSplitPolicy';
 
 /**
  * Finds the closest zero-crossing sample within a search window around targetSample.
@@ -309,19 +311,21 @@ export function measureNoiseFloorDb(
   startSec = 0,
   endSec = sourceBuffer.duration
 ): { peakDb: number; suggestedThresholdDb: number } {
-  const channel = sourceBuffer.getChannelData(0);
-  const start = Math.max(0, Math.floor(startSec * sourceBuffer.sampleRate));
-  const end = Math.min(channel.length, Math.ceil(endSec * sourceBuffer.sampleRate));
+  const levels = analyzeSilenceLevels(sourceBuffer, startSec, endSec);
+  const sorted = levels.map(window => window.rms).sort((a, b) => a - b);
+  // Upper background percentile ignores isolated clicks, unlike a sample peak.
+  const background = sorted[Math.max(0, Math.ceil(sorted.length * 0.9) - 1)] ?? 0;
+  const backgroundDb = background > 0 ? 20 * Math.log10(background) : -Infinity;
   let peak = 0;
-
-  for (let index = start; index < end; index++) {
-    peak = Math.max(peak, Math.abs(channel[index]));
+  const start = Math.max(0, Math.floor(Math.min(startSec, endSec) * sourceBuffer.sampleRate));
+  const end = Math.min(sourceBuffer.length, Math.ceil(Math.max(startSec, endSec) * sourceBuffer.sampleRate));
+  for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel++) {
+    const data = sourceBuffer.getChannelData(channel);
+    for (let sample = start; sample < end; sample++) peak = Math.max(peak, Math.abs(data[sample]));
   }
-
-  const peakDb = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
   return {
-    peakDb,
-    suggestedThresholdDb: Math.max(-80, peakDb - 12),
+    peakDb: peak > 0 ? 20 * Math.log10(peak) : -Infinity,
+    suggestedThresholdDb: Math.max(-96, Math.min(0, backgroundDb + NOISE_THRESHOLD_MARGIN_DB)),
   };
 }
 
@@ -459,49 +463,9 @@ export function detectSilenceSplits(
   startSec = 0,
   endSec = audioBuffer.duration
 ): number[] {
-  const sampleRate = audioBuffer.sampleRate;
-  const numChannels = audioBuffer.numberOfChannels;
-  const len = audioBuffer.length;
-  const startSample = Math.max(0, Math.floor(startSec * sampleRate));
-  const endSample = Math.min(len, Math.ceil(endSec * sampleRate));
-  const thresholdLinear = Math.pow(10, thresholdDb / 20);
-  const minSilenceSamples = Math.round(minSilenceDurationSec * sampleRate);
-
-  const splitPoints: number[] = [];
-  const windowSize = Math.round(sampleRate * 0.05); // 50ms window
-  let silenceCount = 0;
-  let inSilence = false;
-  let silenceStartSample = 0;
-
-  for (let i = startSample; i < endSample; i += windowSize) {
-    let windowPeak = 0;
-    const end = Math.min(endSample, i + windowSize);
-    for (let ch = 0; ch < numChannels; ch++) {
-      const data = audioBuffer.getChannelData(ch);
-      for (let s = i; s < end; s++) {
-        const absVal = Math.abs(data[s]);
-        if (absVal > windowPeak) windowPeak = absVal;
-      }
-    }
-
-    if (windowPeak < thresholdLinear) {
-      if (!inSilence) {
-        inSilence = true;
-        silenceStartSample = i;
-      }
-      silenceCount += windowSize;
-    } else {
-      if (inSilence && silenceCount >= minSilenceSamples) {
-        // Center of the silence region
-        const splitSample = Math.round((silenceStartSample + (silenceStartSample + silenceCount)) / 2);
-        splitPoints.push(splitSample / sampleRate);
-      }
-      inSilence = false;
-      silenceCount = 0;
-    }
-  }
-
-  return splitPoints;
+  const times = findSilenceRegions(analyzeSilenceLevels(audioBuffer, startSec, endSec), thresholdDb, minSilenceDurationSec)
+    .map(region => region.candidate);
+  return filterAutoSplitCandidates(times, audioBuffer.duration);
 }
 
 /**

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { RotaryKnob } from './RotaryKnob';
+import { analyzeSilenceLevels, findSilenceRegions, snapToSilenceCandidate } from '../utils/silenceAnalysis';
 import { Marker, FadeSettings, TimeSelection } from '../types';
 import {
   formatTime,
@@ -249,6 +250,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     times: number[];
   } | null>(null);
   const [thresholdFlashKey, setThresholdFlashKey] = useState<number>(0);
+  const [appliedPreview, setAppliedPreview] = useState<typeof autoSplitPreview>(null);
   const [feedbackToast, setFeedbackToast] = useState<{ text: string; type: 'success' | 'info' | 'warning' } | null>(null);
 
   // Dragging States
@@ -289,10 +291,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const duration = audioBuffer?.duration ?? 0;
   const autoSplitEnd = cropEnd > 0 ? cropEnd : duration;
+  const previewsApplied = appliedPreview?.buffer === audioBuffer &&
+    appliedPreview?.thresholdDb === noiseFloorDb && appliedPreview?.silenceDuration === silenceDurationSec &&
+    appliedPreview?.start === cropStart && appliedPreview?.end === autoSplitEnd;
 
   // Preview only: debounce changes and never add markers until Auto-Split is clicked.
   useEffect(() => {
-    if (!processingOpen || !audioBuffer) return;
+    if (!processingOpen || !audioBuffer || previewsApplied) return;
     const timer = setTimeout(() => {
       setAutoSplitPreview({
         buffer: audioBuffer,
@@ -304,14 +309,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       });
     }, 250);
     return () => clearTimeout(timer);
-  }, [processingOpen, audioBuffer, noiseFloorDb, silenceDurationSec, cropStart, autoSplitEnd]);
+  }, [processingOpen, audioBuffer, noiseFloorDb, silenceDurationSec, cropStart, autoSplitEnd, previewsApplied, thresholdFlashKey]);
 
   const previewTimes = autoSplitPreview?.buffer === audioBuffer &&
     autoSplitPreview?.thresholdDb === noiseFloorDb &&
     autoSplitPreview?.silenceDuration === silenceDurationSec &&
     autoSplitPreview?.start === cropStart && autoSplitPreview?.end === autoSplitEnd
     ? autoSplitPreview.times : null;
-  // Auto-Split replaces markers when gaps are found, and keeps them when none are found.
+  // Applying auto-splits preserves manual markers.
   const previewSliceCount = previewTimes === null ? null : 1 +
     (previewTimes.length > 0 ? previewTimes : markers.map((marker) => marker.time))
       .filter((time) => time > cropStart + 0.01 && time < autoSplitEnd - 0.01).length;
@@ -540,33 +545,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     return snappedSample / sampleRate;
   }, [audioBuffer]);
 
-  const snapTimeToNoiseFloor = useCallback((time: number): number => {
-    if (snapAmountSec <= 0 || !audioBuffer) return time;
-
-    const channel = audioBuffer.getChannelData(0);
-    const sampleRate = audioBuffer.sampleRate;
-    const targetSample = Math.max(0, Math.min(channel.length - 1, Math.round(time * sampleRate)));
-    const searchSamples = Math.round(sampleRate * snapAmountSec);
-    const windowSamples = Math.max(32, Math.round(sampleRate * 0.012));
-    const threshold = Math.pow(10, noiseFloorDb / 20);
-    let bestSample = targetSample;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    for (let offset = -searchSamples; offset <= searchSamples; offset += windowSamples) {
-      const center = Math.max(0, Math.min(channel.length - 1, targetSample + offset));
-      const start = Math.max(0, center - Math.floor(windowSamples / 2));
-      const end = Math.min(channel.length, start + windowSamples);
-      let sumSquares = 0;
-      for (let i = start; i < end; i++) sumSquares += channel[i] * channel[i];
-      const rms = Math.sqrt(sumSquares / Math.max(1, end - start));
-      if (rms <= threshold && Math.abs(offset) < bestDistance) {
-        bestSample = center;
-        bestDistance = Math.abs(offset);
-      }
-    }
-
-    return bestDistance <= searchSamples ? bestSample / sampleRate : time;
-  }, [audioBuffer, noiseFloorDb, snapAmountSec]);
+  // Cache stereo analysis independently of pointer movement and knob changes.
+  const silenceLevels = useMemo(() => audioBuffer
+    ? analyzeSilenceLevels(audioBuffer, cropStart, autoSplitEnd) : [], [audioBuffer, cropStart, autoSplitEnd]);
+  const gapCandidates = useMemo(() => findSilenceRegions(silenceLevels, noiseFloorDb, silenceDurationSec)
+    .map(region => region.candidate), [silenceLevels, noiseFloorDb, silenceDurationSec]);
+  const snapTimeToNoiseFloor = useCallback((time: number): number =>
+    snapToSilenceCandidate(time, gapCandidates, snapAmountSec), [gapCandidates, snapAmountSec]);
 
   const snapEditTime = useCallback((time: number) => {
     let snapped = snapTimeToNoiseFloor(time);
@@ -1080,7 +1065,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // 6. Hover guide
     if (hoverPosition && hoverTime !== null) {
       const hx = hoverPosition.x;
-      const snappedHoverTime = snapEditTime(hoverTime);
+      const snappedHoverTime = processingOpen ? snapTimeToNoiseFloor(hoverTime) : snapEditTime(hoverTime);
       const snappedX = timeToX(snappedHoverTime, width);
       if (snapAmountSec > 0 && Math.abs(snappedX - hx) > 2 && snappedX >= 0 && snappedX <= width) {
         ctx.strokeStyle = '#67e8f9';
@@ -1143,7 +1128,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX, snapEditTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX, snapEditTime, snapTimeToNoiseFloor, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd]);
 
   // Trigger the overlay redraw whenever any of its inputs change
   useEffect(() => {
@@ -1290,7 +1275,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Radar ping: fire the moment the cursor crosses onto a detected noise-floor snap point
     if (snapAmountSec > 0 && audioBuffer) {
       const snappedX = timeToX(snapTimeToNoiseFloor(time), canvasDimensions.width);
-      const isOverSnapPoint = Math.abs(snappedX - x) <= 2;
+      const isOverSnapPoint = gapCandidates.some(candidate => Math.abs(candidate - time) <= snapAmountSec) && Math.abs(snappedX - x) <= 2;
       if (isOverSnapPoint && !wasOverSnapPointRef.current) {
         startSnapPing(snappedX);
       }
@@ -1306,8 +1291,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         nextTime = snapEditTime(nextTime);
         onSeek(nextTime);
       } else if (activeDrag.type === 'marker' && activeDrag.id) {
-        let nextTime = Math.max(cropStart, Math.min(cropEnd, time));
-        nextTime = snapEditTime(nextTime);
+        let nextTime = Math.max(cropStart, Math.min(autoSplitEnd, time));
+        nextTime = snapTimeToNoiseFloor(nextTime);
         if (!markerMoveStartedRef.current && markers.some(marker => marker.id === activeDrag.id && marker.time !== nextTime)) {
           onMarkerMoveStart?.();
           markerMoveStartedRef.current = true;
@@ -1564,7 +1549,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (!processingOpen || !audioBuffer || e.button !== 0) return;
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
-    onAddMarker(snapEditTime(xToTime(e.clientX - rect.left, rect.width)));
+    onAddMarker(snapTimeToNoiseFloor(xToTime(e.clientX - rect.left, rect.width)));
   };
 
   const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1814,6 +1799,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       return;
     }
     const measured = measureNoiseFloorDb(audioBuffer, selection.start, selection.end);
+    setAppliedPreview(null);
     setNoiseFloorDb(measured.suggestedThresholdDb);
     setThresholdFlashKey((k) => k + 1);
   };
@@ -1822,6 +1808,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const handleTriggerAutoSplit = () => {
     if (!onAutoSplit) return;
     const count = onAutoSplit(noiseFloorDb, silenceDurationSec);
+    const cleared = { buffer: audioBuffer!, thresholdDb: noiseFloorDb, silenceDuration: silenceDurationSec,
+      start: cropStart, end: autoSplitEnd, times: [] };
+    setAppliedPreview(cleared);
+    setAutoSplitPreview(cleared);
     if (typeof count === 'number') {
       if (count > 0) {
         setFeedbackToast({
