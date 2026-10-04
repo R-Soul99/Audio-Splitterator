@@ -3,7 +3,7 @@ import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
 import { RotaryKnob } from './RotaryKnob';
 import { analyzeSilenceLevels, analyzeSilenceLevelsChunked } from '../utils/silenceAnalysis';
-import { buildQuietRuns, acquireQuietTarget } from '../utils/quietRadar';
+import { buildQuietRuns, acquireQuietTarget, QuietRadarAcquisition, QuietTarget } from '../utils/quietRadar';
 import { hitTestFadeControls, isFadeCurveVisible, FadeControlGeometry } from '../utils/fadeControls';
 import { Marker, FadeSettings, TimeSelection } from '../types';
 
@@ -42,6 +42,7 @@ interface WaveformCanvasProps {
   importError?: string | null;
   onAnalysisBusyChange?: (busy: boolean) => void;
   processingPanelContainer: HTMLDivElement | null;
+  loadedAudioId: number;
   audioBuffer: AudioBuffer | null;
   currentTime: number;
   cropStart: number;
@@ -172,6 +173,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
 export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   importStatus, importError, onAnalysisBusyChange,
   audioBuffer,
+  loadedAudioId,
   currentTime,
   cropStart,
   cropEnd,
@@ -225,7 +227,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Radar-style "ping" when the cursor crosses onto a detected noise-floor snap point
   const snapTracesRef = useRef<{ time: number; start: number }[]>([]);
-  const lastSnapTargetRef = useRef<number | null>(null);
   const pingRafRef = useRef<number | null>(null);
 
   const [canvasDimensions, setCanvasDimensions] = useState({ width: 600, height: 180 });
@@ -246,6 +247,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const [peakAnalysis, setPeakAnalysis] = useState<AnomalousPeakAnalysis | null>(null);
   const [isProcessingPeaks, setIsProcessingPeaks] = useState<boolean>(false);
   const peakScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Waveform-owned detection belongs to the loaded recording, never a tool panel.
+  const [detectedAudioId, setDetectedAudioId] = useState<number | null>(null);
+  const radarReady = detectedAudioId === loadedAudioId && !!audioBuffer;
 
   // Noise Floor & Auto-Split States
   const [noiseFloorDb, setNoiseFloorDb] = useState<number>(-45.0);
@@ -560,7 +565,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     return () => controller.abort();
   }, [audioBuffer, cropStart, autoSplitEnd]);
   const quietRuns = useMemo(() => buildQuietRuns(silenceLevels, noiseFloorDb), [silenceLevels, noiseFloorDb]);
-  const acquiredRunRef = useRef<number | null>(null);
+  const radarAcquisitionRef = useRef(new QuietRadarAcquisition());
   const snapTimeToNoiseFloor = useCallback((time: number): number =>
     acquireQuietTarget(time, quietRuns, snapAmountSec)?.time ?? time, [quietRuns, snapAmountSec]);
 
@@ -1153,9 +1158,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const startSnapTrace = useCallback((time: number) => {
     const now = performance.now();
-    // A jittering drag must not stack/restart the same phosphor trace.
-    if (snapTracesRef.current.some(trace => trace.time === time && now - trace.start < SNAP_TRACE_DURATION_MS)) return;
-    snapTracesRef.current = [...snapTracesRef.current.filter(trace => now - trace.start < SNAP_TRACE_DURATION_MS),
+    // Acquisition state gates pings. Re-acquisition restarts the same trace without stacking it.
+    snapTracesRef.current = [...snapTracesRef.current.filter(trace => trace.time !== time && now - trace.start < SNAP_TRACE_DURATION_MS),
       { time, start: now }].slice(-MAX_SNAP_TRACES);
     if (pingRafRef.current !== null) return;
     const step = () => {
@@ -1165,17 +1169,17 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     pingRafRef.current = requestAnimationFrame(step);
   }, []);
 
+  const updateRadarAcquisition = (target: QuietTarget | null) => {
+    if (radarAcquisitionRef.current.update(target) && target) startSnapTrace(target.time);
+  };
+
   const showSuccessfulSnap = (requested: number) => {
-    const candidate = snapTimeToNoiseFloor(requested);
-    if (candidate === requested) { lastSnapTargetRef.current = null; return; }
-    if (lastSnapTargetRef.current !== candidate) startSnapTrace(candidate);
-    lastSnapTargetRef.current = candidate;
+    updateRadarAcquisition(radarReady ? acquireQuietTarget(requested, quietRuns, snapAmountSec) : null);
   };
 
   useEffect(() => {
     snapTracesRef.current = [];
-    lastSnapTargetRef.current = null;
-    acquiredRunRef.current = null;
+    radarAcquisitionRef.current.reset();
     if (pingRafRef.current !== null) cancelAnimationFrame(pingRafRef.current);
     pingRafRef.current = null;
     return () => {
@@ -1183,6 +1187,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       snapTracesRef.current = [];
     };
   }, [audioBuffer]);
+
+  useEffect(() => {
+    setDetectedAudioId(null);
+    setNoiseFloorDb(-45.0);
+    setThresholdFlashKey(0);
+    setAppliedPreview(null);
+    setAutoSplitPreview(null);
+    setHoverTime(null);
+    setHoverPosition(null);
+    snapTracesRef.current = [];
+    radarAcquisitionRef.current.reset();
+  }, [loadedAudioId]);
 
   // Minimap rendering
   useEffect(() => {
@@ -1308,10 +1324,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     // Live radar acquisition is independent of Auto-Split's Gap setting.
     // Hover stays at the pointer; the trace and actual marker use the quiet target.
-    const markerContext = processingOpen && (!activeDrag || activeDrag.type === 'marker');
-    const target = markerContext ? acquireQuietTarget(time, quietRuns, snapAmountSec) : null;
-    if (target && acquiredRunRef.current !== target.runStart) startSnapTrace(target.time);
-    acquiredRunRef.current = target?.runStart ?? null;
+    const markerContext = radarReady && (!activeDrag || activeDrag.type === 'marker');
+    if (markerContext) {
+      updateRadarAcquisition(acquireQuietTarget(time, quietRuns, snapAmountSec));
+    } else if (!activeDrag || !['selectionStart', 'selectionEnd', 'selectionCreate'].includes(activeDrag.type)) {
+      // Selection snapping below updates the same latch; do not re-arm it first
+      // on every pointer move merely because this is not passive marker hover.
+      updateRadarAcquisition(null);
+    }
 
     // Dragging active element logic
     if (activeDrag) {
@@ -1432,7 +1452,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const time = xToTime(x, canvasDimensions.width);
 
     pointerDownPositionRef.current = { x, y };
-    lastSnapTargetRef.current = null;
 
     const fadeTarget = hitTestFadeControls(x, y, fadeControls);
     if (fadeTarget) { setActiveDrag({ type: fadeTarget }); return; }
@@ -1464,6 +1483,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const downPosition = pointerDownPositionRef.current;
     pointerDownPositionRef.current = null;
     if (e.type === 'pointercancel') {
+      radarAcquisitionRef.current.reset();
       setActiveDrag(null);
       return;
     }
@@ -1518,7 +1538,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
     const requested = xToTime(e.clientX - rect.left, rect.width);
-    lastSnapTargetRef.current = null;
     showSuccessfulSnap(requested);
     onAddMarker(snapTimeToNoiseFloor(requested));
   };
@@ -1774,6 +1793,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const measured = measureNoiseFloorDb(audioBuffer, selection.start, selection.end);
     setAppliedPreview(null);
     setNoiseFloorDb(measured.suggestedThresholdDb);
+    setDetectedAudioId(loadedAudioId);
     setThresholdFlashKey((k) => k + 1);
   };
 
@@ -2087,20 +2107,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                     >
                       <X className="w-3 h-3" />
                     </button>
-                  </div>
-
-                  <div className="detection-detect text-slate-400" title="Analyse the waveform and preview proposed split points using the current settings.">
-                    <span>Detect</span>
-                  <button
-                    type="button"
-                    onClick={handleSampleNoiseFloor}
-                    disabled={!audioBuffer}
-                    aria-label="Sample noise floor from selection"
-                    className="detection-sample flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Analyse the waveform and preview proposed split points using the current settings."
-                  >
-                    <Ear aria-hidden="true" className="h-3 w-3" />
-                  </button>
                   </div>
 
                   <div title="Audio below this level is treated as silence when detecting gaps." className="detection-noise text-slate-400">
@@ -2420,8 +2426,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               {hasSelection ? `${formatTime(selS, true)} – ${formatTime(selE, true)}` : 'None'}
             </span>
           </div>
-          <div className="flex shrink-0 items-baseline gap-1.5">
-            <span className="text-[8px] uppercase tracking-wider text-slate-500">Noise Floor</span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button type="button" onClick={handleSampleNoiseFloor} disabled={!audioBuffer}
+              aria-label="Detect Noise Floor" title="Detect noise floor from the selected quiet section."
+              className="flex h-4 items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1 text-[9px] text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+              <Ear aria-hidden="true" className="h-3 w-3" />Detect Noise Floor
+            </button>
             <span key={thresholdFlashKey} className={`font-mono tabular-nums text-amber-400 ${thresholdFlashKey > 0 ? 'flash-once' : ''}`}>
               {noiseFloorDb.toFixed(1)} dB
             </span>
@@ -2474,6 +2484,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onPointerLeave={() => radarAcquisitionRef.current.reset()}
           onContextMenu={handleContextMenu}
           onDoubleClick={handleWaveformDoubleClick}
           className={`w-full block touch-none ${cursorStyle} ${audioBuffer ? '' : 'pointer-events-none'}`}

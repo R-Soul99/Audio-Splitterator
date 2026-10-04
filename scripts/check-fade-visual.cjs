@@ -70,7 +70,7 @@ app.whenReady().then(async () => {
  const wave=document.querySelector('canvas[title]'), overlay=wave.nextElementSibling,rect=wave.getBoundingClientRect();
  const fire=(type,time,y=70)=>wave.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:2,button:0,buttons:type==='pointerup'?0:1,clientX:rect.left+rect.width*time/10,clientY:rect.top+y}));
 
- document.querySelector('[aria-label="Sample noise floor from selection"]').click();await wait(300);
+ document.querySelector('[aria-label="Detect Noise Floor"]').click();await wait(300);
  const threshold=document.querySelector('[aria-label="Noise floor in dB"]').textContent;
  const preview=document.querySelector('[aria-label="Auto-split preview"]').textContent;
  const scale=overlay.width/rect.width; const x=Math.floor(rect.width*6.15/10*scale);
