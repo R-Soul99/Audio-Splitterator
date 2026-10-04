@@ -133,3 +133,41 @@ test('touching envelopes and transitive neighbours share acquisition; separated 
   // A jump to another disjoint envelope also establishes that the old zone was left.
   assert.equal(acquisition.update(capture(1.625)), true);
 });
+
+test('candidate transition trace across many RMS interruptions acquires only connected areas', (t) => {
+  const buffer = signal(10, 11.5);
+  // Each loud 20 ms window fragments the analysis without separating Snap envelopes.
+  for (const sample of [10100, 10200, 10300, 10400]) {
+    buffer.getChannelData(0).fill(0.1, sample, sample + 20);
+  }
+  // A longer loud interval creates a genuinely separate area.
+  buffer.getChannelData(0).fill(0.1, 10600, 11000);
+  const runs = buildQuietRuns(analyzeSilenceLevels(buffer), -46);
+  assert.equal(runs.length, 6);
+  const acquisition = new QuietRadarAcquisition();
+  const times = [9.85, 10.05, 10.16, 10.26, 10.36, 10.51,
+    10.36, 10.26, 10.16, 10.05, 10.75, 10.76, 10.51, 10.8, 10.85, 11.25];
+  let previousRun: number | null = null;
+  const trace = times.map(time => {
+    const target = acquireQuietTarget(time, runs, 0.15);
+    const runStart = target?.runStart ?? null;
+    const oldPing = runStart !== null && runStart !== previousRun;
+    previousRun = runStart;
+    return { pointer: time, runStart, zone: target?.zone ?? null,
+      oldPing, ping: acquisition.update(target) };
+  });
+  t.diagnostic(JSON.stringify(trace));
+  assert.deepEqual(trace.map(row => row.ping), [true, false, false, false, false, false,
+    false, false, false, false, false, false, true, false, true, false]);
+  assert.equal(trace.slice(0, 11).filter(row => row.oldPing).length, 10);
+  assert.equal(trace.slice(0, 11).filter(row => row.ping).length, 1);
+  assert.equal(trace[11].zone, null, 'leaving the complete first envelope re-arms');
+  assert.equal(trace[13].zone, null, 'the space between separate areas is unacquired');
+  for (const time of [10.05, 10.16, 10.26, 10.36, 10.51, 11.25]) {
+    const target = acquireQuietTarget(time, runs, 0.15)!;
+    const run = runs.find(run => run.start === target.runStart)!;
+    assert.ok(time >= run.start && time <= run.end);
+    assert.ok(target.time >= run.start && target.time <= run.end);
+    assert.ok(Math.abs(target.time - time) <= 0.15 + 1e-9);
+  }
+});
