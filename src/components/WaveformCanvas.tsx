@@ -3,7 +3,7 @@ import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
 import { RotaryKnob } from './RotaryKnob';
 import { analyzeSilenceLevels, analyzeSilenceLevelsChunked } from '../utils/silenceAnalysis';
-import { buildQuietRuns, acquireQuietTarget } from '../utils/quietRadar';
+import { buildQuietRuns, acquireQuietTarget, QuietRadarAcquisition, QuietTarget } from '../utils/quietRadar';
 import { hitTestFadeControls, isFadeCurveVisible, FadeControlGeometry } from '../utils/fadeControls';
 import { Marker, FadeSettings, TimeSelection } from '../types';
 
@@ -225,7 +225,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Radar-style "ping" when the cursor crosses onto a detected noise-floor snap point
   const snapTracesRef = useRef<{ time: number; start: number }[]>([]);
-  const lastSnapTargetRef = useRef<number | null>(null);
   const pingRafRef = useRef<number | null>(null);
 
   const [canvasDimensions, setCanvasDimensions] = useState({ width: 600, height: 180 });
@@ -560,7 +559,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     return () => controller.abort();
   }, [audioBuffer, cropStart, autoSplitEnd]);
   const quietRuns = useMemo(() => buildQuietRuns(silenceLevels, noiseFloorDb), [silenceLevels, noiseFloorDb]);
-  const acquiredRunRef = useRef<number | null>(null);
+  const radarAcquisitionRef = useRef(new QuietRadarAcquisition());
   const snapTimeToNoiseFloor = useCallback((time: number): number =>
     acquireQuietTarget(time, quietRuns, snapAmountSec)?.time ?? time, [quietRuns, snapAmountSec]);
 
@@ -1153,9 +1152,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const startSnapTrace = useCallback((time: number) => {
     const now = performance.now();
-    // A jittering drag must not stack/restart the same phosphor trace.
-    if (snapTracesRef.current.some(trace => trace.time === time && now - trace.start < SNAP_TRACE_DURATION_MS)) return;
-    snapTracesRef.current = [...snapTracesRef.current.filter(trace => now - trace.start < SNAP_TRACE_DURATION_MS),
+    // Acquisition state gates pings. Re-acquisition restarts the same trace without stacking it.
+    snapTracesRef.current = [...snapTracesRef.current.filter(trace => trace.time !== time && now - trace.start < SNAP_TRACE_DURATION_MS),
       { time, start: now }].slice(-MAX_SNAP_TRACES);
     if (pingRafRef.current !== null) return;
     const step = () => {
@@ -1165,17 +1163,17 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     pingRafRef.current = requestAnimationFrame(step);
   }, []);
 
+  const updateRadarAcquisition = (target: QuietTarget | null) => {
+    if (radarAcquisitionRef.current.update(target) && target) startSnapTrace(target.time);
+  };
+
   const showSuccessfulSnap = (requested: number) => {
-    const candidate = snapTimeToNoiseFloor(requested);
-    if (candidate === requested) { lastSnapTargetRef.current = null; return; }
-    if (lastSnapTargetRef.current !== candidate) startSnapTrace(candidate);
-    lastSnapTargetRef.current = candidate;
+    updateRadarAcquisition(acquireQuietTarget(requested, quietRuns, snapAmountSec));
   };
 
   useEffect(() => {
     snapTracesRef.current = [];
-    lastSnapTargetRef.current = null;
-    acquiredRunRef.current = null;
+    radarAcquisitionRef.current.reset();
     if (pingRafRef.current !== null) cancelAnimationFrame(pingRafRef.current);
     pingRafRef.current = null;
     return () => {
@@ -1309,9 +1307,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Live radar acquisition is independent of Auto-Split's Gap setting.
     // Hover stays at the pointer; the trace and actual marker use the quiet target.
     const markerContext = processingOpen && (!activeDrag || activeDrag.type === 'marker');
-    const target = markerContext ? acquireQuietTarget(time, quietRuns, snapAmountSec) : null;
-    if (target && acquiredRunRef.current !== target.runStart) startSnapTrace(target.time);
-    acquiredRunRef.current = target?.runStart ?? null;
+    if (markerContext) {
+      updateRadarAcquisition(acquireQuietTarget(time, quietRuns, snapAmountSec));
+    } else if (!activeDrag || !['selectionStart', 'selectionEnd', 'selectionCreate'].includes(activeDrag.type)) {
+      // Selection snapping below updates the same latch; do not re-arm it first
+      // on every pointer move merely because this is not passive marker hover.
+      updateRadarAcquisition(null);
+    }
 
     // Dragging active element logic
     if (activeDrag) {
@@ -1432,7 +1434,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const time = xToTime(x, canvasDimensions.width);
 
     pointerDownPositionRef.current = { x, y };
-    lastSnapTargetRef.current = null;
 
     const fadeTarget = hitTestFadeControls(x, y, fadeControls);
     if (fadeTarget) { setActiveDrag({ type: fadeTarget }); return; }
@@ -1464,6 +1465,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const downPosition = pointerDownPositionRef.current;
     pointerDownPositionRef.current = null;
     if (e.type === 'pointercancel') {
+      radarAcquisitionRef.current.reset();
       setActiveDrag(null);
       return;
     }
@@ -1518,7 +1520,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
     const requested = xToTime(e.clientX - rect.left, rect.width);
-    lastSnapTargetRef.current = null;
     showSuccessfulSnap(requested);
     onAddMarker(snapTimeToNoiseFloor(requested));
   };
@@ -2474,6 +2475,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onPointerLeave={() => radarAcquisitionRef.current.reset()}
           onContextMenu={handleContextMenu}
           onDoubleClick={handleWaveformDoubleClick}
           className={`w-full block touch-none ${cursorStyle} ${audioBuffer ? '' : 'pointer-events-none'}`}

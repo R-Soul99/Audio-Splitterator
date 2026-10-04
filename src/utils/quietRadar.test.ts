@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeSilenceLevels, findSilenceRegions } from './silenceAnalysis';
-import { buildQuietRuns, acquireQuietTarget } from './quietRadar';
+import { buildQuietRuns, acquireQuietTarget, QuietRadarAcquisition } from './quietRadar';
 
 function signal(start = 10.1, end = 10.4, loudRight = false) {
   const rate = 1000;
@@ -36,4 +36,60 @@ test('nearby pointer movement stays on the same quiet-run identity and centre wh
   const next = acquireQuietTarget(10.21, runs, 0.15)!;
   assert.equal(first.runStart, next.runStart);
   assert.equal(first.time, next.time);
+});
+
+const acquisitionRuns = [
+  { start: 10, end: 12, candidate: 11 },
+  { start: 14, end: 16, candidate: 15 },
+];
+const capture = (time: number) => acquireQuietTarget(time, acquisitionRuns, 0.15);
+
+test('entering a quiet capture zone emits one acquisition, including the Snap margin', () => {
+  const acquisition = new QuietRadarAcquisition();
+  assert.equal(acquisition.update(capture(9.9)), true);
+  assert.equal(acquisition.update(capture(10)), false);
+});
+
+test('movement across the whole quiet region and both Snap margins never repeats the ping', () => {
+  const acquisition = new QuietRadarAcquisition();
+  const times = [9.9, 10.05, 10.2, 10.9, 11, 11.8, 12, 12.1, 11.2, 10.1];
+  const targets = times.map(capture);
+  assert.ok(targets.every(target => target?.runStart === 10));
+  assert.ok(new Set(targets.map(target => target?.time)).size > 1, 'snap timestamps vary within one region');
+  assert.deepEqual(targets.map(target => acquisition.update(target)), [true, ...times.slice(1).map(() => false)]);
+  // Re-evaluation after any amount of time also stays acquired; no cooldown exists.
+  for (let move = 0; move < 1000; move++) assert.equal(acquisition.update(capture(10.1)), false);
+});
+
+test('leaving the acquisition zone re-arms and re-entering emits one new event immediately', () => {
+  const acquisition = new QuietRadarAcquisition();
+  assert.equal(acquisition.update(capture(10.2)), true);
+  assert.equal(capture(12.4), null);
+  assert.equal(acquisition.update(capture(12.4)), false);
+  assert.equal(acquisition.update(null), false);
+  assert.equal(acquisition.update(capture(10.2)), true);
+  assert.equal(acquisition.update(capture(10.3)), false);
+});
+
+test('moving directly to a distinct quiet region emits a new acquisition', () => {
+  const acquisition = new QuietRadarAcquisition();
+  assert.equal(acquisition.update(capture(10.2)), true);
+  assert.equal(acquisition.update(capture(14.2)), true);
+  assert.equal(acquisition.update(capture(15.8)), false);
+  assert.equal(acquisition.update(capture(10.2)), true);
+});
+
+test('pointer exit or cancellation resets acquisition even when no outside sample is evaluated', () => {
+  const acquisition = new QuietRadarAcquisition();
+  assert.equal(acquisition.update(capture(10.2)), true);
+  acquisition.reset();
+  assert.equal(acquisition.update(capture(10.2)), true);
+  assert.equal(acquisition.update(capture(10.2)), false);
+});
+
+test('Snap Off loses acquisition and switching it back on can re-acquire', () => {
+  const acquisition = new QuietRadarAcquisition();
+  assert.equal(acquisition.update(capture(10.2)), true);
+  assert.equal(acquisition.update(acquireQuietTarget(10.2, acquisitionRuns, 0)), false);
+  assert.equal(acquisition.update(capture(10.2)), true);
 });

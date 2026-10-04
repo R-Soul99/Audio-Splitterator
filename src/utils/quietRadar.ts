@@ -3,6 +3,23 @@ import { LevelWindow } from './silenceAnalysis';
 export interface QuietRun { start: number; end: number; candidate: number }
 export interface QuietTarget { time: number; runStart: number }
 
+// A target's local snap time can move while its quiet region stays acquired.
+// Only region acquisition/loss determines ping events; no timer is involved.
+export class QuietRadarAcquisition {
+  private runStart: number | null = null;
+
+  update(target: QuietTarget | null): boolean {
+    const nextRun = target?.runStart ?? null;
+    const acquired = nextRun !== null && nextRun !== this.runStart;
+    this.runStart = nextRun;
+    return acquired;
+  }
+
+  reset(): void {
+    this.runStart = null;
+  }
+}
+
 // Manual radar intentionally has no Gap minimum or Auto-Split interruption policy.
 export function buildQuietRuns(windows: LevelWindow[], thresholdDb: number): QuietRun[] {
   const threshold = 10 ** (thresholdDb / 20);
