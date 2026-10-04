@@ -1,0 +1,125 @@
+Please make a small visual refinement to the EDIT waveform cursor/snap feedback and selection-edge markers.
+
+Do not change waveform behaviour.
+Do not change selection logic.
+Do not change Snap semantics.
+Do not change marker positions.
+Do not change layout dimensions.
+
+==================================================
+1 — CURSOR / PLAYHEAD LINE VISIBILITY
+==================================================
+
+Current issue:
+The cursor/playhead line is too faint and difficult to see.
+
+Please improve visibility mainly through:
+- higher opacity
+- brighter colour / stronger contrast
+- clearer rendering
+
+Do NOT make it noticeably thicker.
+
+Keep it visually slim and precise.
+
+If the current line width is already around 1 px, prefer leaving the width alone and increasing contrast instead.
+
+==================================================
+2 — SNAP “RADAR PING” FEEDBACK
+==================================================
+
+Current behaviour:
+When Snap finds a valid nearby gap, there is an expanding dot/circle near the top of the waveform.
+
+I do not want that.
+
+Replace the expanding-dot effect with a brief pulse of the ENTIRE vertical cursor line.
+
+Desired snap feedback:
+
+On a successful snap:
+- the full vertical cursor line briefly becomes brighter
+- optionally add a subtle glow
+- then fade smoothly back to its normal state
+
+Suggested duration:
+approximately 250–400 ms
+
+Important:
+- only trigger this effect when a genuine snap occurs
+- do not trigger it for ordinary cursor movement
+- remove the expanding top-dot/circle animation entirely
+- do not move or resize the cursor as part of the pulse
+
+The effect should feel like a quick “radar ping” through the whole line.
+
+==================================================
+3 — SELECTION EDGE MARKERS
+==================================================
+
+Current issue:
+The selection start/end edge markers are too thick visually.
+
+Please reduce their visual width.
+
+Goal:
+- thinner, cleaner boundary lines
+- still easy to distinguish
+- active/selected state can use stronger colour or opacity rather than extra thickness
+
+Do not reduce the pointer hit area if that would make them difficult to drag.
+
+If possible:
+- keep the visible line thin
+- keep a larger invisible hit target for interaction
+
+==================================================
+4 — VISUAL HIERARCHY
+==================================================
+
+Aim for this hierarchy:
+
+- cursor/playhead = thin but clearly visible
+- selection edges = thin precise boundaries
+- split markers = retain their existing distinct styling
+- snap feedback = brightness/glow pulse, not geometric expansion
+
+Avoid making any of these controls chunky.
+
+==================================================
+5 — PRESERVE INTERACTION
+==================================================
+
+Do not change:
+- cursor seeking
+- marker dragging
+- selection resizing
+- Snap search distance
+- Snap target selection
+- waveform zoom/pan
+- fade controls
+- Splitter detection
+- Export
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+Complete when:
+
+- cursor line is significantly easier to see
+- cursor line is not noticeably thicker
+- successful Snap briefly pulses the full cursor line
+- expanding top-dot/circle snap animation is gone
+- selection edge markers are visibly thinner
+- selection edges remain easy to drag
+- no layout or behavioural regressions are introduced
+
+After making the change:
+- run TypeScript/lint
+- run build if practical
+- summarise:
+  - files changed
+  - cursor styling change
+  - snap pulse implementation
+  - selection-edge width change

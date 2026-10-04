@@ -1,0 +1,99 @@
+Please investigate a regression in the EDIT screen fade controls.
+
+Symptom
+=======
+
+The fade handles can still be dragged, but the waveform display no longer visibly changes as the fade is adjusted.
+
+This used to work.
+
+Do not redesign the UI.
+Do not touch Export.
+Do not change Splitter detection/snapping.
+Do not change fade behaviour unless required to restore the previous working behaviour.
+
+Goal
+====
+
+Determine whether:
+
+1. fade state is still updating correctly
+2. playback/export processing still applies the fades correctly
+3. the waveform renderer is receiving the updated fade values
+4. the waveform/canvas is being invalidated/re-rendered when fade values change
+5. the visible waveform is supposed to:
+   - redraw the amplitude shape after applying the fade
+   - or show a fade envelope/overlay
+   - or both
+
+Please inspect the existing implementation and compare the current code path with the intended/previous behaviour.
+
+Areas to inspect
+================
+
+Search for:
+- fadeIn / fadeOut state
+- fade handle drag handlers
+- waveform drawing/rendering
+- memoized waveform/sample data
+- canvas redraw dependencies
+- useEffect/useMemo dependency arrays
+- any fade overlay/envelope drawing
+- audio processing/export code that applies fades
+
+Verify whether dragging a fade handle actually changes the underlying fade values.
+
+If fade state changes but the waveform does not:
+- fix the redraw/render dependency
+- avoid recomputing expensive waveform data unnecessarily if an overlay can be redrawn independently
+
+If fade state itself is not changing:
+- fix the drag/update path
+
+If playback/export no longer applies fades either:
+- report that separately and restore that behaviour too
+
+Expected behaviour
+==================
+
+When dragging a fade handle:
+
+- the handle moves smoothly
+- the visible waveform/fade representation updates immediately
+- the user gets clear visual feedback showing the fade region
+- no page layout changes
+- no new controls
+- no loss of zoom/selection/marker state
+
+If the waveform is intentionally showing raw source amplitude rather than processed amplitude, then restore a clear visual fade envelope/overlay so the fade remains obvious while dragging.
+
+Do not bake destructive changes into the source buffer merely to make the waveform look different.
+
+Regression safety
+=================
+
+Please preserve:
+- current marker behaviour
+- Splitter behaviour
+- current zoom/pan
+- selection
+- transport
+- undo behaviour
+- fixed window layout
+
+Testing
+=======
+
+After fixing:
+- verify fade-in drag visually updates
+- verify fade-out drag visually updates
+- verify playback/export still uses the same fade values
+- run TypeScript/lint
+- run relevant tests/build
+
+Finally summarise:
+- root cause
+- files changed
+- whether fade state or only visual redraw was broken
+- whether playback/export fade processing was affected
+- how the visual update is now triggered

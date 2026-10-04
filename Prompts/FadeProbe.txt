@@ -1,0 +1,172 @@
+Please inspect the current fade UI/interaction in the EDIT waveform and report back with a concise implementation plan.
+
+Do NOT change any code yet.
+
+Context
+=======
+
+The current fade controls are visually cluttered at the top-left/top-right of the waveform.
+
+Current issues:
+
+- there are too many readouts/badges around the fade handle
+- the main fade-length handle is hard to distinguish
+- the middle curve-control dot is too large / visually lumpy
+- the middle dot looks like the main draggable control
+- I accidentally dragged the curve dot when I meant to adjust fade length
+
+Desired direction
+=================
+
+I want a much cleaner hierarchy:
+
+1. The TOP fade handle should clearly be the primary control for fade length.
+2. The middle curve/bend dot should be much subtler.
+3. The middle dot should only appear when the fade is long enough that curve shaping is actually meaningful.
+4. Permanent fade labels/readouts should be reduced or removed.
+5. Numeric fade values should preferably appear only temporarily while dragging.
+
+Please inspect the current implementation and answer the questions below before making changes.
+
+==================================================
+PART 1 — CURRENT FADE CONTROLS
+==================================================
+
+Identify:
+
+- which component renders the fade UI
+- which state/props represent:
+  - fade-in length
+  - fade-out length
+  - fade curve/shape
+- which pointer/mouse handlers control:
+  - the top fade-length handle
+  - the middle curve/bend handle
+
+Explain what the middle dot currently controls mathematically.
+
+For example:
+- curve exponent
+- control point
+- bezier shape
+- logarithmic/linear interpolation
+- some other fade-shape parameter
+
+==================================================
+PART 2 — CURRENT VISUAL ELEMENTS
+==================================================
+
+List all currently rendered fade-related visual elements, including:
+
+- top handle
+- middle dot
+- diagonal/curve line
+- shaded fade region
+- "Fade In" / "Fade Out" badges
+- time/duration readouts
+- hover labels
+- any other related text
+
+Explain which of these are:
+- always visible
+- hover-only
+- drag-only
+- conditional
+
+==================================================
+PART 3 — CURVE-DOT VISIBILITY
+==================================================
+
+Inspect whether the curve dot can safely be hidden for very short fades.
+
+Determine:
+
+- whether hiding it affects interaction/state
+- whether curve shaping is actually useful below some minimum fade duration
+- whether there is already a natural threshold in the implementation
+
+Recommend a sensible minimum fade duration before the curve dot appears.
+
+Do not just guess visually — base the recommendation on the current fade maths and interaction model.
+
+I am expecting something roughly in the 0.5–1.0 second range, but inspect first.
+
+==================================================
+PART 4 — CURVE-DOT STYLING
+==================================================
+
+Recommend how to make the middle dot visually subordinate to the main top handle.
+
+Desired feel:
+
+- smaller
+- subtler
+- less button-like
+- should not look like the primary drag target
+- can become slightly more visible on hover
+- should remain usable without being visually dominant
+
+Also inspect the current pointer hit area.
+
+It may be useful for:
+- visual dot to be small
+- invisible hit target to remain comfortably draggable
+
+Please state whether the current code structure supports this cleanly.
+
+==================================================
+PART 5 — READOUT / LABEL CLEANUP
+==================================================
+
+Inspect the current permanent fade labels/readouts.
+
+Desired direction:
+
+At rest:
+- no large "Fade In" / "Fade Out" badge if it is not necessary
+- no large permanent duration badge
+- keep only the waveform/fade line/region and main handle
+
+While dragging:
+- show a small temporary duration tooltip/readout near the active handle
+- e.g. "5.33s"
+- hide it again on pointer release
+
+Please identify which current labels can be removed safely without losing necessary functionality.
+
+==================================================
+PART 6 — MAIN HANDLE CLARITY
+==================================================
+
+Inspect how obvious the main fade-length handle currently is.
+
+Recommend:
+- whether it should be slightly larger
+- whether its hit target should be larger than its visual size
+- whether hover styling would help
+
+Do not redesign the waveform.
+
+The goal is simply:
+the top handle should obviously be the thing to grab to change fade length.
+
+==================================================
+PART 7 — NO CODE CHANGES YET
+==================================================
+
+Please do not implement anything in this pass.
+
+Return only:
+
+1. files/components involved
+2. how the current fade controls work
+3. what the middle dot controls
+4. which visual elements are always visible
+5. recommended minimum fade duration before showing the curve dot
+6. recommended visual/hit-area treatment for:
+   - main handle
+   - curve dot
+7. which permanent labels/readouts can be removed
+8. any risks/regressions to watch for
+
+Keep the report concise and implementation-ready.

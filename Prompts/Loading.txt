@@ -1,0 +1,233 @@
+Please improve the audio import/loading experience in the EDIT screen.
+
+Current problem
+===============
+
+When importing a file, the waveform area effectively goes quiet while the file is loading/decoding.
+
+There is little or no visual feedback, so it can look as though the app has frozen.
+
+Goal
+====
+
+Make the waveform area communicate clearly that audio is being imported and, where the current architecture genuinely allows it, progressively update the waveform while loading.
+
+Important:
+- do not fake progress values
+- do not block the UI unnecessarily
+- do not redesign the whole Edit screen
+- do not introduce modal dialogs
+- preserve the fixed window layout
+
+==================================================
+PART 1 — INSPECT THE CURRENT IMPORT PIPELINE
+==================================================
+
+Before changing anything, inspect how audio files are currently imported.
+
+Please identify:
+
+- where file selection starts
+- how the file is read from disk
+- how decoding occurs
+- whether Electron/main-process APIs are involved
+- whether Web Audio decodeAudioData is used
+- when AudioBuffer / decoded PCM becomes available
+- when waveform peak data is generated
+- whether any real progress callbacks currently exist
+
+Determine whether the current implementation can expose any of these separately:
+
+1. file-read progress
+2. decode progress
+3. waveform-analysis progress
+
+Do not assume progressive waveform rendering is possible until you inspect this.
+
+==================================================
+PART 2 — LOADING STATE
+==================================================
+
+Add a clear loading/import state to the waveform area.
+
+While an audio file is being imported:
+
+- keep the existing waveform panel visible
+- show a subtle loading overlay/message
+- example:
+  "Loading audio…"
+- if the filename is already known, optionally show it compactly:
+  "Loading side-a.flac…"
+
+Do not use a blocking popup/modal.
+
+The loading state should be visually consistent with the current dark UI.
+
+==================================================
+PART 3 — REAL PROGRESS ONLY
+==================================================
+
+If the current pipeline exposes genuine measurable progress:
+
+- show it
+- a compact percentage or thin progress indicator is fine
+
+Examples:
+- file read = 42%
+- waveform analysis = 68%
+
+If decodeAudioData or another stage is all-or-nothing and exposes no meaningful progress:
+- do NOT invent a fake percentage
+- show an indeterminate loading animation/status instead
+
+The UI should distinguish between:
+- known progress
+- unknown progress
+
+==================================================
+PART 4 — PROGRESSIVE WAVEFORM DRAWING
+==================================================
+
+If the architecture genuinely allows PCM/waveform analysis data to become available incrementally:
+
+- progressively render the waveform from left to right as data becomes available
+- keep already-rendered sections visible
+- update smoothly without excessive redraw cost
+- do not wait for the whole waveform-analysis pass if partial results are already available
+
+If the current decoder only returns the full decoded buffer at the end:
+- do not rewrite the entire audio architecture just to simulate progressive decoding
+- instead:
+  1. show a proper loading state during decode
+  2. once the full buffer is available, progressively build/display waveform analysis if that stage can be chunked safely
+
+If neither decode nor waveform analysis can currently expose partial data without a major rewrite:
+- implement the loading feedback now
+- clearly report that true progressive waveform loading would require architectural changes
+
+==================================================
+PART 5 — INTERACTION DURING LOAD
+==================================================
+
+While loading:
+
+Disable interactions that depend on loaded audio, including where applicable:
+
+- marker placement
+- selection
+- fade adjustment
+- Splitter operations
+- transport playback
+- waveform dragging/seeking
+
+Do not disable unrelated app chrome unnecessarily.
+
+When loading completes:
+- remove the loading state
+- restore interactions normally
+
+==================================================
+PART 6 — FAILURE STATE
+==================================================
+
+If import/decoding fails:
+
+- remove the loading state
+- show a compact error message in the waveform area or existing status location
+- do not leave the editor looking permanently busy
+- preserve the previously loaded audio if that is the current intended behaviour
+
+Do not add a large modal unless the app already uses one consistently for import errors.
+
+==================================================
+PART 7 — VISUAL DIRECTION
+==================================================
+
+Keep this restrained.
+
+Preferred feel:
+
+At start:
+"Loading audio…"
+
+While real progress is available:
+"Loading audio… 63%"
+
+or a thin progress strip.
+
+If waveform data is progressively available:
+the waveform should visibly grow/update across the existing canvas.
+
+Do not:
+- add a giant spinner
+- add a full-screen overlay
+- increase panel height
+- create new layout rows
+- make the loading state visually dominant
+
+==================================================
+PART 8 — PERFORMANCE
+==================================================
+
+Be careful with long recordings.
+
+If progressive waveform generation is implemented:
+- process in sensible chunks
+- avoid blocking the renderer thread for long periods
+- yield between chunks if needed
+- avoid triggering React state updates for every tiny block
+- throttle visual progress updates appropriately
+
+The UI should remain responsive while loading.
+
+==================================================
+PART 9 — PRESERVE EXISTING BEHAVIOUR
+==================================================
+
+Do not change:
+
+- Splitter detection/snapping
+- fade maths
+- selection behaviour
+- marker behaviour
+- Export screen
+- fixed window dimensions
+- loaded waveform appearance after import finishes
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+This is complete when:
+
+- importing audio gives immediate visible feedback
+- the waveform area no longer appears inert/blank without explanation
+- no fake percentage is shown
+- real progress is shown where technically available
+- waveform rendering updates progressively if the current architecture supports it safely
+- editing controls are temporarily disabled while required audio data is unavailable
+- loading state clears on success
+- loading state clears on failure
+- UI remains responsive
+- no layout growth or new scrollbars are introduced
+
+==================================================
+FINALLY
+==================================================
+
+After making changes:
+
+1. run TypeScript/lint
+2. run the production build
+3. run any relevant tests
+
+Then summarise:
+
+- files changed
+- current import/decode pipeline
+- which stages expose real progress
+- whether true progressive waveform loading was implemented
+- whether only waveform-analysis progress was practical
+- how the loading UI behaves
+- how interactions are disabled/re-enabled
+- any architectural limitation that remains

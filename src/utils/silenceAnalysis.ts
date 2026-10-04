@@ -91,3 +91,22 @@ export function snapToSilenceCandidate(time: number, candidates: number[], radiu
   }
   return nearest;
 }
+
+export function snapToSilenceRegion(time: number, regions: SilenceRegion[], radiusSec: number): number {
+  if (radiusSec <= 0) return time;
+  let result = time;
+  let nearestRegion = Infinity;
+  let nearestCandidate = Infinity;
+  for (const region of regions) {
+    const regionDistance = Math.max(region.start - time, time - region.end, 0);
+    if (regionDistance > radiusSec + 1e-9) continue;
+    const candidateDistance = Math.abs(region.candidate - time);
+    // Prefer the region the pointer is in, then its nearest boundary; centres break ties.
+    if (regionDistance < nearestRegion || (regionDistance === nearestRegion && candidateDistance < nearestCandidate)) {
+      result = region.candidate;
+      nearestRegion = regionDistance;
+      nearestCandidate = candidateDistance;
+    }
+  }
+  return result;
+}

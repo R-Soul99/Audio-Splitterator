@@ -1,0 +1,171 @@
+Please refine the EDIT waveform Snap visual feedback.
+
+The current implementation is not quite the effect I intended.
+
+Current behaviour:
+- when a successful Snap occurs, the cursor/playhead line itself becomes brighter briefly
+
+Desired behaviour:
+- leave a temporary full-height vertical "radar trace" at the exact position where the snap occurred
+- that trace remains fixed at the snapped position
+- the normal cursor/playhead is independent and can continue moving
+- the fixed trace gradually fades away
+
+Think of an old radar/oscilloscope phosphor persistence effect.
+
+==================================================
+DESIRED SNAP TRACE
+==================================================
+
+On a genuine successful Snap:
+
+1. Determine the snapped waveform X/time position.
+2. Create a temporary vertical trace at that exact position.
+3. Draw it across the same waveform height as the normal cursor line.
+4. Start it noticeably bright.
+5. Fade its opacity smoothly to zero.
+6. Remove it when the fade completes.
+
+Suggested lifetime:
+approximately 600–900 ms.
+
+Use a value around 750 ms initially unless the existing animation system suggests a better fit.
+
+==================================================
+IMPORTANT DIFFERENCE
+==================================================
+
+Do NOT simply animate the opacity of the live cursor line.
+
+The snap trace must remain at the position where the snap happened even if the live cursor subsequently moves elsewhere.
+
+Conceptually there are now two things:
+
+LIVE CURSOR
+- follows current cursor/playhead position
+- remains normally visible
+- thin and precise
+
+SNAP TRACE
+- created only when a genuine snap occurs
+- fixed at the snapped position
+- starts bright
+- fades away independently
+
+==================================================
+VISUAL STYLE
+==================================================
+
+Keep the snap trace thin.
+
+Prefer:
+- approximately the same line width as the normal cursor
+- high initial opacity/brightness
+- optional very subtle glow at the start
+- smooth opacity decay
+
+Do NOT:
+- make it substantially thicker
+- draw an expanding circle
+- draw a dot at the top
+- expand the line horizontally
+- pulse marker size
+
+The visual idea is a phosphor/radar trace, not a marker animation.
+
+==================================================
+MULTIPLE QUICK SNAPS
+==================================================
+
+Please inspect how best to handle several snaps in quick succession.
+
+Preferred behaviour:
+- each genuine snap may leave its own short-lived fading trace
+- traces fade independently
+- keep the number bounded so rapid interaction cannot accumulate unlimited animation state
+
+A very small temporary list/ring buffer is fine.
+
+For example, retain no more than roughly 4–8 active traces.
+
+==================================================
+ANIMATION
+==================================================
+
+Use the existing canvas animation/redraw mechanism where practical.
+
+Avoid:
+- React state updates every animation frame if unnecessary
+- expensive waveform recomputation
+- timers that leak after component unmount
+
+requestAnimationFrame is appropriate if the waveform already uses canvas redraws.
+
+Only the temporary overlay/trace needs animating.
+
+==================================================
+NORMAL CURSOR
+==================================================
+
+Keep the recent improvement that made the normal cursor easier to see.
+
+Do not make it noticeably thicker.
+
+The cursor should remain:
+- thin
+- clearly visible
+- steady
+
+Remove/reduce the current "brighten the live cursor on Snap" effect if it would duplicate the new trace.
+
+The fading stationary trace should now provide the primary Snap feedback.
+
+==================================================
+TRIGGER CONDITIONS
+==================================================
+
+Create a trace ONLY when Snap genuinely changes the requested position to a detected candidate.
+
+Do not create traces for:
+- ordinary cursor movement
+- unsnapped marker placement
+- normal seeking
+- dragging where no valid Snap candidate was found
+
+==================================================
+PRESERVE
+==================================================
+
+Do not change:
+
+- Snap search algorithm
+- Snap distance
+- Splitter silence detection
+- marker positioning
+- selection behaviour
+- fade controls
+- waveform zoom/pan
+- layout dimensions
+- Export
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+Complete when:
+
+- a successful Snap leaves a bright vertical trace at the snapped position
+- that trace remains there when the live cursor moves away
+- the trace smoothly fades out over roughly 750 ms
+- cursor itself remains thin and independently movable
+- no expanding dot/circle appears
+- repeated snaps can create a few independent fading traces without performance problems
+- no trace appears when no snap occurred
+- TypeScript/build still pass
+
+Finally summarise:
+- file(s) changed
+- how temporary traces are stored
+- how their opacity/lifetime is calculated
+- how canvas redraw/animation is triggered
+- maximum number of simultaneous traces
