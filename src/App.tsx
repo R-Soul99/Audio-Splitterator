@@ -877,7 +877,8 @@ export default function App() {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       const decoded = await decodeContext.decodeAudioData(arrayBuffer);
       setWaveformBusy(true);
-      loadAudio(decoded, file.name.replace(/\.[^/.]+$/, ''));
+      // Imported source names/tags must not become the generated track-name base.
+      loadAudio(decoded, 'Recording');
     } catch (err) {
       console.error('Failed to open audio file:', err);
       setImportError('Could not load audio. Please choose a valid WAV, FLAC, or MP3 file.');
