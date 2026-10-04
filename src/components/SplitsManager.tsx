@@ -8,6 +8,9 @@ import { AudioMetadata, AudioFormat, Mp3Bitrate, WavBitDepth, FlacBitDepth, Flac
 import { formatTime, extractSlice } from '../utils/audioProcessing';
 import { saveFilesPrompt, FileToSave, resolveFolderSegments } from '../utils/fileSaver';
 import { getDesktopExport } from '../utils/desktopExport';
+// Keep encoders in the startup bundle: an open desktop app must not fetch a
+// stale hashed chunk after its on-disk build has been replaced.
+import { encodeFlac, encodeMp3, encodeWav } from '../utils/audioEncoder';
 
 interface SplitsManagerProps {
   sourceBuffer: AudioBuffer;
@@ -244,18 +247,17 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
       trackNumber,
     };
 
-    const encoderModule = await import('../utils/audioEncoder');
     const exportMetadata = includeTags ? metadata : undefined;
     if (format === 'flac') {
-      const bytes = await encoderModule.encodeFlac(rawSlice, { bitDepth: flacBitDepth, compressionLevel: flacCompression, metadata: exportMetadata });
+      const bytes = await encodeFlac(rawSlice, { bitDepth: flacBitDepth, compressionLevel: flacCompression, metadata: exportMetadata });
       const blob = new Blob([bytes], { type: 'audio/flac' });
       return { blob, fileName: `${constructFileName(trackNumber, trackArtist, trackTitle, namingPattern, padTrackNumbers)}.flac` };
     } else if (format === 'mp3') {
-      const bytes = await encoderModule.encodeMp3(rawSlice, { kbps: mp3Bitrate, metadata: exportMetadata });
+      const bytes = await encodeMp3(rawSlice, { kbps: mp3Bitrate, metadata: exportMetadata });
       const blob = new Blob([bytes], { type: 'audio/mpeg' });
       return { blob, fileName: `${constructFileName(trackNumber, trackArtist, trackTitle, namingPattern, padTrackNumbers)}.mp3` };
     } else {
-      const bytes = encoderModule.encodeWav(rawSlice, { bitDepth: wavBitDepth, metadata: exportMetadata });
+      const bytes = encodeWav(rawSlice, { bitDepth: wavBitDepth, metadata: exportMetadata });
       const blob = new Blob([bytes], { type: 'audio/wav' });
       return { blob, fileName: `${constructFileName(trackNumber, trackArtist, trackTitle, namingPattern, padTrackNumbers)}.wav` };
     }
