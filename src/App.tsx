@@ -44,8 +44,8 @@ export default function App() {
   useEffect(() => {
     if (workflowTab !== 'edit' || !trackRowsRef.current) return;
     const observer = new ResizeObserver(([entry]) => {
-      // Match the fixed h-8 rows; never compress rows or show a partial slot.
-      setTrackSlots(Math.max(1, Math.floor(entry.contentRect.height / 32)));
+      // Match the compact 22 px rows; never show a partial slot.
+      setTrackSlots(Math.max(1, Math.floor(entry.contentRect.height / 22)));
     });
     observer.observe(trackRowsRef.current);
     return () => observer.disconnect();
@@ -877,7 +877,8 @@ export default function App() {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       const decoded = await decodeContext.decodeAudioData(arrayBuffer);
       setWaveformBusy(true);
-      loadAudio(decoded, file.name.replace(/\.[^/.]+$/, ''));
+      // Imported source names/tags must not become the generated track-name base.
+      loadAudio(decoded, 'Recording');
     } catch (err) {
       console.error('Failed to open audio file:', err);
       setImportError('Could not load audio. Please choose a valid WAV, FLAC, or MP3 file.');
@@ -1391,7 +1392,7 @@ export default function App() {
                             return (
                               <div
                                 key={split.id}
-                                className={`group grid grid-cols-[28px_22px_minmax(0,1fr)_52px_58px_24px] items-center gap-1 h-8 border-b border-slate-800/80 text-xs transition ${isThisPlaying ? 'bg-emerald-500/10' : 'hover:bg-slate-800/40'}`}
+                                className={`group grid grid-cols-[28px_22px_minmax(0,1fr)_52px_58px_24px] items-center gap-1 h-[22px] border-b border-slate-800/80 text-xs transition ${isThisPlaying ? 'bg-emerald-500/10' : 'hover:bg-slate-800/40'}`}
                               >
                                 {/* 1. Play button at the start */}
                                 <button
@@ -1404,19 +1405,19 @@ export default function App() {
                                     }
                                   }}
                                   aria-label={isThisPlaying ? `Pause track ${split.index}` : `Play track ${split.index}`}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center border transition cursor-pointer ${isThisPlaying ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/60' : 'text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15'}`}
+                                  className={`justify-self-center w-6 h-4 m-0 p-0 border-0 bg-transparent flex items-center justify-center leading-4 transition-colors cursor-pointer hover:text-emerald-300 ${isThisPlaying ? 'text-emerald-300' : 'text-emerald-400'}`}
                                   title={isThisPlaying ? 'Pause split preview' : `Play Region ${split.index} (${formatTime(split.duration, false)})`}
                                 >
                                   {isThisPlaying ? (
                                     <Pause className="fill-current w-3 h-3" />
                                   ) : (
-                                    <Play className="fill-current ml-0.5 w-3 h-3" />
+                                    <span aria-hidden="true" className="block h-4 text-xs leading-4">▶</span>
                                   )}
                                 </button>
 
                                 {/* 2. Middle: Track number, name input, start, and duration */}
                                 <div className="contents">
-                                  <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                                  <span className="font-mono text-[11px] font-normal leading-4 text-slate-400 tabular-nums">
                                     {String(split.index).padStart(2, '0')}
                                   </span>
                                   <input
@@ -1428,17 +1429,17 @@ export default function App() {
                                     }}
                                     onClick={(e) => e.stopPropagation()}
                                     aria-label={`Track ${split.index} name`}
-                                    className="w-full min-w-0 bg-transparent text-slate-200 truncate py-1 px-1 rounded focus:outline-none focus:ring-1 focus:ring-sky-500/60 focus:bg-slate-800"
+                                    className="block w-full min-w-0 h-4 m-0 p-0 border-0 appearance-none bg-transparent font-mono text-[11px] font-normal leading-4 text-slate-200 truncate rounded focus:outline-none focus:ring-1 focus:ring-sky-500/60 focus:bg-slate-800"
                                     placeholder={`Track ${String(split.index).padStart(2, '0')}...`}
                                   />
                                   <span
-                                    className="text-right font-mono text-[11px] text-sky-400/80 tabular-nums"
+                                    className="text-right font-mono text-[11px] font-normal leading-4 text-sky-400/80 tabular-nums"
                                     title={`Start time: ${formatTime(split.startTime, false)}`}
                                   >
                                     {formatTime(split.startTime, false)}
                                   </span>
                                   <span
-                                    className="text-right font-mono text-[11px] text-slate-400 tabular-nums"
+                                    className="text-right font-mono text-[11px] font-normal leading-4 text-slate-400 tabular-nums"
                                     title={`${formatTime(split.startTime, false)} - ${formatTime(split.endTime, false)}`}
                                   >
                                     {formatTime(split.duration, false)}
@@ -1454,7 +1455,7 @@ export default function App() {
                                     handleDeleteSplit(idx);
                                   }}
                                   aria-label={`Delete split ${split.index}`}
-                                  className="w-6 h-6 rounded flex items-center justify-center text-rose-400/80 hover:text-rose-300 hover:bg-rose-950/60 transition cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
+                                  className="justify-self-center w-6 h-4 m-0 p-0 border-0 bg-transparent flex items-center justify-center leading-4 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
                                   title={
                                     markers.length === 0
                                       ? 'No split marker to delete'
@@ -1463,7 +1464,7 @@ export default function App() {
                                       : 'Delete split marker (merge with next region)'
                                   }
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span aria-hidden="true" className="block h-4 text-lg leading-4">×</span>
                                 </button>
                               </div>
                             );
