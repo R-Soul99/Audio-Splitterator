@@ -1404,19 +1404,19 @@ export default function App() {
                                     }
                                   }}
                                   aria-label={isThisPlaying ? `Pause track ${split.index}` : `Play track ${split.index}`}
-                                  className={`w-6 h-4 p-0 border-0 bg-transparent flex items-center justify-center leading-none transition-colors cursor-pointer hover:text-emerald-300 ${isThisPlaying ? 'text-emerald-300' : 'text-emerald-400'}`}
+                                  className={`justify-self-center w-6 h-4 m-0 p-0 border-0 bg-transparent flex items-center justify-center leading-4 transition-colors cursor-pointer hover:text-emerald-300 ${isThisPlaying ? 'text-emerald-300' : 'text-emerald-400'}`}
                                   title={isThisPlaying ? 'Pause split preview' : `Play Region ${split.index} (${formatTime(split.duration, false)})`}
                                 >
                                   {isThisPlaying ? (
                                     <Pause className="fill-current w-3 h-3" />
                                   ) : (
-                                    <span aria-hidden="true" className="text-xs leading-none">▶</span>
+                                    <span aria-hidden="true" className="block h-4 text-xs leading-4">▶</span>
                                   )}
                                 </button>
 
                                 {/* 2. Middle: Track number, name input, start, and duration */}
                                 <div className="contents">
-                                  <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                                  <span className="font-mono text-[11px] font-normal leading-4 text-slate-400 tabular-nums">
                                     {String(split.index).padStart(2, '0')}
                                   </span>
                                   <input
@@ -1428,17 +1428,17 @@ export default function App() {
                                     }}
                                     onClick={(e) => e.stopPropagation()}
                                     aria-label={`Track ${split.index} name`}
-                                    className="w-full min-w-0 bg-transparent text-slate-200 truncate py-0 px-1 leading-4 rounded focus:outline-none focus:ring-1 focus:ring-sky-500/60 focus:bg-slate-800"
+                                    className="block w-full min-w-0 h-4 m-0 p-0 border-0 appearance-none bg-transparent font-mono text-[11px] font-normal leading-4 text-slate-200 truncate rounded focus:outline-none focus:ring-1 focus:ring-sky-500/60 focus:bg-slate-800"
                                     placeholder={`Track ${String(split.index).padStart(2, '0')}...`}
                                   />
                                   <span
-                                    className="text-right font-mono text-[11px] text-sky-400/80 tabular-nums"
+                                    className="text-right font-mono text-[11px] font-normal leading-4 text-sky-400/80 tabular-nums"
                                     title={`Start time: ${formatTime(split.startTime, false)}`}
                                   >
                                     {formatTime(split.startTime, false)}
                                   </span>
                                   <span
-                                    className="text-right font-mono text-[11px] text-slate-400 tabular-nums"
+                                    className="text-right font-mono text-[11px] font-normal leading-4 text-slate-400 tabular-nums"
                                     title={`${formatTime(split.startTime, false)} - ${formatTime(split.endTime, false)}`}
                                   >
                                     {formatTime(split.duration, false)}
@@ -1454,7 +1454,7 @@ export default function App() {
                                     handleDeleteSplit(idx);
                                   }}
                                   aria-label={`Delete split ${split.index}`}
-                                  className="w-6 h-4 p-0 border-0 bg-transparent flex items-center justify-center text-rose-400 hover:text-rose-300 transition-colors cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
+                                  className="justify-self-center w-6 h-4 m-0 p-0 border-0 bg-transparent flex items-center justify-center leading-4 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
                                   title={
                                     markers.length === 0
                                       ? 'No split marker to delete'
@@ -1463,7 +1463,7 @@ export default function App() {
                                       : 'Delete split marker (merge with next region)'
                                   }
                                 >
-                                  <span aria-hidden="true" className="text-lg leading-none">×</span>
+                                  <span aria-hidden="true" className="block h-4 text-lg leading-4">×</span>
                                 </button>
                               </div>
                             );
