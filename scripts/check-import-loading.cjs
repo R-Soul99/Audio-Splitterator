@@ -3,6 +3,21 @@
 const { app, BrowserWindow } = require('electron');
 const assert = require('node:assert/strict');
 
+// Valid stereo PCM WAV with embedded Title, Artist and Album INFO tags.
+const chunk = (id, data) => {
+  const header = Buffer.alloc(8); header.write(id); header.writeUInt32LE(data.length, 4);
+  return Buffer.concat([header, data, Buffer.alloc(data.length % 2)]);
+};
+const fmt = Buffer.alloc(16);
+fmt.writeUInt16LE(1, 0); fmt.writeUInt16LE(2, 2); fmt.writeUInt32LE(48000, 4);
+fmt.writeUInt32LE(192000, 8); fmt.writeUInt16LE(4, 12); fmt.writeUInt16LE(16, 14);
+const info = Buffer.concat([Buffer.from('INFO'), ...[
+  ['INAM', 'Long Source Title'], ['IART', 'Source Artist'], ['IPRD', 'Source Album'],
+].map(([id, value]) => chunk(id, Buffer.from(value + '\0')))]);
+const body = Buffer.concat([Buffer.from('WAVE'), chunk('fmt ', fmt), chunk('LIST', info), chunk('data', Buffer.alloc(1920))]);
+const riff = Buffer.alloc(8); riff.write('RIFF'); riff.writeUInt32LE(body.length, 4);
+const taggedWav = Buffer.concat([riff, body]);
+
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 1200, height: 800,
     webPreferences: { backgroundThrottling: false } });
@@ -21,7 +36,7 @@ app.whenReady().then(async () => {
       window.reads = []; window.closedContexts = 0; window.decodes = [];
       window.NativeContext = window.AudioContext;
       window.FileReader = class {
-        readAsArrayBuffer() { reads.push(this); }
+        readAsArrayBuffer(file) { this.file = file; reads.push(this); }
       };
       window.AudioContext = class {
         decodeAudioData() { this.decoding = true; return new Promise((resolve, reject) => decodes.push({resolve, reject})); }
@@ -29,13 +44,13 @@ app.whenReady().then(async () => {
       };
       window.selectFile = (name = 'test.wav') => {
         const input = document.querySelector('input[type=file]');
-        const transfer = new DataTransfer(); transfer.items.add(new File(['test'], name));
+        const transfer = new DataTransfer(); transfer.items.add(new File([Uint8Array.from(${JSON.stringify([...taggedWav])})], name));
         input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles: true}));
       };
       window.statusText = () => document.querySelector('[role=status]')?.textContent || '';
       window.importButton = () => [...document.querySelectorAll('button')].find(b => b.title === 'Import an audio file');
       window.tab = label => [...document.querySelectorAll('header button')].find(b => b.textContent.trim() === label);
-      window.finishRead = () => { reads.at(-1).result = new ArrayBuffer(8); reads.at(-1).onload(); };
+      window.finishRead = async () => { const reader = reads.at(-1); reader.result = await reader.file.arrayBuffer(); reader.onload(); };
       window.makeBuffer = (length = 4000000) => new AudioBuffer({length, numberOfChannels: 2, sampleRate: 48000});
       window.heldFrames = []; window.holdFrames = false;
       const raf = window.requestAnimationFrame.bind(window);
@@ -43,8 +58,8 @@ app.whenReady().then(async () => {
       window.releaseFrames = () => { holdFrames = false; heldFrames.splice(0).forEach(fn => raf(fn)); };
       void 0;
     `);
-    await run("selectFile()");
-    await wait("statusText().includes('Reading test.wav')");
+    await run("selectFile('Source Artist - Source Album - Long Source Title.wav')");
+    await wait("statusText().includes('Reading Source Artist - Source Album - Long Source Title.wav')");
     assert.equal(await run("importButton().disabled && document.querySelector('main').inert"), true);
     await run("selectFile('blocked.wav')");
     assert.equal(await run('reads.length'), 1, 'repeat selection blocked immediately');
@@ -65,6 +80,13 @@ app.whenReady().then(async () => {
     await wait('!importButton().disabled');
     assert.equal(await run("statusText() === '' && !document.querySelector('main').inert"), true);
     assert.equal(await run('closedContexts'), 1);
+    await run("document.querySelector('[aria-label=\"Expand Recording Info\"]')?.click()");
+    await wait("!!document.querySelector('#recording-name')");
+    assert.equal(await run("document.querySelector('#recording-name').value"), 'Recording', 'filename and embedded INFO tags do not name the recording');
+    assert.equal(await run("document.querySelector('[aria-label=\"Track 1 name\"]').value"), 'Recording_01');
+    await run(`const input = document.querySelector('#recording-name');
+      input[Object.keys(input).find(key => key.startsWith('__reactProps'))].onChange({target:{value:'Custom'}});`);
+    await wait("document.querySelector('[aria-label=\"Track 1 name\"]').value === 'Custom_01'");
     // Read and decode failure preserve the loaded waveform, reset input, and allow retry.
     const canvasSize = await run("document.querySelector('canvas').width");
     await run("selectFile('read-failure.wav'); reads.at(-1).error = new Error('read failed'); reads.at(-1).onerror()");
@@ -81,6 +103,7 @@ app.whenReady().then(async () => {
     await run('decodes[2].resolve(makeBuffer(140003))');
     await wait('!importButton().disabled && statusText() === ""');
     assert.equal(await run('closedContexts'), 3);
+    assert.equal(await run("document.querySelector('#recording-name').value"), 'Recording', 'subsequent import resets a user-edited recording name');
     console.log('PASS: pending read/decode, real progress, blocking across tabs, handover, draw readiness, failure preservation, retry');
     app.exit(0);
   } catch (error) {
