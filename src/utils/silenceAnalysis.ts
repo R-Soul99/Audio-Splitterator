@@ -26,6 +26,33 @@ export function analyzeSilenceLevels(buffer: AudioBuffer, startSec = 0, endSec =
   return windows;
 }
 
+// The import path must not synchronously rescan a whole recording while peaks load.
+// Keep the same sample windows and stereo RMS rule as analyzeSilenceLevels.
+export async function analyzeSilenceLevelsChunked(buffer: AudioBuffer, signal: AbortSignal,
+  startSec = 0, endSec = buffer.duration): Promise<LevelWindow[]> {
+  const rate = buffer.sampleRate;
+  const start = Math.max(0, Math.floor(Math.min(startSec, endSec) * rate));
+  const end = Math.min(buffer.length, Math.ceil(Math.max(startSec, endSec) * rate));
+  const step = Math.max(1, Math.round(rate * SILENCE_WINDOW_SEC));
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel));
+  const windows: LevelWindow[] = [];
+  for (let offset = start, count = 0; offset < end; offset += step, count++) {
+    if (count % 64 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (signal.aborted) return [];
+    }
+    const stop = Math.min(end, offset + step);
+    let rms = 0;
+    for (const channel of channels) {
+      let squares = 0;
+      for (let sample = offset; sample < stop; sample++) squares += channel[sample] ** 2;
+      rms = Math.max(rms, Math.sqrt(squares / (stop - offset)));
+    }
+    windows.push({ start: offset / rate, end: stop / rate, rms });
+  }
+  return signal.aborted ? [] : windows;
+}
+
 export function findSilenceRegions(windows: LevelWindow[], thresholdDb: number, minimumSec: number): SilenceRegion[] {
   const threshold = 10 ** (thresholdDb / 20);
   const regions: SilenceRegion[] = [];

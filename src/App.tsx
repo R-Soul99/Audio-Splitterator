@@ -30,6 +30,11 @@ import {
 
 export default function App() {
   // 3-Workflow sequential tabs state based on mockup (Record -> Edit -> Save)
+  const [importStatus, setImportStatus] = useState<{ name: string; stage: 'Reading' | 'Decoding'; progress?: number } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [waveformBusy, setWaveformBusy] = useState(false);
+  const loadingRef = useRef(false);
+  loadingRef.current = !!importStatus || waveformBusy;
   const [workflowTab, setWorkflowTab] = useState<'record' | 'edit' | 'save'>('record');
   const [processingPanelContainer, setProcessingPanelContainer] = useState<HTMLDivElement | null>(null);
   const trackRowsRef = useRef<HTMLDivElement | null>(null);
@@ -607,6 +612,7 @@ export default function App() {
   };
 
   const handleRequestImport = () => {
+    if (loadingRef.current) return;
     if (audioBuffer) {
       setConfirmDialog('import');
     } else {
@@ -845,23 +851,38 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    stopPlayback();
+    setWorkflowTab('edit');
+    setImportError(null);
+    setImportStatus({ name: file.name, stage: 'Reading' });
+    let decodeContext: AudioContext | null = null;
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const ctx = new (window.AudioContext ||
+      const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onprogress = (event) => {
+          if (event.lengthComputable) setImportStatus({ name: file.name, stage: 'Reading', progress: event.loaded / event.total });
+        };
+        reader.onerror = () => reject(reader.error ?? new Error('Unable to read file.'));
+        reader.onabort = () => reject(new Error('File reading was cancelled.'));
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.readAsArrayBuffer(file);
+      });
+      setImportStatus({ name: file.name, stage: 'Decoding' });
+      decodeContext = new (window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const decoded = await ctx.decodeAudioData(arrayBuffer);
-      ctx.close();
-
-      const cleanName = file.name.replace(/\.[^/.]+$/, '');
-      loadAudio(decoded, cleanName);
-      setWorkflowTab('edit');
+      const decoded = await decodeContext.decodeAudioData(arrayBuffer);
+      setWaveformBusy(true);
+      loadAudio(decoded, file.name.replace(/\.[^/.]+$/, ''));
     } catch (err) {
       console.error('Failed to open audio file:', err);
-      alert('Could not decode audio file. Please ensure it is a valid WAV, FLAC, or MP3 file.');
+      setImportError('Could not load audio. Please choose a valid WAV, FLAC, or MP3 file.');
+      setWaveformBusy(false);
     } finally {
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      decodeContext?.close().catch(() => {});
+      setImportStatus(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -1009,6 +1030,11 @@ export default function App() {
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (loadingRef.current) {
+        if (e.code === 'Space' || ['Home', 'Delete', 'Backspace', 'Escape', 'm', 'i', 'o'].includes(e.key)
+          || ((e.ctrlKey || e.metaKey) && ['z', 't'].includes(e.key.toLowerCase()))) e.preventDefault();
+        return;
+      }
       if (e.defaultPrevented) return;
       if (
         e.target instanceof HTMLInputElement ||
@@ -1129,6 +1155,7 @@ export default function App() {
           <div className="flex items-center justify-end shrink-0 mt-2 sm:mt-0 sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
             <button
               type="button"
+              disabled={!!importStatus || waveformBusy}
               onClick={handleRequestImport}
               className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-850 hover:bg-emerald-950/40 text-slate-300 hover:text-emerald-400 border border-slate-800 hover:border-emerald-800/40 text-xs font-bold transition cursor-pointer"
               title="Import an audio file"
@@ -1160,11 +1187,11 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className={`flex-1 min-h-0 w-full flex flex-col ${workflowTab === 'edit' ? 'px-3 py-2 lg:px-4' : 'p-4 lg:p-6 lg:pb-4'}`}>
+      <main inert={!!importStatus || waveformBusy} className={`flex-1 min-h-0 w-full flex flex-col ${workflowTab === 'edit' ? 'px-3 py-2 lg:px-4' : 'p-4 lg:p-6 lg:pb-4'}`}>
         <div className="flex-1 flex flex-col min-h-0 relative">
           {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
           <div className={`flex-1 flex flex-col relative min-h-0 select-none ${workflowTab === 'edit' ? '' : 'bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]'}`}>
-            
+
             {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
             {workflowTab === 'record' && (
               <div className="flex-1 h-full min-h-0 overflow-hidden">
@@ -1183,11 +1210,14 @@ export default function App() {
             )}
 
             {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
-            {workflowTab === 'edit' && (
-                <div className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,480px)] grid-rows-[minmax(0,1fr)_auto] gap-2.5">
+            {(workflowTab === 'edit' || waveformBusy || importStatus) && (
+                <div style={{ display: workflowTab === 'edit' ? undefined : 'none' }} className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,480px)] grid-rows-[minmax(0,1fr)_auto] gap-2.5">
                     {/* Left, top: Waveform canvas & toolbar (Full dynamic height) */}
                     <div className="col-start-1 row-start-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                       <WaveformCanvas
+                        importStatus={importStatus}
+                        importError={importError}
+                        onAnalysisBusyChange={setWaveformBusy}
                         processingPanelContainer={processingPanelContainer}
                         audioBuffer={audioBuffer}
                         currentTime={currentTime}

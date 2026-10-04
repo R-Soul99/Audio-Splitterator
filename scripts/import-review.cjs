@@ -1,0 +1,1 @@
+const {app,BrowserWindow}=require('electron'); app.whenReady().then(async()=>{const w=new BrowserWindow({show:false,width:1200,height:800,webPreferences:{backgroundThrottling:false}});await w.loadURL('http://localhost:3001/?standby=1');w.setTitle('Import loading review');w.show();}); app.on('window-all-closed',()=>app.quit());

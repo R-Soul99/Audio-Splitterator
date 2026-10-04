@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
 import { RotaryKnob } from './RotaryKnob';
-import { analyzeSilenceLevels, findSilenceRegions, snapToSilenceCandidate } from '../utils/silenceAnalysis';
+import { analyzeSilenceLevels, findSilenceRegions, snapToSilenceCandidate, analyzeSilenceLevelsChunked } from '../utils/silenceAnalysis';
 import { Marker, FadeSettings, TimeSelection } from '../types';
 import {
   formatTime,
@@ -31,6 +32,9 @@ import {
 } from 'lucide-react';
 
 interface WaveformCanvasProps {
+  importStatus?: { name: string; stage: 'Reading' | 'Decoding'; progress?: number } | null;
+  importError?: string | null;
+  onAnalysisBusyChange?: (busy: boolean) => void;
   processingPanelContainer: HTMLDivElement | null;
   audioBuffer: AudioBuffer | null;
   currentTime: number;
@@ -160,6 +164,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
 };
 
 export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+  importStatus, importError, onAnalysisBusyChange,
   audioBuffer,
   currentTime,
   cropStart,
@@ -329,46 +334,29 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setVerticalZoom(1);
   }, [audioBuffer]);
 
-  // Compute Peaks once
+  const [analyzedSamples, setAnalyzedSamples] = useState(0);
+  const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   useEffect(() => {
-    if (!audioBuffer) {
-      pyramidRef.current = null;
-      return;
-    }
-
-    const channels = audioBuffer.numberOfChannels;
-    const length = audioBuffer.length;
-    const computedPyramids: ChannelPyramid[] = [];
-
-    for (let c = 0; c < channels; c++) {
-      const data = audioBuffer.getChannelData(c);
-      const levels: PeakLevel[] = [];
-      const blocks = [32, 128, 512, 2048];
-
-      for (const blockSize of blocks) {
-        const numBlocks = Math.ceil(length / blockSize);
-        const mins = new Float32Array(numBlocks);
-        const maxs = new Float32Array(numBlocks);
-
-        for (let b = 0; b < numBlocks; b++) {
-          const start = b * blockSize;
-          const end = Math.min(length, start + blockSize);
-          let min = 1.0;
-          let max = -1.0;
-          for (let i = start; i < end; i++) {
-            const v = data[i];
-            if (v < min) min = v;
-            if (v > max) max = v;
-          }
-          mins[b] = min;
-          maxs[b] = max;
-        }
-        levels.push({ blockSize, min: mins, max: maxs });
+    const controller = new AbortController();
+    pyramidRef.current = null;
+    setAnalyzedSamples(0);
+    setAnalysisError(null);
+    if (!audioBuffer) { setAnalysisBusy(false); onAnalysisBusyChange?.(false); return; }
+    setAnalysisBusy(true);
+    onAnalysisBusyChange?.(true);
+    buildWaveformPeaks(audioBuffer, controller.signal, (pyramids, samples) => {
+      pyramidRef.current = pyramids;
+      setAnalyzedSamples(samples);
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setAnalysisError('Unable to build the waveform. Try importing the file again.');
+        setAnalysisBusy(false);
+        onAnalysisBusyChange?.(false);
       }
-      computedPyramids.push({ levels });
-    }
-    pyramidRef.current = computedPyramids;
-  }, [audioBuffer]);
+    });
+    return () => { controller.abort(); };
+  }, [audioBuffer, onAnalysisBusyChange]);
 
   // Observer to keep canvas sharp and responsive
   useEffect(() => {
@@ -546,8 +534,25 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   }, [audioBuffer]);
 
   // Cache stereo analysis independently of pointer movement and knob changes.
-  const silenceLevels = useMemo(() => audioBuffer
-    ? analyzeSilenceLevels(audioBuffer, cropStart, autoSplitEnd) : [], [audioBuffer, cropStart, autoSplitEnd]);
+  const [silenceBusy, setSilenceBusy] = useState(false);
+  const [silenceLevels, setSilenceLevels] = useState<ReturnType<typeof analyzeSilenceLevels>>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setSilenceLevels([]);
+    setSilenceBusy(!!audioBuffer);
+    if (!audioBuffer) return;
+    analyzeSilenceLevelsChunked(audioBuffer, controller.signal, cropStart, autoSplitEnd).then(levels => {
+      if (!controller.signal.aborted) { setSilenceLevels(levels); setSilenceBusy(false); }
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setAnalysisError('Unable to analyse audio. Try importing the file again.');
+        setSilenceBusy(false);
+        setAnalysisBusy(false);
+        onAnalysisBusyChange?.(false);
+      }
+    });
+    return () => controller.abort();
+  }, [audioBuffer, cropStart, autoSplitEnd]);
   const gapCandidates = useMemo(() => findSilenceRegions(silenceLevels, noiseFloorDb, silenceDurationSec)
     .map(region => region.candidate), [silenceLevels, noiseFloorDb, silenceDurationSec]);
   const snapTimeToNoiseFloor = useCallback((time: number): number =>
@@ -682,7 +687,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           const sIdx = Math.round(t * audioBuffer.sampleRate);
           const bIdx = Math.floor(sIdx / lvlBlockSize);
 
-          if (bIdx >= 0 && bIdx < mins.length) {
+          if (sIdx < analyzedSamples && bIdx >= 0 && bIdx < mins.length) {
             const minVal = mins[bIdx];
             const maxVal = maxs[bIdx];
 
@@ -747,7 +752,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.restore();
       }
     }
-  }, [canvasDimensions, currentOffset, visibleDuration, audioBuffer, xToTime, fadeSettings, cropStart, cropEnd, verticalZoom]);
+  }, [canvasDimensions, currentOffset, visibleDuration, audioBuffer, xToTime, fadeSettings, cropStart, cropEnd, verticalZoom, analyzedSamples]);
 
   // Overlay Drawing: Markers, Fades, Crop braces, Selection bounds
   const drawOverlay = useCallback(() => {
@@ -1185,17 +1190,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     // Plot full-length mini waveform
     ctx.fillStyle = '#10b981';
-    const rawData = audioBuffer.getChannelData(0);
-    const step = Math.ceil(rawData.length / width);
+    const level = pyramidRef.current?.[0]?.levels.at(-1);
+    if (!level) return;
+    const step = Math.ceil(level.min.length / width);
     for (let x = 0; x < width; x++) {
       const start = x * step;
-      const end = Math.min(rawData.length, start + step);
+      const end = Math.min(Math.ceil(analyzedSamples / level.blockSize), start + step);
+      if (start >= end) continue;
       let min = 1.0;
       let max = -1.0;
       for (let i = start; i < end; i++) {
-        const v = rawData[i];
-        if (v < min) min = v;
-        if (v > max) max = v;
+        min = Math.min(min, level.min[i]);
+        max = Math.max(max, level.max[i]);
       }
       const t = (x / width) * duration;
       let fadeGain = 1.0;
@@ -1257,7 +1263,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.fillRect(rightHandleX + handleW - 3, height / 2 - 4, 1, 3);
       ctx.fillRect(rightHandleX + handleW - 3, height / 2 + 1, 1, 3);
     }
-  }, [audioBuffer, zoom, currentOffset, visibleDuration, duration, fadeSettings, cropStart, cropEnd, minimapDrag, minimapHover]);
+  }, [audioBuffer, zoom, currentOffset, visibleDuration, duration, fadeSettings, cropStart, cropEnd, minimapDrag, minimapHover, analyzedSamples]);
+
+  useEffect(() => {
+    if (!audioBuffer || analyzedSamples !== audioBuffer.length || !analysisBusy || silenceBusy || importStatus) return;
+    const frame = requestAnimationFrame(() => {
+      setAnalysisBusy(false);
+      onAnalysisBusyChange?.(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [audioBuffer, analyzedSamples, analysisBusy, silenceBusy, importStatus, onAnalysisBusyChange]);
 
   // Pointer move handler (computes hover hit tests)
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -2463,6 +2478,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           />
         </div>
         <div className="relative flex-1 min-h-0" ref={canvasContainerRef}>
+        {(importStatus || analysisBusy || importError || analysisError) && (
+          <div role="status" className="pointer-events-none absolute left-3 right-3 top-3 z-30 rounded border border-slate-700 bg-slate-950/90 px-3 py-2 text-xs text-slate-200 shadow">
+            {importStatus ? `${importStatus.stage} ${importStatus.name}...${importStatus.progress !== undefined ? ` ${Math.floor(importStatus.progress * 100)}%` : ''}`
+              : analysisBusy ? `Building waveform... ${Math.floor(analyzedSamples / Math.max(1, audioBuffer?.length ?? 1) * 100)}%`
+              : importError || analysisError}
+            {(importStatus?.progress === undefined && importStatus) && <span className="ml-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" />}
+          </div>
+        )}
         {/* Feedback Notification Toast (floats over the canvas; never shifts layout) */}
         {feedbackToast && (
           <div
