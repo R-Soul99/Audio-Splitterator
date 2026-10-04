@@ -42,6 +42,7 @@ interface WaveformCanvasProps {
   importError?: string | null;
   onAnalysisBusyChange?: (busy: boolean) => void;
   processingPanelContainer: HTMLDivElement | null;
+  loadedAudioId: number;
   audioBuffer: AudioBuffer | null;
   currentTime: number;
   cropStart: number;
@@ -172,6 +173,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
 export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   importStatus, importError, onAnalysisBusyChange,
   audioBuffer,
+  loadedAudioId,
   currentTime,
   cropStart,
   cropEnd,
@@ -245,6 +247,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const [peakAnalysis, setPeakAnalysis] = useState<AnomalousPeakAnalysis | null>(null);
   const [isProcessingPeaks, setIsProcessingPeaks] = useState<boolean>(false);
   const peakScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Waveform-owned detection belongs to the loaded recording, never a tool panel.
+  const [detectedAudioId, setDetectedAudioId] = useState<number | null>(null);
+  const radarReady = detectedAudioId === loadedAudioId && !!audioBuffer;
 
   // Noise Floor & Auto-Split States
   const [noiseFloorDb, setNoiseFloorDb] = useState<number>(-45.0);
@@ -1168,7 +1174,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   };
 
   const showSuccessfulSnap = (requested: number) => {
-    updateRadarAcquisition(acquireQuietTarget(requested, quietRuns, snapAmountSec));
+    updateRadarAcquisition(radarReady ? acquireQuietTarget(requested, quietRuns, snapAmountSec) : null);
   };
 
   useEffect(() => {
@@ -1181,6 +1187,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       snapTracesRef.current = [];
     };
   }, [audioBuffer]);
+
+  useEffect(() => {
+    setDetectedAudioId(null);
+    setNoiseFloorDb(-45.0);
+    setThresholdFlashKey(0);
+    setAppliedPreview(null);
+    setAutoSplitPreview(null);
+    setHoverTime(null);
+    setHoverPosition(null);
+    snapTracesRef.current = [];
+    radarAcquisitionRef.current.reset();
+  }, [loadedAudioId]);
 
   // Minimap rendering
   useEffect(() => {
@@ -1306,7 +1324,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     // Live radar acquisition is independent of Auto-Split's Gap setting.
     // Hover stays at the pointer; the trace and actual marker use the quiet target.
-    const markerContext = processingOpen && (!activeDrag || activeDrag.type === 'marker');
+    const markerContext = radarReady && (!activeDrag || activeDrag.type === 'marker');
     if (markerContext) {
       updateRadarAcquisition(acquireQuietTarget(time, quietRuns, snapAmountSec));
     } else if (!activeDrag || !['selectionStart', 'selectionEnd', 'selectionCreate'].includes(activeDrag.type)) {
@@ -1775,6 +1793,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const measured = measureNoiseFloorDb(audioBuffer, selection.start, selection.end);
     setAppliedPreview(null);
     setNoiseFloorDb(measured.suggestedThresholdDb);
+    setDetectedAudioId(loadedAudioId);
     setThresholdFlashKey((k) => k + 1);
   };
 
@@ -2088,20 +2107,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                     >
                       <X className="w-3 h-3" />
                     </button>
-                  </div>
-
-                  <div className="detection-detect text-slate-400" title="Analyse the waveform and preview proposed split points using the current settings.">
-                    <span>Detect</span>
-                  <button
-                    type="button"
-                    onClick={handleSampleNoiseFloor}
-                    disabled={!audioBuffer}
-                    aria-label="Sample noise floor from selection"
-                    className="detection-sample flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Analyse the waveform and preview proposed split points using the current settings."
-                  >
-                    <Ear aria-hidden="true" className="h-3 w-3" />
-                  </button>
                   </div>
 
                   <div title="Audio below this level is treated as silence when detecting gaps." className="detection-noise text-slate-400">
@@ -2421,8 +2426,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               {hasSelection ? `${formatTime(selS, true)} – ${formatTime(selE, true)}` : 'None'}
             </span>
           </div>
-          <div className="flex shrink-0 items-baseline gap-1.5">
-            <span className="text-[8px] uppercase tracking-wider text-slate-500">Noise Floor</span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button type="button" onClick={handleSampleNoiseFloor} disabled={!audioBuffer}
+              aria-label="Detect Noise Floor" title="Detect noise floor from the selected quiet section."
+              className="flex h-4 items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1 text-[9px] text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+              <Ear aria-hidden="true" className="h-3 w-3" />Detect Noise Floor
+            </button>
             <span key={thresholdFlashKey} className={`font-mono tabular-nums text-amber-400 ${thresholdFlashKey > 0 ? 'flash-once' : ''}`}>
               {noiseFloorDb.toFixed(1)} dB
             </span>

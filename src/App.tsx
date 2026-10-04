@@ -51,6 +51,7 @@ export default function App() {
     return () => observer.disconnect();
   }, [workflowTab]);
 
+  const [loadedAudioId, setLoadedAudioId] = useState(0);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [mainFileName, setMainFileName] = useState<string>('Recording');
   const [isRecordingActive, setIsRecordingActive] = useState<boolean>(false);
@@ -565,6 +566,7 @@ export default function App() {
     cropEndRef.current = buffer.duration;
     currentTimeRef.current = 0;
 
+    setLoadedAudioId(id => id + 1);
     setAudioBuffer(buffer);
     setMainFileName(fileName);
     if (artist) setPreRecordArtist(artist);
@@ -597,6 +599,7 @@ export default function App() {
     cropEndRef.current = 0;
     currentTimeRef.current = 0;
 
+    setLoadedAudioId(id => id + 1);
     setAudioBuffer(null);
     setMainFileName('Recording');
     setCropStart(0);
@@ -1219,6 +1222,7 @@ export default function App() {
                         importError={importError}
                         onAnalysisBusyChange={setWaveformBusy}
                         processingPanelContainer={processingPanelContainer}
+                        loadedAudioId={loadedAudioId}
                         audioBuffer={audioBuffer}
                         currentTime={currentTime}
                         cropStart={cropStart}
