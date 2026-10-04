@@ -52,3 +52,7 @@ npm run electron:dir
 
 ## 🎧 Audio Recording & Hardware Permissions
 When running as a desktop `.exe`, hardware audio permissions for your soundcards, line-in inputs, USB interfaces (e.g. Focusrite, Behringer, mixers, vinyl preamps), and microphones are granted automatically by the Electron main process.
+
+## Launch the latest merged version on Windows
+
+Double-click **Launch Latest Splitterator.cmd** in this project folder. It checks for unsaved code changes, fetches GitHub, switches to main, fast-forwards to the latest main, rebuilds the app, and launches it. An older installed executable does not update when GitHub changes. This launcher requires Git, Node/npm, and network access. It stops on unsaved code changes, divergent history, or a failed update/build rather than opening an outdated version. Experimental feature branches are included only after they are merged into main.

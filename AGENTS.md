@@ -49,3 +49,7 @@ After implementation:
 - Report exactly what changed, branch/commit details, checks performed and anything that could not be verified. Describe interactive testing needed for changed audio/UI behaviour.
 
 Do not describe a feature as user-approved merely because automated validation passes. Leroy performs final interactive approval; merge only after the required human review and approval.
+
+## Local launch handover
+
+Leroy wants the locally launched app to include all approved updates. After an authorised merge, return the primary local checkout to up-to-date main and rebuild the app. Do not leave the launch checkout on a feature branch. Preserve unrelated local work. Use Launch Latest Splitterator.cmd to fetch main, fast-forward it, rebuild, and launch the current source version. Separate feature branches contain work only until explicitly approved for integration; do not automatically merge every branch.
