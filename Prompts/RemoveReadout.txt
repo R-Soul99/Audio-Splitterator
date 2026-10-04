@@ -1,0 +1,27 @@
+Please make one very small UI cleanup to the EDIT waveform fade controls.
+
+Goal:
+Remove the green time readout/bubble that appears near the fade handle.
+
+Important:
+- do not change fade maths
+- do not change fade dragging
+- do not change the main fade handle
+- do not change the curve handle
+- do not change the waveform ruler
+- do not change playhead behaviour
+- do not change layout
+- do not touch Export or Splitter
+
+Desired behaviour:
+
+- no green time bubble/readout should appear beside the fade handle
+- remove it both at rest and during fade interaction
+- keep the compact fade-duration feedback already used while dragging, if that is separate
+- preserve any normal cursor/playhead time display that belongs elsewhere in the editor
+
+Please make the minimum code change necessary.
+
+Afterwards:
+- run TypeScript/lint
+- summarise the file changed and exactly which fade time readout was removed

@@ -1,8 +1,15 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { RotaryKnob } from './RotaryKnob';
-import { analyzeSilenceLevels, findSilenceRegions, snapToSilenceCandidate } from '../utils/silenceAnalysis';
+import { buildWaveformPeaks } from '../utils/waveformPeaks';
+import { buildQuietRuns, acquireQuietTarget } from '../utils/quietRadar';
+import { hitTestFadeControls, isFadeCurveVisible, FadeControlGeometry } from '../utils/fadeControls';
+import { analyzeSilenceLevels } from '../utils/silenceAnalysis';
 import { Marker, FadeSettings, TimeSelection } from '../types';
+
+const SNAP_TRACE_DURATION_MS = 2400;
+const SNAP_TRACE_DECAY_MS = 1000;
+const MAX_SNAP_TRACES = 6;
 import {
   formatTime,
   calculateFadeGain,
@@ -31,6 +38,9 @@ import {
 } from 'lucide-react';
 
 interface WaveformCanvasProps {
+  importStatus?: { name: string; stage: 'Reading' | 'Decoding'; progress?: number } | null;
+  importError?: string | null;
+  onAnalysisBusyChange?: (busy: boolean) => void;
   processingPanelContainer: HTMLDivElement | null;
   audioBuffer: AudioBuffer | null;
   currentTime: number;
@@ -160,6 +170,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
 };
 
 export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+  importStatus, importError, onAnalysisBusyChange,
   audioBuffer,
   currentTime,
   cropStart,
@@ -213,8 +224,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   // Radar-style "ping" when the cursor crosses onto a detected noise-floor snap point
-  const snapPingRef = useRef<{ x: number; start: number } | null>(null);
-  const wasOverSnapPointRef = useRef<boolean>(false);
+  const snapTracesRef = useRef<{ time: number; start: number }[]>([]);
+  const lastSnapTargetRef = useRef<number | null>(null);
   const pingRafRef = useRef<number | null>(null);
 
   const [canvasDimensions, setCanvasDimensions] = useState({ width: 600, height: 180 });
@@ -273,7 +284,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
-  const [hoveredElement, setHoveredElement] = useState<'fadeIn' | 'fadeOut' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
+  const [hoveredElement, setHoveredElement] = useState<'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
 
 
@@ -329,46 +340,27 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setVerticalZoom(1);
   }, [audioBuffer]);
 
-  // Compute Peaks once
+  const [analyzedSamples, setAnalyzedSamples] = useState(0);
+  const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   useEffect(() => {
-    if (!audioBuffer) {
-      pyramidRef.current = null;
-      return;
-    }
-
-    const channels = audioBuffer.numberOfChannels;
-    const length = audioBuffer.length;
-    const computedPyramids: ChannelPyramid[] = [];
-
-    for (let c = 0; c < channels; c++) {
-      const data = audioBuffer.getChannelData(c);
-      const levels: PeakLevel[] = [];
-      const blocks = [32, 128, 512, 2048];
-
-      for (const blockSize of blocks) {
-        const numBlocks = Math.ceil(length / blockSize);
-        const mins = new Float32Array(numBlocks);
-        const maxs = new Float32Array(numBlocks);
-
-        for (let b = 0; b < numBlocks; b++) {
-          const start = b * blockSize;
-          const end = Math.min(length, start + blockSize);
-          let min = 1.0;
-          let max = -1.0;
-          for (let i = start; i < end; i++) {
-            const v = data[i];
-            if (v < min) min = v;
-            if (v > max) max = v;
-          }
-          mins[b] = min;
-          maxs[b] = max;
-        }
-        levels.push({ blockSize, min: mins, max: maxs });
-      }
-      computedPyramids.push({ levels });
-    }
-    pyramidRef.current = computedPyramids;
-  }, [audioBuffer]);
+    const controller = new AbortController();
+    pyramidRef.current = null;
+    setAnalyzedSamples(0);
+    setAnalysisError(null);
+    if (!audioBuffer) { setAnalysisBusy(false); onAnalysisBusyChange?.(false); return; }
+    setAnalysisBusy(true);
+    onAnalysisBusyChange?.(true);
+    buildWaveformPeaks(audioBuffer, controller.signal, (pyramids, samples) => {
+      pyramidRef.current = pyramids;
+      setAnalyzedSamples(samples);
+    }).catch(() => {
+      if (!controller.signal.aborted) setAnalysisError('Unable to build the waveform. Try importing the file again.');
+    }).finally(() => {
+      if (!controller.signal.aborted) { setAnalysisBusy(false); onAnalysisBusyChange?.(false); }
+    });
+    return () => { controller.abort(); onAnalysisBusyChange?.(false); };
+  }, [audioBuffer, onAnalysisBusyChange]);
 
   // Observer to keep canvas sharp and responsive
   useEffect(() => {
@@ -548,16 +540,29 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   // Cache stereo analysis independently of pointer movement and knob changes.
   const silenceLevels = useMemo(() => audioBuffer
     ? analyzeSilenceLevels(audioBuffer, cropStart, autoSplitEnd) : [], [audioBuffer, cropStart, autoSplitEnd]);
-  const gapCandidates = useMemo(() => findSilenceRegions(silenceLevels, noiseFloorDb, silenceDurationSec)
-    .map(region => region.candidate), [silenceLevels, noiseFloorDb, silenceDurationSec]);
+  const quietRuns = useMemo(() => buildQuietRuns(silenceLevels, noiseFloorDb), [silenceLevels, noiseFloorDb]);
+  const acquiredRunRef = useRef<number | null>(null);
   const snapTimeToNoiseFloor = useCallback((time: number): number =>
-    snapToSilenceCandidate(time, gapCandidates, snapAmountSec), [gapCandidates, snapAmountSec]);
+    acquireQuietTarget(time, quietRuns, snapAmountSec)?.time ?? time, [quietRuns, snapAmountSec]);
 
   const snapEditTime = useCallback((time: number) => {
     let snapped = snapTimeToNoiseFloor(time);
     if (fadeSettings.zeroCrossing) snapped = snapToZeroCrossing(snapped);
     return snapped;
   }, [fadeSettings.zeroCrossing, snapTimeToNoiseFloor, snapToZeroCrossing]);
+
+  const fadeControls: FadeControlGeometry[] = [
+    { target: 'fadeIn', enabled: fadeSettings.fadeInEnabled, durationMs: fadeSettings.fadeInMs,
+      anchorX: timeToX(cropStart, canvasDimensions.width),
+      lengthX: timeToX(cropStart + fadeSettings.fadeInMs / 1000, canvasDimensions.width),
+      curveX: timeToX(cropStart + fadeSettings.fadeInMs / 1000 * fadeSettings.fadeInCurveNodePosition, canvasDimensions.width),
+      curveY: canvasDimensions.height * (1 - fadeSettings.fadeInCurveNode) },
+    { target: 'fadeOut', enabled: fadeSettings.fadeOutEnabled, durationMs: fadeSettings.fadeOutMs,
+      anchorX: timeToX(cropEnd, canvasDimensions.width),
+      lengthX: timeToX(cropEnd - fadeSettings.fadeOutMs / 1000, canvasDimensions.width),
+      curveX: timeToX(cropEnd - fadeSettings.fadeOutMs / 1000 * fadeSettings.fadeOutCurveNodePosition, canvasDimensions.width),
+      curveY: canvasDimensions.height * (1 - fadeSettings.fadeOutCurveNode) },
+  ];
 
   // Render Loop: Waveform drawing
   useEffect(() => {
@@ -682,7 +687,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           const sIdx = Math.round(t * audioBuffer.sampleRate);
           const bIdx = Math.floor(sIdx / lvlBlockSize);
 
-          if (bIdx >= 0 && bIdx < mins.length) {
+          if (sIdx < analyzedSamples && bIdx >= 0 && bIdx < mins.length) {
             const minVal = mins[bIdx];
             const maxVal = maxs[bIdx];
 
@@ -747,7 +752,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.restore();
       }
     }
-  }, [canvasDimensions, currentOffset, visibleDuration, audioBuffer, xToTime, fadeSettings, cropStart, cropEnd, verticalZoom]);
+  }, [canvasDimensions, currentOffset, visibleDuration, audioBuffer, xToTime, fadeSettings, cropStart, cropEnd, verticalZoom, analyzedSamples]);
 
   // Overlay Drawing: Markers, Fades, Crop braces, Selection bounds
   const drawOverlay = useCallback(() => {
@@ -802,7 +807,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
       // Selection edges
       ctx.strokeStyle = '#38bdf8'; // Sky-400
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(selXStart, 0); ctx.lineTo(selXStart, height);
       ctx.moveTo(selXEnd, 0); ctx.lineTo(selXEnd, height);
@@ -810,12 +815,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
       // Draggable Bracket Ends [ ]
       ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(selXStart - 5, height / 2 - 12, 5, 24);
-      ctx.fillRect(selXEnd, height / 2 - 12, 5, 24);
+      ctx.fillRect(selXStart - 2, height / 2 - 12, 2, 24);
+      ctx.fillRect(selXEnd, height / 2 - 12, 2, 24);
     }
 
     // 3. Draggable Volume Fade Envelopes (Visual overlays)
-    if (fadeSettings.fadeInEnabled && cropXStart >= 0 && cropXStart <= width) {
+    if (fadeSettings.fadeInEnabled && cropXStart <= width && timeToX(cropStart + fadeSettings.fadeInMs / 1000, width) >= 0) {
       const fadeMs = fadeSettings.fadeInMs;
       const fadeSec = fadeMs / 1000;
       const fadeEndX = timeToX(cropStart + fadeSec, width);
@@ -829,7 +834,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.beginPath();
         ctx.moveTo(cropXStart, height);
         const fStep = Math.max(1, Math.round((fadeEndX - cropXStart) / 30));
-        for (let px = cropXStart; px <= fadeEndX; px += fStep) {
+        for (let px = Math.max(0, cropXStart); px <= Math.min(width, fadeEndX); px += fStep) {
           const pct = (px - cropXStart) / (fadeEndX - cropXStart);
           const gain = calculateFadeGain(pct, fadeSettings.fadeInCurve, fadeSettings.fadeInCurveNode, fadeSettings.fadeInCurveNodePosition);
           ctx.lineTo(px, height - gain * height);
@@ -845,7 +850,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.beginPath();
       ctx.moveTo(cropXStart, height);
       const fStep = Math.max(1, Math.round((fadeEndX - cropXStart) / 30));
-      for (let px = cropXStart; px <= fadeEndX; px += fStep) {
+      for (let px = Math.max(0, cropXStart); px <= Math.min(width, fadeEndX); px += fStep) {
         const pct = (px - cropXStart) / (fadeEndX - cropXStart);
         const gain = calculateFadeGain(pct, fadeSettings.fadeInCurve, fadeSettings.fadeInCurveNode, fadeSettings.fadeInCurveNodePosition);
         ctx.lineTo(px, height - gain * height);
@@ -869,23 +874,23 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(fadeEndX, 10, isHovered ? 6 : 4.5, 0, 2 * Math.PI);
+      ctx.arc(fadeEndX, 10, isHovered ? 6.5 : 6, 0, 2 * Math.PI);
       ctx.fill();
       ctx.stroke();
 
       const curveNodeX = cropXStart + (fadeEndX - cropXStart) * fadeSettings.fadeInCurveNodePosition;
       const curveNodeY = height - fadeSettings.fadeInCurveNode * height;
-      ctx.fillStyle = activeDrag?.type === 'fadeInCurve' ? '#ffffff' : '#38bdf8';
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(curveNodeX, curveNodeY, activeDrag?.type === 'fadeInCurve' ? 7 : 5, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.stroke();
+      if (isFadeCurveVisible(fadeMs, fadeEndX - cropXStart)) {
+        const curveActive = hoveredElement === 'fadeInCurve' || activeDrag?.type === 'fadeInCurve';
+        ctx.fillStyle = `rgba(56, 189, 248, ${curveActive ? 0.9 : 0.45})`;
+        ctx.beginPath();
+        ctx.arc(curveNodeX, curveNodeY, curveActive ? 3 : 2.5, 0, 2 * Math.PI);
+        ctx.fill();
+      }
 
       // Tooltip/badge while hovering or dragging
-      if (isHovered && fadeEndX >= 0 && fadeEndX <= width) {
-        const labelText = `Fade In: ${(fadeMs / 1000).toFixed(2)}s`;
+      if (activeDrag?.type === 'fadeIn' && fadeEndX >= 0 && fadeEndX <= width) {
+        const labelText = `${(fadeMs / 1000).toFixed(2)}s`;
         ctx.font = '10px ui-monospace, monospace';
         const txtWidth = ctx.measureText(labelText).width;
         ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
@@ -898,7 +903,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       }
     }
 
-    if (fadeSettings.fadeOutEnabled && cropXEnd >= 0 && cropXEnd <= width) {
+    if (fadeSettings.fadeOutEnabled && cropXEnd >= 0 && timeToX(cropEnd - fadeSettings.fadeOutMs / 1000, width) <= width) {
       const fadeMs = fadeSettings.fadeOutMs;
       const fadeSec = fadeMs / 1000;
       const fadeStartX = timeToX(cropEnd - fadeSec, width);
@@ -912,7 +917,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.beginPath();
         ctx.moveTo(fadeStartX, 0);
         const fStep = Math.max(1, Math.round((cropXEnd - fadeStartX) / 30));
-        for (let px = fadeStartX; px <= cropXEnd; px += fStep) {
+        for (let px = Math.max(0, fadeStartX); px <= Math.min(width, cropXEnd); px += fStep) {
           const pct = (px - fadeStartX) / (cropXEnd - fadeStartX);
           const gain = calculateFadeGain(1 - pct, fadeSettings.fadeOutCurve, fadeSettings.fadeOutCurveNode, fadeSettings.fadeOutCurveNodePosition);
           ctx.lineTo(px, height - gain * height);
@@ -928,7 +933,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.beginPath();
       ctx.moveTo(fadeStartX, 0);
       const fStep = Math.max(1, Math.round((cropXEnd - fadeStartX) / 30));
-      for (let px = fadeStartX; px <= cropXEnd; px += fStep) {
+      for (let px = Math.max(0, fadeStartX); px <= Math.min(width, cropXEnd); px += fStep) {
         const pct = (px - fadeStartX) / (cropXEnd - fadeStartX);
           const gain = calculateFadeGain(1 - pct, fadeSettings.fadeOutCurve, fadeSettings.fadeOutCurveNode, fadeSettings.fadeOutCurveNodePosition);
         ctx.lineTo(px, height - gain * height);
@@ -952,23 +957,23 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(fadeStartX, 10, isHovered ? 6 : 4.5, 0, 2 * Math.PI);
+      ctx.arc(fadeStartX, 10, isHovered ? 6.5 : 6, 0, 2 * Math.PI);
       ctx.fill();
       ctx.stroke();
 
       const curveNodeX = fadeStartX + (cropXEnd - fadeStartX) * (1 - fadeSettings.fadeOutCurveNodePosition);
       const curveNodeY = height - fadeSettings.fadeOutCurveNode * height;
-      ctx.fillStyle = activeDrag?.type === 'fadeOutCurve' ? '#ffffff' : '#f59e0b';
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(curveNodeX, curveNodeY, activeDrag?.type === 'fadeOutCurve' ? 7 : 5, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.stroke();
+      if (isFadeCurveVisible(fadeMs, fadeStartX - cropXEnd)) {
+        const curveActive = hoveredElement === 'fadeOutCurve' || activeDrag?.type === 'fadeOutCurve';
+        ctx.fillStyle = `rgba(245, 158, 11, ${curveActive ? 0.9 : 0.45})`;
+        ctx.beginPath();
+        ctx.arc(curveNodeX, curveNodeY, curveActive ? 3 : 2.5, 0, 2 * Math.PI);
+        ctx.fill();
+      }
 
       // Tooltip/badge while hovering or dragging
-      if (isHovered && fadeStartX >= 0 && fadeStartX <= width) {
-        const labelText = `Fade Out: ${(fadeMs / 1000).toFixed(2)}s`;
+      if (activeDrag?.type === 'fadeOut' && fadeStartX >= 0 && fadeStartX <= width) {
+        const labelText = `${(fadeMs / 1000).toFixed(2)}s`;
         ctx.font = '10px ui-monospace, monospace';
         const txtWidth = ctx.measureText(labelText).width;
         ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
@@ -1045,7 +1050,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // 5. Draw Playhead marker
     const px = timeToX(currentTime, width);
     if (px >= 0 && px <= width) {
-      ctx.strokeStyle = '#38bdf8'; // Cyan-400
+      ctx.strokeStyle = '#7dd3fc'; // Brighter playhead, unchanged width
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(px, 0);
@@ -1065,25 +1070,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // 6. Hover guide
     if (hoverPosition && hoverTime !== null) {
       const hx = hoverPosition.x;
-      const snappedHoverTime = processingOpen ? snapTimeToNoiseFloor(hoverTime) : snapEditTime(hoverTime);
-      const snappedX = timeToX(snappedHoverTime, width);
-      if (snapAmountSec > 0 && Math.abs(snappedX - hx) > 2 && snappedX >= 0 && snappedX <= width) {
-        ctx.strokeStyle = '#67e8f9';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 3]);
-        ctx.beginPath();
-        ctx.moveTo(snappedX, 0);
-        ctx.lineTo(snappedX, height);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = '#67e8f9';
-        ctx.beginPath();
-        ctx.arc(snappedX, 9, 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      ctx.save();
       if (processingOpen) {
         // Show purple preview line with top flag where marker will land
-        ctx.strokeStyle = '#a855f7';
+        ctx.strokeStyle = '#c084fc';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(hx, 0);
@@ -1098,7 +1088,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.closePath();
         ctx.fill();
       } else {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.strokeStyle = 'rgba(224, 242, 254, 0.8)';
         ctx.lineWidth = 0.75;
         ctx.setLineDash([2, 2]);
         ctx.beginPath();
@@ -1107,58 +1097,73 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
       }
+      ctx.restore();
     }
 
-    // 7. Radar-style ping when the cursor crosses onto a detected noise-floor snap point
-    if (snapPingRef.current) {
-      const PING_DURATION_MS = 550;
-      const elapsed = performance.now() - snapPingRef.current.start;
-      const t = Math.min(1, elapsed / PING_DURATION_MS);
-      const pingX = snapPingRef.current.x;
+
+    // Phosphor traces are anchored to waveform time, independently of the live cursor.
+    const now = performance.now();
+    snapTracesRef.current = snapTracesRef.current.filter(trace => now - trace.start < SNAP_TRACE_DURATION_MS);
+    for (const trace of snapTracesRef.current) {
+      const traceX = timeToX(trace.time, width);
+      if (traceX < 0 || traceX > width) continue;
+      // Exponential phosphor decay, normalized to reach zero without a cutoff flash.
+      const tail = Math.exp(-SNAP_TRACE_DURATION_MS / SNAP_TRACE_DECAY_MS);
+      const opacity = Math.max(0, (Math.exp(-(now - trace.start) / SNAP_TRACE_DECAY_MS) - tail) / (1 - tail));
       ctx.save();
-      ctx.strokeStyle = `rgba(103, 232, 249, ${(1 - t) * 0.9})`;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(165, 243, 252, ${opacity})`;
+      ctx.lineWidth = 1;
+      ctx.shadowColor = `rgba(165, 243, 252, ${opacity * 0.35})`;
+      ctx.shadowBlur = opacity * 3;
       ctx.beginPath();
-      ctx.arc(pingX, 9, 4 + t * 22, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeStyle = `rgba(103, 232, 249, ${(1 - t) * 0.5})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(pingX, 9, 4 + t * 12, 0, Math.PI * 2);
+      const crispX = Math.floor(traceX) + 0.5;
+      ctx.moveTo(crispX, 0);
+      ctx.lineTo(crispX, height);
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredMarkerId, fadeSettings, timeToX, snapEditTime, snapTimeToNoiseFloor, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, snapEditTime, snapTimeToNoiseFloor, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd]);
+
+  const drawOverlayRef = useRef(drawOverlay);
 
   // Trigger the overlay redraw whenever any of its inputs change
   useEffect(() => {
+    drawOverlayRef.current = drawOverlay;
     drawOverlay();
   }, [drawOverlay]);
 
-  // Runs a short requestAnimationFrame loop to animate the radar ping independently of React state
-  const startSnapPing = useCallback((x: number) => {
-    snapPingRef.current = { x, start: performance.now() };
-    if (pingRafRef.current !== null) cancelAnimationFrame(pingRafRef.current);
-    const PING_DURATION_MS = 550;
+  const startSnapTrace = useCallback((time: number) => {
+    const now = performance.now();
+    // A jittering drag must not stack/restart the same phosphor trace.
+    if (snapTracesRef.current.some(trace => trace.time === time && now - trace.start < SNAP_TRACE_DURATION_MS)) return;
+    snapTracesRef.current = [...snapTracesRef.current.filter(trace => now - trace.start < SNAP_TRACE_DURATION_MS),
+      { time, start: now }].slice(-MAX_SNAP_TRACES);
+    if (pingRafRef.current !== null) return;
     const step = () => {
-      if (!snapPingRef.current) return;
-      drawOverlay();
-      if (performance.now() - snapPingRef.current.start < PING_DURATION_MS) {
-        pingRafRef.current = requestAnimationFrame(step);
-      } else {
-        snapPingRef.current = null;
-        pingRafRef.current = null;
-        drawOverlay();
-      }
+      drawOverlayRef.current();
+      pingRafRef.current = snapTracesRef.current.length > 0 ? requestAnimationFrame(step) : null;
     };
     pingRafRef.current = requestAnimationFrame(step);
-  }, [drawOverlay]);
+  }, []);
+
+  const showSuccessfulSnap = (requested: number) => {
+    const candidate = snapTimeToNoiseFloor(requested);
+    if (candidate === requested) { lastSnapTargetRef.current = null; return; }
+    if (lastSnapTargetRef.current !== candidate) startSnapTrace(candidate);
+    lastSnapTargetRef.current = candidate;
+  };
 
   useEffect(() => {
+    snapTracesRef.current = [];
+    lastSnapTargetRef.current = null;
+    acquiredRunRef.current = null;
+    if (pingRafRef.current !== null) cancelAnimationFrame(pingRafRef.current);
+    pingRafRef.current = null;
     return () => {
       if (pingRafRef.current !== null) cancelAnimationFrame(pingRafRef.current);
+      snapTracesRef.current = [];
     };
-  }, []);
+  }, [audioBuffer]);
 
   // Minimap rendering
   useEffect(() => {
@@ -1272,17 +1277,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setHoverTime(time);
     setHoverPosition({ x, y });
 
-    // Radar ping: fire the moment the cursor crosses onto a detected noise-floor snap point
-    if (snapAmountSec > 0 && audioBuffer) {
-      const snappedX = timeToX(snapTimeToNoiseFloor(time), canvasDimensions.width);
-      const isOverSnapPoint = gapCandidates.some(candidate => Math.abs(candidate - time) <= snapAmountSec) && Math.abs(snappedX - x) <= 2;
-      if (isOverSnapPoint && !wasOverSnapPointRef.current) {
-        startSnapPing(snappedX);
-      }
-      wasOverSnapPointRef.current = isOverSnapPoint;
-    } else {
-      wasOverSnapPointRef.current = false;
-    }
+    // Live radar acquisition is independent of Auto-Split's Gap setting.
+    // Hover stays at the pointer; the trace and actual marker use the quiet target.
+    const markerContext = processingOpen && (!activeDrag || activeDrag.type === 'marker');
+    const target = markerContext ? acquireQuietTarget(time, quietRuns, snapAmountSec) : null;
+    if (target && acquiredRunRef.current !== target.runStart) startSnapTrace(target.time);
+    acquiredRunRef.current = target?.runStart ?? null;
 
     // Dragging active element logic
     if (activeDrag) {
@@ -1291,6 +1291,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         nextTime = snapEditTime(nextTime);
         onSeek(nextTime);
       } else if (activeDrag.type === 'marker' && activeDrag.id) {
+        showSuccessfulSnap(Math.max(cropStart, Math.min(autoSplitEnd, time)));
         let nextTime = Math.max(cropStart, Math.min(autoSplitEnd, time));
         nextTime = snapTimeToNoiseFloor(nextTime);
         if (!markerMoveStartedRef.current && markers.some(marker => marker.id === activeDrag.id && marker.time !== nextTime)) {
@@ -1315,8 +1316,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const nextNode = Math.max(0.05, Math.min(0.95, 1 - y / canvasDimensions.height));
         onFadeSettingsChange({ ...fadeSettings, fadeOutCurveNode: nextNode, fadeOutCurveNodePosition: nextPosition });
       } else if (activeDrag.type === 'selectionStart' && selection) {
+        showSuccessfulSnap(time);
         onSelectionChange({ ...selection, start: Math.max(0, Math.min(duration, snapEditTime(time))) });
       } else if (activeDrag.type === 'selectionEnd' && selection) {
+        showSuccessfulSnap(time);
         onSelectionChange({ ...selection, end: Math.max(0, Math.min(duration, snapEditTime(time))) });
       } else if (activeDrag.type === 'selectionMove' && selection && activeDrag.startTime !== undefined && activeDrag.startX !== undefined) {
         const dt = time - activeDrag.startTime;
@@ -1337,6 +1340,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         onSelectionChange({ start: nextS, end: nextE });
       } else if (activeDrag.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
         if (activeDrag.startX !== undefined && Math.abs(x - activeDrag.startX) > 4) {
+          showSuccessfulSnap(time);
           const snappedTime = snapEditTime(time);
           const s = Math.min(activeDrag.startTime, snappedTime);
           const e = Math.max(activeDrag.startTime, snappedTime);
@@ -1350,37 +1354,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setHoveredElement(null);
     setHoveredMarkerId(null);
 
-    // 1. Check Fade In handle
-    if (fadeSettings.fadeInEnabled) {
-      const cropXStart = timeToX(cropStart, canvasDimensions.width);
-      const fEndX = timeToX(cropStart + fadeSettings.fadeInMs / 1000, canvasDimensions.width);
-      const curveX = cropXStart + (fEndX - cropXStart) * fadeSettings.fadeInCurveNodePosition;
-      const curveY = canvasDimensions.height - fadeSettings.fadeInCurveNode * canvasDimensions.height;
-      if (Math.hypot(x - curveX, y - curveY) < 12) {
-        setHoveredElement('fadeIn');
-        return;
-      }
-      if ((Math.abs(x - fEndX) < 10 || (Math.abs(x - cropXStart) < 12 && fadeSettings.fadeInMs <= 50)) && y < 28) {
-        setHoveredElement('fadeIn');
-        return;
-      }
-    }
-
-    // 2. Check Fade Out handle
-    if (fadeSettings.fadeOutEnabled) {
-      const cropXEnd = timeToX(cropEnd, canvasDimensions.width);
-      const fStartX = timeToX(cropEnd - fadeSettings.fadeOutMs / 1000, canvasDimensions.width);
-      const curveX = fStartX + (cropXEnd - fStartX) * (1 - fadeSettings.fadeOutCurveNodePosition);
-      const curveY = canvasDimensions.height - fadeSettings.fadeOutCurveNode * canvasDimensions.height;
-      if (Math.hypot(x - curveX, y - curveY) < 12) {
-        setHoveredElement('fadeOut');
-        return;
-      }
-      if ((Math.abs(x - fStartX) < 10 || (Math.abs(x - cropXEnd) < 12 && fadeSettings.fadeOutMs <= 50)) && y < 28) {
-        setHoveredElement('fadeOut');
-        return;
-      }
-    }
+    const fadeTarget = hitTestFadeControls(x, y, fadeControls);
+    if (fadeTarget) { setHoveredElement(fadeTarget); return; }
 
     // 3. Check selection brackets
     if (selection) {
@@ -1428,49 +1403,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const time = xToTime(x, canvasDimensions.width);
 
     pointerDownPositionRef.current = { x, y };
+    lastSnapTargetRef.current = null;
 
-    if (fadeSettings.fadeInEnabled) {
-      const cropXStart = timeToX(cropStart, canvasDimensions.width);
-      const fadeEndX = timeToX(cropStart + fadeSettings.fadeInMs / 1000, canvasDimensions.width);
-      const curveX = cropXStart + (fadeEndX - cropXStart) * fadeSettings.fadeInCurveNodePosition;
-      const curveY = canvasDimensions.height - fadeSettings.fadeInCurveNode * canvasDimensions.height;
-      if (Math.hypot(x - curveX, y - curveY) < 14) {
-        setActiveDrag({ type: 'fadeInCurve' });
-        return;
-      }
-    }
+    const fadeTarget = hitTestFadeControls(x, y, fadeControls);
+    if (fadeTarget) { setActiveDrag({ type: fadeTarget }); return; }
 
-    if (fadeSettings.fadeOutEnabled) {
-      const fadeStartX = timeToX(cropEnd - fadeSettings.fadeOutMs / 1000, canvasDimensions.width);
-      const cropXEnd = timeToX(cropEnd, canvasDimensions.width);
-      const curveX = fadeStartX + (cropXEnd - fadeStartX) * (1 - fadeSettings.fadeOutCurveNodePosition);
-      const curveY = canvasDimensions.height - fadeSettings.fadeOutCurveNode * canvasDimensions.height;
-      if (Math.hypot(x - curveX, y - curveY) < 14) {
-        setActiveDrag({ type: 'fadeOutCurve' });
-        return;
-      }
-    }
-
-    // Hit actions
-    if (
-      hoveredElement === 'fadeIn' ||
-      (fadeSettings.fadeInEnabled &&
-        (Math.abs(x - timeToX(cropStart + fadeSettings.fadeInMs / 1000, canvasDimensions.width)) < 12 ||
-          (Math.abs(x - timeToX(cropStart, canvasDimensions.width)) < 12 && fadeSettings.fadeInMs <= 50)) &&
-        y < 28)
-    ) {
-      setActiveDrag({ type: 'fadeIn' });
-      return;
-    } else if (
-      hoveredElement === 'fadeOut' ||
-      (fadeSettings.fadeOutEnabled &&
-        (Math.abs(x - timeToX(cropEnd - fadeSettings.fadeOutMs / 1000, canvasDimensions.width)) < 12 ||
-          (Math.abs(x - timeToX(cropEnd, canvasDimensions.width)) < 12 && fadeSettings.fadeOutMs <= 50)) &&
-        y < 28)
-    ) {
-      setActiveDrag({ type: 'fadeOut' });
-      return;
-    } else if (hoveredElement === 'selectionStart') {
+    // Other waveform interactions retain their existing priority.
+    if (hoveredElement === 'selectionStart') {
       setActiveDrag({ type: 'selectionStart' });
     } else if (hoveredElement === 'selectionEnd') {
       setActiveDrag({ type: 'selectionEnd' });
@@ -1549,7 +1488,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (!processingOpen || !audioBuffer || e.button !== 0) return;
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
-    onAddMarker(snapTimeToNoiseFloor(xToTime(e.clientX - rect.left, rect.width)));
+    const requested = xToTime(e.clientX - rect.left, rect.width);
+    lastSnapTargetRef.current = null;
+    showSuccessfulSnap(requested);
+    onAddMarker(snapTimeToNoiseFloor(requested));
   };
 
   const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1767,6 +1709,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ? 'cursor-ew-resize'
     : hoveredElement === 'fadeIn' || hoveredElement === 'fadeOut'
     ? 'cursor-ew-resize'
+    : hoveredElement === 'fadeInCurve' || hoveredElement === 'fadeOutCurve'
+    ? 'cursor-move'
     : hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd'
     ? 'cursor-col-resize'
     : hoveredElement === 'selectionBar'
@@ -2463,6 +2407,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           />
         </div>
         <div className="relative flex-1 min-h-0" ref={canvasContainerRef}>
+        {(importStatus || analysisBusy || importError || analysisError) && (
+          <div role="status" className="pointer-events-none absolute left-3 right-3 top-3 z-30 rounded border border-slate-700 bg-slate-950/90 px-3 py-2 text-xs text-slate-200 shadow">
+            {importStatus ? `${importStatus.stage} ${importStatus.name}?${importStatus.progress !== undefined ? ` ${Math.floor(importStatus.progress * 100)}%` : ''}`
+              : analysisBusy ? `Building waveform? ${Math.floor(analyzedSamples / Math.max(1, audioBuffer?.length ?? 1) * 100)}%`
+              : importError || analysisError}
+            {(importStatus?.progress === undefined && importStatus) && <span className="ml-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" />}
+          </div>
+        )}
         {/* Feedback Notification Toast (floats over the canvas; never shifts layout) */}
         {feedbackToast && (
           <div
@@ -2506,7 +2458,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         />
 
         {/* Hover Time Tooltip (Sleek HUD Style, only shows timestamp by default to avoid clutter) */}
-        {hoverTime !== null && hoverPosition && (
+        {hoverTime !== null && hoverPosition && !activeDrag?.type.startsWith('fade') && !hoveredElement?.startsWith('fade') &&
+          !fadeControls.some(control => control.enabled && Math.abs(hoverPosition.x - control.lengthX) <= 24) && (
           <div
             className="absolute pointer-events-none -top-1 bg-slate-900 text-slate-200 border border-slate-800 px-2.5 py-0.5 rounded-md text-[10px] font-mono shadow-xl transform -translate-x-1/2 z-10 flex items-center gap-1.5"
             style={{ left: `${hoverPosition.x}px` }}
@@ -2518,10 +2471,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Selection</span>
             ) : hoveredElement === 'marker' ? (
               <span className="text-purple-400 text-[9px] font-sans px-1 bg-purple-500/10 rounded border border-purple-500/20">Marker</span>
-            ) : hoveredElement === 'fadeIn' ? (
-              <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Fade In</span>
-            ) : hoveredElement === 'fadeOut' ? (
-              <span className="text-amber-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Fade Out</span>
             ) : null}
           </div>
         )}

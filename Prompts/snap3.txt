@@ -1,0 +1,334 @@
+Please revisit the EDIT Splitter Snap behaviour.
+
+The recent implementation passes its tests, but it is still not behaving like the intended feature.
+
+This is now clearly a CONCEPTUAL mismatch rather than a units/zoom problem.
+
+Do not make another small tweak to regionSnap().
+Please inspect the behaviour against the intended interaction below.
+
+==================================================
+THE INTENDED USER WORKFLOW
+==================================================
+
+The intended workflow is:
+
+1. Select a representative quiet/noise-floor section of the recording.
+2. Press Detect.
+3. Detect establishes the audio level that represents "quiet".
+4. Move/hover the waveform cursor around the recording.
+5. As the cursor approaches audio at or below that detected quiet threshold:
+   - the cursor should acquire that quiet area
+   - the radar/snap visual should ping
+6. If the user places a marker while a quiet target is acquired:
+   - place it at the sensible quiet location
+
+In other words:
+
+SNAP IS A LIVE QUIET-AUDIO RADAR.
+
+It should NOT depend solely on previously generated Auto-Split candidates.
+
+==================================================
+CURRENT PROBLEM
+==================================================
+
+The current implementation appears to use valid Auto-Split quiet regions/candidates as the source of Snap targets.
+
+Even after changing capture from candidate-centre to whole-region + ±Snap, it is still very difficult to trigger.
+
+A simple test demonstrates the mismatch:
+
+- play a record
+- lift the needle several times to create very obvious silent sections
+- select one needle-lift section
+- press Detect
+- move the cursor over/near the other needle-lift sections
+- even with Snap turned high, they are not reliably acquired/pinged
+
+Those should be extremely easy targets.
+
+==================================================
+IMPORTANT SEPARATION
+==================================================
+
+Please separate these two concepts:
+
+AUTO SPLIT
+----------
+Uses:
+- Noise Floor
+- Gap
+- vinyl interruption tolerance
+- contiguous quiet-region logic
+
+Gap means:
+"How long must quiet audio last before an automatic split is proposed?"
+
+MANUAL SNAP / RADAR
+-------------------
+Uses:
+- detected Noise Floor
+- Snap search radius
+
+It should NOT require the quiet area to satisfy the Auto-Split Gap duration.
+
+A quiet section may be too short to qualify for Auto Split but should still be discoverable manually.
+
+This distinction is important.
+
+==================================================
+LIVE HOVER ANALYSIS
+==================================================
+
+While the pointer/cursor moves over the waveform in the relevant marker-placement context:
+
+analyse/search the audio around the cursor position.
+
+Using the shared stereo RMS data where practical:
+
+- search within ±Snap distance
+- find audio windows at or below the current Noise Floor threshold
+- use the louder stereo channel, consistent with Detect
+- find the nearest sensible quiet target
+
+Do not require that target to already exist in the Auto-Split candidate list.
+
+==================================================
+WHAT SNAP KNOB SHOULD MEAN
+==================================================
+
+Snap should mean:
+
+"How far around the cursor should I search for qualifying quiet audio?"
+
+Example:
+
+Snap = 150 ms
+
+Search approximately:
+
+cursorTime - 150 ms
+through
+cursorTime + 150 ms
+
+If qualifying quiet audio exists in that search window:
+- acquire it
+
+If none exists:
+- no snap target
+
+Turning Snap higher should therefore make the radar progressively easier to trigger.
+
+==================================================
+TARGET SELECTION
+==================================================
+
+When qualifying quiet samples/windows are found inside the Snap radius:
+
+Do not snap randomly to the first low sample.
+
+Prefer a stable sensible location.
+
+For example:
+
+1. group adjacent below-threshold windows into local quiet runs
+2. choose the nearest quiet run to the cursor
+3. choose either:
+   - the quietest point/window within that run
+   - or a stable central point within it
+
+The result should not jitter constantly as the pointer moves by one pixel.
+
+==================================================
+RADAR PING ON HOVER
+==================================================
+
+A marker click should NOT be required to trigger the visual feedback.
+
+When cursor movement acquires a valid quiet target:
+
+- trigger the existing radar/phosphor vertical-line ping
+- leave the temporary fading trace at the acquired location
+
+This is the user's visual confirmation:
+
+"Yes — the detector sees silence here."
+
+Avoid firing a new ping every animation frame while remaining over the same target.
+
+Suggested behaviour:
+
+- ping when a quiet target is newly acquired
+- do not ping repeatedly while still locked to essentially the same target
+- allow another ping after leaving and re-entering, or acquiring a different target
+
+==================================================
+CURSOR / ACQUIRED POSITION
+==================================================
+
+Please inspect the existing UX before deciding whether the visible live cursor itself should physically jump while merely hovering.
+
+Preferred behaviour if practical:
+
+- normal pointer movement remains natural
+- radar trace shows the acquired quiet position
+- when the user actually places/drags a marker, use the acquired position
+
+If the current interaction already moves the cursor during Snap and that is intentional, preserve it.
+
+The critical requirement is that QUIET ACQUISITION happens during hover, not only during marker placement.
+
+==================================================
+DETECT THRESHOLD
+==================================================
+
+Keep the current Detect calculation unless investigation reveals a bug:
+
+- 20 ms stereo RMS
+- louder channel
+- selected-region 90th percentile RMS + 3 dB
+
+But verify that the exact resulting threshold is the one being used by live radar search.
+
+Add temporary diagnostic logging/tests if helpful.
+
+For the needle-lift test:
+
+If Detect reports approximately -46 dB and another region measures substantially below that threshold, the radar MUST be able to acquire it.
+
+==================================================
+TEST THE ACTUAL SIGNAL LOGIC
+==================================================
+
+Please add tests that exercise the intended behaviour rather than only candidate-region snapping.
+
+Example:
+
+Noise Floor threshold:
+-46 dBFS
+
+Cursor:
+10.0 s
+
+Audio around 10.1 s:
+-60 dBFS RMS
+
+Snap:
+150 ms
+
+Expected:
+quiet target acquired around 10.1 s
+
+This should work EVEN IF:
+- Gap is set to 1.0 s
+- the quiet patch lasts only 300 ms
+
+because Gap is an Auto-Split rule, not a manual Snap rule.
+
+Another case:
+
+audio within ±150 ms is all -30 dBFS
+
+Expected:
+no target / no ping.
+
+Another:
+
+quiet audio lies 400 ms away
+Snap = 150 ms
+
+Expected:
+no target.
+
+Increase Snap to 500 ms:
+
+Expected:
+target acquired.
+
+==================================================
+AUTO SPLIT MUST REMAIN UNCHANGED
+==================================================
+
+Do not regress the now-working Auto-Split detector.
+
+Keep:
+
+- 20 ms stereo RMS
+- louder-channel analysis
+- 40 ms interruption tolerance
+- contiguous-region detection
+- one candidate per qualifying gap
+- Gap minimum-duration rule
+- start/end exclusion behaviour
+- Detect calculation
+
+The important change is to DECOUPLE manual Snap/radar target discovery from Auto-Split candidate generation.
+
+==================================================
+PERFORMANCE
+==================================================
+
+This runs during pointer movement, so avoid rescanning the full AudioBuffer on every mousemove.
+
+Prefer:
+
+- reuse/cached 20 ms RMS analysis data
+- convert cursor ±Snap into analysis-window indexes
+- search only that local window
+
+Keep pointer movement responsive.
+
+==================================================
+ACCEPTANCE TEST
+==================================================
+
+The key manual test is:
+
+1. Make a recording containing music.
+2. Lift the needle several times, producing obvious quiet sections.
+3. Select ONE of those sections.
+4. Press Detect.
+5. Move the cursor around the waveform.
+
+Expected:
+
+- approaching each of the other quiet sections reliably produces a radar ping
+- high Snap settings make acquisition noticeably easier
+- short quiet sections can ping even when they are shorter than Gap
+- loud music does not ping
+- placing a marker while a quiet target is acquired puts it at that quiet target
+
+If this test does not work, the feature is not complete even if unit tests pass.
+
+==================================================
+DO NOT TOUCH
+==================================================
+
+Do not change:
+
+- Export
+- layout
+- fade controls
+- marker styling
+- Auto-Split algorithm
+- Undo/Redo work
+- radar visual styling except as needed to trigger it from live acquisition
+
+==================================================
+FINALLY
+==================================================
+
+Run:
+- TypeScript/lint
+- relevant tests
+- production build
+
+Then report:
+
+1. why the previous Snap model did not match this workflow
+2. how live quiet-audio acquisition now works
+3. whether Gap is now completely excluded from manual Snap
+4. what cached analysis data is searched during hover
+5. exactly when a radar ping is triggered
+6. files changed

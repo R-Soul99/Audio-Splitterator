@@ -1,0 +1,230 @@
+Yes — if it’s technically working but feels almost impossible to trigger, I’d suspect the **Snap search window or candidate source**, not the visual effect.
+
+At `150 ms`, the capture zone is actually quite small, especially when you’re dragging around a long vinyl side. Even if the gap is visually obvious, you may simply not get close enough to the candidate point.
+
+But before just increasing the knob range, I’d have Codex verify three things:
+
+- whether `150 ms` really means **±150 ms**
+- whether Snap is searching against the **full detected quiet region** or only one central candidate point
+- whether screen-to-time conversion under zoom is correct
+
+That second point is important. Right now it sounds like Snap may only trigger if you get within 150 ms of the *centre* of a gap. I think the more natural behaviour is:
+
+> if the cursor enters anywhere near a valid quiet region, snap to that region’s chosen split point.
+
+So if a gap is 2 seconds wide, you shouldn’t have to hunt within 150 ms of its exact centre.
+
+I’d give Codex this probe:
+
+```text
+Please investigate why the EDIT waveform Snap behaviour is still difficult to trigger.
+
+Do not change the UI yet.
+Do not change the radar-trace animation yet.
+Do not alter auto-split detection unless required to fix Snap.
+
+Current behaviour
+=================
+
+Snap technically works, but it is very hard to trigger while manually placing or dragging a marker.
+
+The current implementation was recently changed so that:
+- silence analysis uses shared 20 ms stereo RMS
+- one candidate is generated per valid quiet region
+- Snap chooses the nearest candidate within ±the Snap setting
+
+I suspect the current Snap rule may be too restrictive.
+
+Please inspect and report/fix the actual cause.
+
+==================================================
+1 — VERIFY SNAP DISTANCE
+==================================================
+
+Confirm exactly how the Snap value is interpreted.
+
+For example, if the UI says:
+
+150 ms
+
+verify whether this actually means:
+
+cursorTime ± 150 ms
+
+Check:
+- milliseconds-to-seconds conversion
+- sample/time conversion
+- waveform pixel-to-time conversion
+- zoom/pan offsets
+- whether any value is accidentally being divided or multiplied twice
+
+Test at multiple zoom levels.
+
+==================================================
+2 — INSPECT WHAT SNAP IS MEASURING AGAINST
+==================================================
+
+Determine whether Snap currently measures distance only to the ONE central candidate point inside each detected quiet region.
+
+If so, this may explain why snapping feels difficult.
+
+Example:
+
+quiet region:
+10.0 s → 12.0 s
+
+chosen candidate:
+11.0 s
+
+Snap = 150 ms
+
+Current behaviour may require the cursor to get between:
+10.85 s and 11.15 s
+
+even though the whole 2-second area is visibly a gap.
+
+That is too restrictive for manual use.
+
+==================================================
+3 — DESIRED SNAP MODEL
+==================================================
+
+Snap should use the VALID QUIET REGION as the capture target, not just its central candidate point.
+
+Preferred behaviour:
+
+For each valid quiet region:
+
+1. determine its start and end time
+2. expand that region by the Snap distance on both sides
+3. if the user's intended marker position falls inside that expanded region:
+   - treat that quiet region as a valid snap target
+4. snap the marker to that region's single chosen candidate point
+5. if multiple expanded regions overlap, choose the nearest region/candidate sensibly
+6. if no valid region is within range, leave the marker unsnapped
+
+Conceptually:
+
+captureStart = quietRegion.start - snapDistance
+captureEnd   = quietRegion.end   + snapDistance
+
+If cursorTime falls inside that range:
+snap to quietRegion.candidateTime
+
+This should make a long visible gap easy to snap to without changing where the actual marker lands.
+
+==================================================
+4 — PRESERVE CANDIDATE POSITION
+==================================================
+
+Do not change the existing one-candidate-per-gap behaviour.
+
+The actual snapped marker should still land at the sensible central/quiet point already calculated for that gap.
+
+This change is only about making the GAP easier to acquire.
+
+==================================================
+5 — CHECK MANUAL INTERACTIONS
+==================================================
+
+Verify Snap behaviour for:
+
+- adding a manual marker
+- dragging an existing marker
+- different waveform zoom levels
+- gaps wider than Snap distance
+- gaps narrower than Snap distance
+
+Expected:
+
+A 2-second valid quiet region with Snap = 150 ms should be easy to acquire anywhere across the quiet region, plus approximately 150 ms either side.
+
+The user should NOT have to find the exact central candidate manually.
+
+==================================================
+6 — DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- Noise Floor detection
+- Gap duration semantics
+- one candidate per quiet region
+- 20 ms RMS analysis
+- 40 ms interruption tolerance
+- Detect percentile calculation
+- radar trace styling/animation
+- Export
+- layout
+
+==================================================
+7 — TESTS
+==================================================
+
+Please add/update tests for cases such as:
+
+Case A:
+valid quiet region = 10.0–12.0 s
+candidate = 11.0 s
+Snap = 150 ms
+cursor = 10.2 s
+
+Expected:
+snap to 11.0 s
+
+Case B:
+same region
+cursor = 9.9 s
+
+Expected:
+snap to 11.0 s
+
+Case C:
+same region
+cursor = 9.7 s
+
+Expected:
+no snap
+
+Case D:
+same region
+cursor = 11.8 s
+
+Expected:
+snap to 11.0 s
+
+Case E:
+same region
+cursor = 12.1 s
+
+Expected:
+snap to 11.0 s
+
+Case F:
+same region
+cursor = 12.4 s
+
+Expected:
+no snap
+
+Also verify behaviour under zoom/pan.
+
+==================================================
+FINALLY
+==================================================
+
+After changes:
+
+- run TypeScript/lint
+- run relevant tests
+- run build
+
+Summarise:
+- root cause
+- whether units/conversions were correct
+- whether Snap previously targeted only candidate centres
+- how quiet-region capture now works
+- files changed
+```
+
+I think that model will feel much more natural: **the whole gap becomes the thing you can “catch”, but the marker still lands at the single clean split point.**

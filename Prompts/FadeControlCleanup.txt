@@ -1,0 +1,198 @@
+Please implement the fade-control cleanup based on the completed FadeProbe.
+
+Do not redesign the waveform.
+Do not change fade maths.
+Do not change layout dimensions.
+Do not touch Export or Splitter behaviour.
+
+The goal is to make fade-length adjustment clearly primary and fade-curve shaping visually secondary.
+
+==================================================
+CURRENT FINDINGS TO PRESERVE
+==================================================
+
+Current architecture:
+
+- App.tsx owns fadeSettings
+- WaveformCanvas.tsx draws and handles fade controls
+- audioProcessing.ts applies fade gain
+- top handle changes fadeInMs / fadeOutMs
+- middle control point edits CurveNodePosition horizontally and CurveNode vertically
+- fade shape uses a quadratic Bézier
+- stored curve values can safely remain even when the curve handle is hidden
+
+Current problem:
+
+- top handle visual radius = ~4.5 px
+- curve dot visual radius = ~5 px and grows to ~7 px while dragged
+- curve hit-testing runs first
+- curve and length hover share the same identifier
+- duplicate cursor/fade readouts create clutter
+
+==================================================
+1 — MAIN FADE-LENGTH HANDLE
+==================================================
+
+Make the top fade-length handle the clearly dominant control.
+
+Visual:
+- increase visual radius to approximately 6 px
+- keep styling consistent with the existing fade colour
+- add a clear but restrained hover state
+
+Interaction:
+- use a larger invisible hit area than the visible circle
+- preserve current drag behaviour
+- if the fade-length hit area overlaps the curve-handle hit area, the fade-length handle MUST win
+
+Do not make it visually chunky.
+
+==================================================
+2 — CURVE HANDLE
+==================================================
+
+Make the Bézier control-point handle visually subordinate.
+
+Visual:
+- reduce visible radius to approximately 2.5–3 px
+- use subtler opacity/colour than the main handle
+- allow it to become slightly more visible on hover/drag
+
+Interaction:
+- keep an invisible hit radius around 10–12 px
+- preserve the existing horizontal/vertical Bézier control behaviour
+- do not change stored curve values when the handle is hidden
+
+==================================================
+3 — CONDITIONAL CURVE-HANDLE VISIBILITY
+==================================================
+
+Only show the curve handle when BOTH conditions are true:
+
+- fade duration >= 750 ms
+- displayed fade width >= 48 px
+
+Use the same condition for:
+- drawing
+- hover detection
+- hit testing
+
+If the fade is shorter/narrower:
+- hide the curve dot
+- disable its hit target
+- preserve its existing CurveNode / CurveNodePosition state
+
+Do not reset the curve to linear merely because the control is hidden.
+
+==================================================
+4 — DISTINCT HOVER / DRAG TARGETS
+==================================================
+
+The fade-length handle and curve handle must have distinct identifiers/state.
+
+Do not use the same hover identifier for both.
+
+For example, distinguish conceptually between:
+- fade-in-length
+- fade-in-curve
+- fade-out-length
+- fade-out-curve
+
+Use whatever form best fits the existing code.
+
+This should eliminate ambiguity and make hover styling reliable.
+
+==================================================
+5 — HIT-TEST PRIORITY
+==================================================
+
+Fix pointer targeting order.
+
+Preferred priority:
+
+1. fade-length handle
+2. curve handle
+3. other waveform interactions
+
+The curve handle should not steal the drag when the pointer is near both controls.
+
+Preserve normal waveform behaviour outside those hit regions.
+
+==================================================
+6 — CLEAN UP READOUTS / TOOLTIPS
+==================================================
+
+Remove the duplicate fade feedback.
+
+During normal/rest state:
+- no separate "Fade In" / "Fade Out" cursor badge
+- no persistent duration badge
+
+While dragging the fade-length handle:
+- show one compact temporary duration readout near the active top handle
+- example:
+  5.33s
+- hide it immediately on pointer release
+
+While adjusting the curve handle:
+- do not show the generic cursor-time tooltip over the fade area
+- avoid adding a large replacement label
+
+Suppress the generic cursor tooltip while either fade control is actively being manipulated.
+
+Do not change cursor tooltip behaviour elsewhere on the waveform.
+
+==================================================
+7 — PRESERVE EXISTING VISUAL FEEDBACK
+==================================================
+
+Keep:
+- coloured fade curve
+- shaded fade region
+- dashed guide if currently useful
+- current fade colours
+
+Do not change the quadratic Bézier rendering.
+
+==================================================
+8 — REGRESSION SAFETY
+==================================================
+
+Preserve:
+
+- fade maths
+- playback fade behaviour
+- export fade behaviour
+- fade curve values
+- zoom/pan
+- selections
+- markers
+- waveform layout
+- fixed application dimensions
+
+Do not introduce additional state that resets fade settings on rerender.
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+Complete when:
+
+- the top fade handle is clearly easier to identify and grab
+- the curve dot is visibly smaller/subtler
+- the curve dot only appears when fade duration >= 750 ms AND width >= 48 px
+- hidden curve values are preserved
+- length-handle hit testing wins when controls overlap
+- accidental curve dragging is significantly reduced
+- length and curve hover states are distinct
+- duplicate Fade In/Fade Out badges are removed
+- generic cursor tooltip is suppressed during fade interaction
+- fade length drag shows only one compact temporary duration readout
+- TypeScript/build/tests pass
+
+Finally summarise:
+- files changed
+- hover/drag target changes
+- curve visibility condition
+- hit-test priority change
+- tooltip/readout cleanup
