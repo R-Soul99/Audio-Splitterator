@@ -3,7 +3,7 @@ import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
 import { RotaryKnob } from './RotaryKnob';
 import { analyzeSilenceLevels, analyzeSilenceLevelsChunked } from '../utils/silenceAnalysis';
-import { buildQuietRuns, acquireQuietTarget, QuietRadarAcquisition, QuietTarget } from '../utils/quietRadar';
+import { buildQuietRuns, quietCandidatePolicy, acquireQuietTarget, QuietRadarAcquisition, QuietTarget } from '../utils/quietRadar';
 import { hitTestFadeControls, isFadeCurveVisible, FadeControlGeometry } from '../utils/fadeControls';
 import { Marker, FadeSettings, TimeSelection } from '../types';
 
@@ -23,6 +23,8 @@ import {
 } from '../utils/audioProcessing';
 import {
   Ear,
+  Slice,
+  Eye,
   ZoomIn,
   ZoomOut,
   ScanLine,
@@ -257,6 +259,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   // Snap radius in seconds; 0 = off. Adjustable via the rotary knob in the Detection group.
   const [snapAmountSec, setSnapAmountSec] = useState<number>(0.15);
   const [silenceDurationSec, setSilenceDurationSec] = useState<number>(1.0);
+  const [chopEnabled, setChopEnabled] = useState(false);
+  const [snapSensitivity, setSnapSensitivity] = useState(100);
+  const [showDetectedPreview, setShowDetectedPreview] = useState(true);
+  const candidatePolicy = quietCandidatePolicy(noiseFloorDb, snapSensitivity);
+  const candidateThresholdDb = candidatePolicy.thresholdDb;
+  const autoSplitDurationSec = Math.max(silenceDurationSec, candidatePolicy.minimumSec);
   const [autoSplitPreview, setAutoSplitPreview] = useState<{
     buffer: AudioBuffer;
     thresholdDb: number;
@@ -271,7 +279,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Dragging States
   const [activeDrag, setActiveDrag] = useState<{
-    type: 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
+    type: 'chop' | 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
     id?: string;
     startX?: number;
     startTime?: number;
@@ -308,7 +316,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const duration = audioBuffer?.duration ?? 0;
   const autoSplitEnd = cropEnd > 0 ? cropEnd : duration;
   const previewsApplied = appliedPreview?.buffer === audioBuffer &&
-    appliedPreview?.thresholdDb === noiseFloorDb && appliedPreview?.silenceDuration === silenceDurationSec &&
+    appliedPreview?.thresholdDb === candidateThresholdDb && appliedPreview?.silenceDuration === autoSplitDurationSec &&
     appliedPreview?.start === cropStart && appliedPreview?.end === autoSplitEnd;
 
   // Preview only: debounce changes and never add markers until Auto-Split is clicked.
@@ -317,19 +325,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const timer = setTimeout(() => {
       setAutoSplitPreview({
         buffer: audioBuffer,
-        thresholdDb: noiseFloorDb,
-        silenceDuration: silenceDurationSec,
+        thresholdDb: candidateThresholdDb,
+        silenceDuration: autoSplitDurationSec,
         start: cropStart,
         end: autoSplitEnd,
-        times: detectSilenceSplits(audioBuffer, noiseFloorDb, silenceDurationSec, cropStart, autoSplitEnd),
+        times: detectSilenceSplits(audioBuffer, candidateThresholdDb, autoSplitDurationSec, cropStart, autoSplitEnd),
       });
     }, 250);
     return () => clearTimeout(timer);
-  }, [processingOpen, audioBuffer, noiseFloorDb, silenceDurationSec, cropStart, autoSplitEnd, previewsApplied, thresholdFlashKey]);
+  }, [processingOpen, audioBuffer, candidateThresholdDb, autoSplitDurationSec, cropStart, autoSplitEnd, previewsApplied, thresholdFlashKey]);
 
   const previewTimes = autoSplitPreview?.buffer === audioBuffer &&
-    autoSplitPreview?.thresholdDb === noiseFloorDb &&
-    autoSplitPreview?.silenceDuration === silenceDurationSec &&
+    autoSplitPreview?.thresholdDb === candidateThresholdDb &&
+    autoSplitPreview?.silenceDuration === autoSplitDurationSec &&
     autoSplitPreview?.start === cropStart && autoSplitPreview?.end === autoSplitEnd
     ? autoSplitPreview.times : null;
   // Applying auto-splits preserves manual markers.
@@ -564,7 +572,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     });
     return () => controller.abort();
   }, [audioBuffer, cropStart, autoSplitEnd]);
-  const quietRuns = useMemo(() => buildQuietRuns(silenceLevels, noiseFloorDb), [silenceLevels, noiseFloorDb]);
+  const quietRuns = useMemo(() => buildQuietRuns(silenceLevels, noiseFloorDb, snapSensitivity), [silenceLevels, noiseFloorDb, snapSensitivity]);
   const radarAcquisitionRef = useRef(new QuietRadarAcquisition());
   const snapTimeToNoiseFloor = useCallback((time: number): number =>
     acquireQuietTarget(time, quietRuns, snapAmountSec)?.time ?? time, [quietRuns, snapAmountSec]);
@@ -1010,32 +1018,23 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       }
     }
 
-    // Predicted boundaries are visual guides only; actual markers stay in front.
-    if (processingOpen && previewTimes) {
+    // Manual candidates are visual only. Search the visible centres rather than
+    // walking the entire recording on every redraw; snapping uses the full runs.
+    if (showDetectedPreview && radarReady) {
+      const startTime = xToTime(0, width), endTime = xToTime(width, width);
+      let low = 0, high = quietRuns.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (quietRuns[middle].candidate < startTime) low = middle + 1; else high = middle;
+      }
       ctx.save();
-      ctx.strokeStyle = '#fbbf24';
-      ctx.globalAlpha = 0.8;
+      ctx.strokeStyle = 'rgba(165, 243, 252, 0.55)';
       ctx.lineWidth = 1;
-      for (const time of previewTimes) {
-        if (time <= cropStart + 0.01 || time >= autoSplitEnd - 0.01) continue;
-        const x = timeToX(time, width);
-        if (x < 0 || x > width) continue;
-
-        ctx.setLineDash([4, 4]);
+      for (let index = low; index < quietRuns.length && quietRuns[index].candidate <= endTime; index++) {
+        const x = timeToX(quietRuns[index].candidate, width);
         ctx.beginPath();
-        ctx.moveTo(x, 10);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-
-        // Hollow diamond distinguishes a prediction from a filled marker flag.
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(x, 1);
-        ctx.lineTo(x + 4, 5);
-        ctx.lineTo(x, 9);
-        ctx.lineTo(x - 4, 5);
-        ctx.closePath();
-        ctx.stroke();
+        ctx.moveTo(x, 2); ctx.lineTo(x + 3, 5); ctx.lineTo(x, 8); ctx.lineTo(x - 3, 5);
+        ctx.closePath(); ctx.stroke();
       }
       ctx.restore();
     }
@@ -1095,20 +1094,21 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (hoverPosition && hoverTime !== null) {
       const hx = hoverPosition.x;
       ctx.save();
-      if (processingOpen) {
+      if (chopEnabled && showDetectedPreview) {
         // Show purple preview line with top flag where marker will land
         ctx.strokeStyle = '#c084fc';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(hx, 0);
-        ctx.lineTo(hx, height);
+        const targetX = timeToX(snapTimeToNoiseFloor(hoverTime), width);
+        ctx.moveTo(targetX, 0);
+        ctx.lineTo(targetX, height);
         ctx.stroke();
 
         ctx.fillStyle = '#a855f7';
         ctx.beginPath();
-        ctx.moveTo(hx - 5, 0);
-        ctx.lineTo(hx + 5, 0);
-        ctx.lineTo(hx, 8);
+        ctx.moveTo(targetX - 5, 0);
+        ctx.lineTo(targetX + 5, 0);
+        ctx.lineTo(targetX, 8);
         ctx.closePath();
         ctx.fill();
       } else {
@@ -1128,7 +1128,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Phosphor traces are anchored to waveform time, independently of the live cursor.
     const now = performance.now();
     snapTracesRef.current = snapTracesRef.current.filter(trace => now - trace.start < SNAP_TRACE_DURATION_MS);
-    for (const trace of snapTracesRef.current) {
+    for (const trace of showDetectedPreview ? snapTracesRef.current : []) {
       const traceX = timeToX(trace.time, width);
       if (traceX < 0 || traceX > width) continue;
       // Exponential phosphor decay, normalized to reach zero without a cutoff flash.
@@ -1146,7 +1146,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, snapEditTime, snapTimeToNoiseFloor, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, snapEditTime, snapTimeToNoiseFloor, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
 
   const drawOverlayRef = useRef(drawOverlay);
 
@@ -1155,6 +1155,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     drawOverlayRef.current = drawOverlay;
     drawOverlay();
   }, [drawOverlay]);
+
+  useEffect(() => {
+    // Candidate policy changes invalidate old phosphor locations. Preview itself
+    // only hides drawing and never clears detection or acquisition state.
+    snapTracesRef.current = [];
+    drawOverlayRef.current();
+  }, [quietRuns]);
 
   const startSnapTrace = useCallback((time: number) => {
     const now = performance.now();
@@ -1196,6 +1203,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setAutoSplitPreview(null);
     setHoverTime(null);
     setHoverPosition(null);
+    setChopEnabled(false);
     snapTracesRef.current = [];
     radarAcquisitionRef.current.reset();
   }, [loadedAudioId]);
@@ -1324,7 +1332,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     // Live radar acquisition is independent of Auto-Split's Gap setting.
     // Hover stays at the pointer; the trace and actual marker use the quiet target.
-    const markerContext = radarReady && (!activeDrag || activeDrag.type === 'marker');
+    const markerContext = radarReady && (!activeDrag || activeDrag.type === 'marker' || activeDrag.type === 'chop');
     if (markerContext) {
       updateRadarAcquisition(acquireQuietTarget(time, quietRuns, snapAmountSec));
     } else if (!activeDrag || !['selectionStart', 'selectionEnd', 'selectionCreate'].includes(activeDrag.type)) {
@@ -1465,6 +1473,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       setActiveDrag({ type: 'selectionMove', startTime: time, startX: selection.start });
     } else if (hoveredElement === 'marker' && hoveredMarkerId) {
       setActiveDrag({ type: 'marker', id: hoveredMarkerId });
+    } else if (chopEnabled) {
+      setActiveDrag({ type: 'chop', startTime: time, startX: x });
     } else {
       // Smart tool: Record drag start point; don't trigger playback until pointer release
       setActiveDrag({ type: 'selectionCreate', startTime: snapEditTime(time), startX: x });
@@ -1492,7 +1502,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       e.clientY - rect.top - downPosition.y
     ) > 5;
 
-    if (activeDrag?.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
+    if (activeDrag?.type === 'chop' && activeDrag.startTime !== undefined && !moved) {
+      const requested = Math.max(cropStart, Math.min(autoSplitEnd, activeDrag.startTime));
+      showSuccessfulSnap(requested);
+      onAddMarker(snapTimeToNoiseFloor(requested));
+    } else if (activeDrag?.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
       const rect = canvas?.getBoundingClientRect();
       const x = rect ? e.clientX - rect.left : (activeDrag.startX ?? 0);
       const pixelDiff = Math.abs(x - (activeDrag.startX ?? 0));
@@ -1533,18 +1547,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setActiveDrag(null);
   };
 
-  const handleWaveformDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!processingOpen || !audioBuffer || e.button !== 0) return;
-    e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const requested = xToTime(e.clientX - rect.left, rect.width);
-    showSuccessfulSnap(requested);
-    onAddMarker(snapTimeToNoiseFloor(requested));
-  };
-
   const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    if (!processingOpen || !audioBuffer) return;
+    if (!audioBuffer) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const marker = markers.find(marker => Math.abs(timeToX(marker.time, rect.width) - x) <= 6);
@@ -1763,7 +1768,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ? 'cursor-col-resize'
     : hoveredElement === 'selectionBar'
     ? 'cursor-grab'
-    : 'cursor-default';
+    : chopEnabled ? 'cursor-crosshair' : 'cursor-default';
 
   const minimapCursor = minimapDrag
     ? minimapDrag.mode === 'slide'
@@ -1800,8 +1805,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   // Run Auto-Split using sampled noise floor and drop duration
   const handleTriggerAutoSplit = () => {
     if (!onAutoSplit) return;
-    const count = onAutoSplit(noiseFloorDb, silenceDurationSec);
-    const cleared = { buffer: audioBuffer!, thresholdDb: noiseFloorDb, silenceDuration: silenceDurationSec,
+    const count = onAutoSplit(candidateThresholdDb, autoSplitDurationSec);
+    const cleared = { buffer: audioBuffer!, thresholdDb: candidateThresholdDb, silenceDuration: autoSplitDurationSec,
       start: cropStart, end: autoSplitEnd, times: [] };
     setAppliedPreview(cleared);
     setAutoSplitPreview(cleared);
@@ -1813,7 +1818,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         });
       } else {
         setFeedbackToast({
-          text: `No silence gaps below ${noiseFloorDb.toFixed(1)} dB for ${silenceDurationSec.toFixed(2)}s were found. Try raising the threshold or lowering the duration.`,
+          text: `No silence gaps below ${candidateThresholdDb.toFixed(1)} dB for ${autoSplitDurationSec.toFixed(2)}s were found. Try increasing sensitivity or lowering the duration.`,
           type: 'info',
         });
       }
@@ -2043,6 +2048,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <div className="flex shrink-0 items-center gap-2">
           <span className="shrink-0 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto custom-scrollbar">
+            <button type="button" aria-label="Chop" title="Chop: click the waveform to split" aria-pressed={chopEnabled}
+              onClick={() => setChopEnabled(enabled => !enabled)} disabled={!audioBuffer}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${chopEnabled ? 'bg-purple-600 text-white border-purple-500' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>
+              <Slice aria-hidden="true" className="w-3 h-3" />Chop
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -2053,7 +2063,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               aria-expanded={processingOpen}
               className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${processingOpen ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
             >
-              Splitter
+              Auto-Split
             </button>
             <button
               type="button"
@@ -2097,11 +2107,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                   <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                     <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
                       <Activity className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Splitter</span>
+                      <span>Auto-Split</span>
                     </div>
                     <button
                       type="button"
-                      aria-label="Close splitter"
+                      aria-label="Close auto-split"
                       onClick={() => setProcessingOpen(false)}
                       className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
                     >
@@ -2135,7 +2145,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                     {onClearMarkers && <button type="button" aria-label="Clear all split markers" title="Clear all split markers" disabled={markers.length === 0} onClick={onClearMarkers} className="rounded border border-slate-700 bg-slate-950 text-slate-400 hover:text-rose-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Clear All</button>}
                   </div>
                   <div className="detection-preview">
-                  <output aria-label="Auto-split preview" aria-live="polite" aria-busy={!!audioBuffer && previewTimes === null} title="Dashed amber lines on the waveform show predicted split positions. Press Apply to apply them." className="font-mono tabular-nums text-slate-300">
+                  <output aria-label="Auto-split preview" aria-live="polite" aria-busy={!!audioBuffer && previewTimes === null} title="Predicted auto-split count. Press Apply to create split markers." className="font-mono tabular-nums text-slate-300">
                     {!audioBuffer ? 'Load audio to preview slices' : previewTimes === null ? 'Calculating slices…' : (
                       <>
                         <span className="text-amber-300">{previewTimes.length} auto-{previewTimes.length === 1 ? 'split' : 'splits'}</span>
@@ -2428,9 +2438,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button type="button" onClick={handleSampleNoiseFloor} disabled={!audioBuffer}
-              aria-label="Detect Noise Floor" title="Detect noise floor from the selected quiet section."
-              className="flex h-4 items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1 text-[9px] text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-              <Ear aria-hidden="true" className="h-3 w-3" />Detect Noise Floor
+              aria-label="Detect noise floor" title="Detect noise floor from the selected quiet section."
+              className="flex h-4 w-5 items-center justify-center rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+              <Ear aria-hidden="true" className="h-3 w-3" />
+            </button>
+            <RotaryKnob size={16} value={snapSensitivity} min={0} max={100} step={1} fineStep={0.1}
+              onChange={setSnapSensitivity} title="Snap Sensitivity" formatValue={value => `${Math.round(value)}%`} />
+            <button type="button" aria-label="Show detected split preview" title="Show detected split preview" aria-pressed={showDetectedPreview}
+              onClick={() => setShowDetectedPreview(show => !show)}
+              className={`flex h-4 items-center gap-1 rounded border px-1 text-[9px] cursor-pointer ${showDetectedPreview ? 'border-sky-500/40 text-sky-300 bg-sky-500/10' : 'border-slate-700 text-slate-500 hover:text-slate-300'}`}>
+              <Eye aria-hidden="true" className="h-3 w-3" />Preview
             </button>
             <span key={thresholdFlashKey} className={`font-mono tabular-nums text-amber-400 ${thresholdFlashKey > 0 ? 'flash-once' : ''}`}>
               {noiseFloorDb.toFixed(1)} dB
@@ -2480,19 +2497,20 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         )}
         <canvas
           ref={canvasRef}
+          aria-label="Edit waveform"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
           onPointerLeave={() => radarAcquisitionRef.current.reset()}
           onContextMenu={handleContextMenu}
-          onDoubleClick={handleWaveformDoubleClick}
           className={`w-full block touch-none ${cursorStyle} ${audioBuffer ? '' : 'pointer-events-none'}`}
           style={{ height: `${canvasDimensions.height}px` }}
-          title={processingOpen ? "Double-click to add a split marker; right-click a marker to remove it; drag markers to adjust" : "Click to clear selection and seek; scroll to zoom at cursor; Shift+scroll to adjust waveform height"}
+          title={chopEnabled ? "Chop: click to add a split marker; right-click a marker to remove it; drag markers to adjust" : "Click to clear selection and seek; scroll to zoom at cursor; Shift+scroll to adjust waveform height"}
         />
         <canvas
           ref={overlayCanvasRef}
+          aria-label="Waveform indicators"
           className="absolute inset-0 w-full h-full pointer-events-none"
           style={{ height: `${canvasDimensions.height}px` }}
         />

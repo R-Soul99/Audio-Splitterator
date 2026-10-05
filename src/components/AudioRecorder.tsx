@@ -12,6 +12,7 @@ import { RotaryKnob } from './RotaryKnob';
 import { useKnobDrag } from '../hooks/useKnobDrag';
 import { AudioDeviceOption } from '../types';
 import { formatTime } from '../utils/audioProcessing';
+import { combinedStereoLevelDb } from '../utils/recordingDisplay';
 
 interface AudioRecorderProps {
   onRecordingComplete: (audioBuffer: AudioBuffer, defaultName: string, artist?: string, album?: string, markerTimes?: number[]) => void;
@@ -532,15 +533,14 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         const plotRight = waveformWidth - 42 * horizontalScale;
         const plotTop = 30;
         const plotBottom = waveformHeight - 8;
-        const laneHeight = (plotBottom - plotTop) / 2;
+        const laneHeight = plotBottom - plotTop;
         const dbToY = (db: number, laneTop: number) => laneTop + ((6 - Math.max(-60, Math.min(6, db))) / 66) * laneHeight;
 
         waveformCtx.fillStyle = '#020617';
         waveformCtx.fillRect(0, 0, waveformWidth, waveformHeight);
 
         const channels = [
-          { name: 'L', level: rmsDbL, history: recordingWaveformLeftHistoryRef.current, laneTop: plotTop },
-          { name: 'R', level: rmsDbR, history: recordingWaveformRightHistoryRef.current, laneTop: plotTop + laneHeight },
+          { name: 'Σ', level: combinedStereoLevelDb(rmsDbL, rmsDbR), laneTop: plotTop },
         ];
         const guideLevels = [6, 0, -6, -12, -18, -24, -30, -36, -42, -48, -54, -60];
 
@@ -579,8 +579,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         waveformCtx.textAlign = 'left';
         waveformCtx.textBaseline = 'middle';
         const channelLabels = [
-          { name: 'L', laneTop: plotTop },
-          { name: 'R', laneTop: plotTop + laneHeight },
+          { name: 'Σ', laneTop: plotTop },
         ];
         for (const channel of channelLabels) {
           waveformCtx.fillStyle = '#cbd5e1';
@@ -616,7 +615,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             waveformCtx.beginPath();
             for (let i = 0; i < count; i++) {
               const x = plotRight - (count - 1 - i) * 3;
-              const dbfs = channel.history[(firstIndex + i) % channel.history.length];
+              const index = (firstIndex + i) % recordingWaveformLeftHistoryRef.current.length;
+              const dbfs = combinedStereoLevelDb(recordingWaveformLeftHistoryRef.current[index], recordingWaveformRightHistoryRef.current[index]);
               const y = dbToY(dbfs, channel.laneTop);
               if (i === 0) waveformCtx.moveTo(x, y);
               else waveformCtx.lineTo(x, y);
@@ -1109,7 +1109,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             {/* Recording waveform */}
             <div className="relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/80 p-4">
               <div className="relative">
-                <canvas ref={recordingWaveformCanvasRef} width={1000} height={220} className="block h-[220px] w-full bg-slate-950" />
+                <canvas aria-label="Combined recording waveform" ref={recordingWaveformCanvasRef} width={1000} height={220} className="block h-[220px] w-full bg-slate-950" />
                 <span className="pointer-events-none absolute left-2 top-0 font-mono text-xs font-bold tracking-wider text-slate-300">RECORDING WAVEFORM</span>
               </div>
 

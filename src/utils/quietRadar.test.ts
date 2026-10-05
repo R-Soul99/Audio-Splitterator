@@ -1,7 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeSilenceLevels, findSilenceRegions } from './silenceAnalysis';
-import { buildQuietRuns, acquireQuietTarget, QuietRadarAcquisition } from './quietRadar';
+import { buildQuietRuns, quietCandidatePolicy, acquireQuietTarget, QuietRadarAcquisition } from './quietRadar';
+
+test('sensitivity selects progressively longer/deeper runs without changing Snap capture distance', () => {
+  const windows = [
+    { start: 1, end: 1.8, rms: 10 ** (-70 / 20) },
+    { start: 2, end: 2.2, rms: 10 ** (-62 / 20) },
+    { start: 3, end: 3.02, rms: 10 ** (-58 / 20) },
+  ];
+  const low = buildQuietRuns(windows, -57, 0);
+  const middle = buildQuietRuns(windows, -57, 50);
+  const high = buildQuietRuns(windows, -57, 100);
+  assert.deepEqual([low.length, middle.length, high.length], [1, 2, 3]);
+  assert.ok(low.every(run => high.some(candidate => candidate.start === run.start)));
+  for (const runs of [low, middle, high]) {
+    assert.ok(acquireQuietTarget(0.86, runs, 0.15));
+    assert.equal(acquireQuietTarget(0.84, runs, 0.15), null);
+  }
+  assert.equal(acquireQuietTarget(3.01, low, 0.15), null);
+  assert.ok(acquireQuietTarget(3.01, high, 0.15));
+  assert.deepEqual(quietCandidatePolicy(-57, 100), { thresholdDb: -57, minimumSec: 0 });
+  assert.equal(quietCandidatePolicy(-47, 0).thresholdDb - quietCandidatePolicy(-57, 0).thresholdDb, 10,
+    'sensitivity follows the detected reference rather than replacing it');
+});
 
 function signal(start = 10.1, end = 10.4, loudRight = false) {
   const rate = 1000;

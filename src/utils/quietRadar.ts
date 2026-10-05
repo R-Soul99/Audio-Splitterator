@@ -40,19 +40,33 @@ export class QuietRadarAcquisition {
   }
 }
 
-// Manual radar intentionally has no Gap minimum or Auto-Split interruption policy.
-export function buildQuietRuns(windows: LevelWindow[], thresholdDb: number): QuietRun[] {
+// Sensitivity filters audio evidence, independently of the pointer capture radius.
+// 100 preserves the original manual radar; lower settings require longer, deeper gaps.
+export function quietCandidatePolicy(thresholdDb: number, sensitivity: number) {
+  const selectivity = 1 - Math.max(0, Math.min(100, sensitivity)) / 100;
+  return { thresholdDb: thresholdDb - 6 * selectivity, minimumSec: 0.5 * selectivity ** 2 };
+}
+
+// Manual radar retains fine-grained runs and does not borrow Auto-Split's spike policy.
+export function buildQuietRuns(windows: LevelWindow[], thresholdDb: number, sensitivity = 100): QuietRun[] {
   const threshold = 10 ** (thresholdDb / 20);
   const runs: QuietRun[] = [];
+  const peaks: number[] = [];
   for (const window of windows) {
     if (window.rms > threshold) continue;
     const previous = runs.at(-1);
     if (previous && Math.abs(previous.end - window.start) < 1e-9) {
       previous.end = window.end;
       previous.candidate = (previous.start + previous.end) / 2;
-    } else runs.push({ start: window.start, end: window.end, candidate: (window.start + window.end) / 2 });
+      peaks[peaks.length - 1] = Math.max(peaks.at(-1)!, window.rms);
+    } else {
+      runs.push({ start: window.start, end: window.end, candidate: (window.start + window.end) / 2 });
+      peaks.push(window.rms);
+    }
   }
-  return runs;
+  const policy = quietCandidatePolicy(thresholdDb, sensitivity);
+  const maximumRms = 10 ** (policy.thresholdDb / 20);
+  return runs.filter((run, index) => run.end - run.start + 1e-9 >= policy.minimumSec && peaks[index] <= maximumRms);
 }
 
 export function acquireQuietTarget(time: number, runs: QuietRun[], radius: number): QuietTarget | null {

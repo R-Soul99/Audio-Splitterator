@@ -57,7 +57,7 @@ app.whenReady().then(async () => {
  const radarPath=path.join(app.getPath('temp'),'quiet-radar-check.wav');fs.writeFileSync(radarPath,wav);
  await win.webContents.debugger.sendCommand('DOM.setFileInputFiles',{nodeId,files:[radarPath]});
  await new Promise(r=>setTimeout(r,1000));
- await win.webContents.executeJavaScript(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Splitter').click()`);
+ await win.webContents.executeJavaScript(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Auto-Split').click()`);
  await new Promise(r=>setTimeout(r,100));
  const radarRect=await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector('canvas[title]').getBoundingClientRect();return {left:r.left,top:r.top,width:r.width}})()`);
  for(const [type,time] of [['mouseMoved',2.99],['mousePressed',2.99],['mouseMoved',3.28],['mouseReleased',3.28]]){
@@ -70,7 +70,7 @@ app.whenReady().then(async () => {
  const wave=document.querySelector('canvas[title]'), overlay=wave.nextElementSibling,rect=wave.getBoundingClientRect();
  const fire=(type,time,y=70)=>wave.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:2,button:0,buttons:type==='pointerup'?0:1,clientX:rect.left+rect.width*time/10,clientY:rect.top+y}));
 
- document.querySelector('[aria-label="Detect Noise Floor"]').click();await wait(300);
+ document.querySelector('[aria-label="Detect noise floor"]').click();await wait(300);
  const threshold=document.querySelector('[aria-label="Noise floor in dB"]').textContent;
  const preview=document.querySelector('[aria-label="Auto-split preview"]').textContent;
  const scale=overlay.width/rect.width; const x=Math.floor(rect.width*6.15/10*scale);
@@ -79,9 +79,16 @@ app.whenReady().then(async () => {
  fire('pointermove',6.15);await wait(60);fire('pointermove',7);await wait(60);
  const initial=brightness();await wait(500);const fading=brightness();await wait(1900);fire('pointermove',7.1);await wait(60);const gone=brightness();
  if(initial<100||fading>=initial||gone!==baseline)throw Error('Hover radar did not leave a stationary fading trace '+JSON.stringify({initial,fading,gone,baseline,threshold,preview}));
- wave.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,button:0,clientX:rect.left+rect.width*.62,clientY:rect.top+70}));await wait(60);
- return JSON.stringify({shortQuietHoverRadar:true,threshold,preview,traceAlpha:[initial,fading,gone],markerPlaced:document.body.textContent.includes('2 tracks')});
+ document.querySelector('[aria-label="Chop"]').click();await wait(60);
+ return JSON.stringify({shortQuietHoverRadar:true,threshold,preview,traceAlpha:[initial,fading,gone]});
  })()`));
+ const chopRect=await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector('[aria-label="Edit waveform"]').getBoundingClientRect();return {left:r.left,top:r.top,width:r.width}})()`);
+ for(const type of ['mouseMoved','mousePressed','mouseReleased']) {
+   await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x:chopRect.left+chopRect.width*.62,y:chopRect.top+70,button:type==='mouseMoved'?'none':'left',clickCount:1});
+   await new Promise(resolve=>setTimeout(resolve,60));
+ }
+ if(!await win.webContents.executeJavaScript(`!!document.querySelector('[aria-label="Track 2 name"]')`))throw Error('Native single-click Chop failed to place a marker');
+ console.log('PASS: native single-click Chop places a marker on the production waveform');
  const beforeFailure=await win.webContents.executeJavaScript(`document.querySelector('canvas[title]').toDataURL()`);
  const invalidPath=path.join(app.getPath('temp'),'fade-invalid-audio.wav');fs.writeFileSync(invalidPath,'invalid audio');
  await win.webContents.debugger.sendCommand('DOM.setFileInputFiles',{nodeId,files:[invalidPath]});
