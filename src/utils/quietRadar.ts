@@ -88,10 +88,8 @@ export function acquireQuietTarget(time: number, runs: QuietRun[], radius: numbe
     // reachable. Tolerance covers floating-point arithmetic at that boundary.
     if (end < start - 1e-9) continue;
     const distance = Math.max(run.start - time, time - run.end, 0);
-    // Use the whole run's stable centre when reachable; otherwise the centre of
-    // the locally available quiet portion. The acquired point never exceeds ±Snap.
-    const candidate = run.candidate >= start && run.candidate <= end ? run.candidate :
-      Math.max(run.start, Math.min(run.end, (start + end) / 2));
+    // Dots, pings, and manual snapping share the detected candidate position.
+    const candidate = run.candidate;
     if (distance < nearest || (distance === nearest && Math.abs(candidate - time) < Math.abs((target?.time ?? Infinity) - time))) {
       target = { time: candidate, runStart: run.start, zone: zones[index] }; nearest = distance;
     }

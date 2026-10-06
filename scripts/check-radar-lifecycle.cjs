@@ -93,7 +93,7 @@ app.whenReady().then(async () => {
   await run('pointer("onPointerDown",11.9)');await new Promise(resolve=>setTimeout(resolve,30));
   await run('pointer("onPointerUp",11.9)');await wait('markers().length===2');
   const snapped=await run('markers()[1].time');
-  assert.ok(snapped>=12 && snapped<=12.05,'Chop snaps within unchanged 150 ms even with Preview Off');
+  assert.ok(Math.abs(snapped - 13) < 1e-9, 'Chop snaps to the detected candidate at 13s when the quiet-run edge is within 150 ms, even with Preview Off');
   await run('sensitivity(0)');await wait(`document.querySelector('[aria-label="Snap Sensitivity"]').getAttribute('aria-valuenow')==='0'`);
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="true"');
   await run('candidateStrokes=[];move(13)');await new Promise(resolve=>setTimeout(resolve,100));
@@ -109,7 +109,8 @@ app.whenReady().then(async () => {
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="false"');
   await run('[...document.querySelectorAll("button")].find(button=>button.textContent.trim()==="Apply").click()');
   await wait('markers().length>=3');
-  assert.equal(await run('markers().filter(marker=>marker.id.startsWith("marker-auto-")).length'),2,'Auto-Split remains active with Preview Off');
+  assert.equal(await run('markers().filter(marker=>marker.id.startsWith("marker-auto-")).length'),1,'Auto-Split adds the other gap with Preview Off and preserves the existing Chop candidate');
+  assert.equal(await run('markers().filter(marker=>Math.abs(marker.time-13)<1e-9).length'),1,'Auto-Split does not duplicate the manual Chop marker at the candidate');
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="true"');
   await run('candidateStrokes=[];move(13.1)');await wait('candidateStrokes.length>0');
   assert.equal(await run('detectControls().length'),1,'Preview restores current candidates without detection');

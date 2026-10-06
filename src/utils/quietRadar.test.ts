@@ -37,9 +37,11 @@ function signal(start = 10.1, end = 10.4, loudRight = false) {
 test('live radar acquires a 300 ms -60 dB patch with -46 dB threshold even when Gap rejects it', () => {
   const levels = analyzeSilenceLevels(signal());
   assert.deepEqual(findSilenceRegions(levels, -46, 1), []);
-  const target = acquireQuietTarget(10, buildQuietRuns(levels, -46), 0.15);
+  const runs = buildQuietRuns(levels, -46);
+  const target = acquireQuietTarget(10, runs, 0.15);
   assert.ok(target);
-  assert.ok(target.time >= 10.1 && target.time <= 10.15);
+  assert.equal(target.time, runs[0].candidate,
+    'radar ping and Chop snap use the detected candidate dot even when only the run edge is within Snap');
 });
 test('loud music is rejected; larger Snap reaches a more distant quiet patch', () => {
   const runs = buildQuietRuns(analyzeSilenceLevels(signal(10.4, 10.7)), -46);
@@ -72,12 +74,13 @@ test('entering a quiet capture zone emits one acquisition, including the Snap ma
   assert.equal(acquisition.update(capture(10)), false);
 });
 
-test('movement across the whole quiet region and both Snap margins never repeats the ping', () => {
+test('movement across the whole quiet region keeps ping and snap on its candidate without repeating the ping', () => {
   const acquisition = new QuietRadarAcquisition();
   const times = [9.9, 10.05, 10.2, 10.9, 11, 11.8, 12, 12.1, 11.2, 10.1];
   const targets = times.map(capture);
   assert.ok(targets.every(target => target?.runStart === 10));
-  assert.ok(new Set(targets.map(target => target?.time)).size > 1, 'snap timestamps vary within one region');
+  assert.ok(targets.every(target => target?.time === acquisitionRuns[0].candidate),
+    'every ping and snap uses the exact detected candidate position');
   assert.deepEqual(targets.map(target => acquisition.update(target)), [true, ...times.slice(1).map(() => false)]);
   // Re-evaluation after any amount of time also stays acquired; no cooldown exists.
   for (let move = 0; move < 1000; move++) assert.equal(acquisition.update(capture(10.1)), false);
