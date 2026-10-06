@@ -55,6 +55,8 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const [albumArtist, setAlbumArtist] = useState<string>('');
   const [genre, setGenre] = useState<string>('');
   const selectionRef = useRef<HTMLInputElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const pendingTitleFocusRef = useRef<number | null>(null);
   const [page, setPage] = useState(0);
   const [showExportedFiles, setShowExportedFiles] = useState(false);
   const [startTrackNumber] = useState<number>(1);
@@ -325,6 +327,12 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const selectedCount = selection.count;
   const pagination = getExportPage<any>(splits, page);
   useEffect(() => { setPage(pagination.page); }, [pagination.page]);
+  useEffect(() => {
+    const index = pendingTitleFocusRef.current;
+    if (index === null) return;
+    const input = tableRef.current?.querySelector<HTMLInputElement>(`input[aria-label="Title for track ${index + 1}"]`);
+    if (input) { input.focus(); input.select(); pendingTitleFocusRef.current = null; }
+  }, [pagination.page]);
   useEffect(() => { if (selectionRef.current) selectionRef.current.indeterminate = selection.mixed; }, [selection.mixed]);
   const controlClass = 'rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-40';
   const checkbox = (label: string, checked: boolean, change: (value: boolean) => void, disabled = false, tooltip?: string) => (
@@ -341,7 +349,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
           <strong className="uppercase tracking-wider text-slate-300">Tracks to export</strong>
           <strong aria-label="Metadata preview heading" className="col-start-2 border-l border-slate-700 pl-2 uppercase tracking-wider text-emerald-400">Metadata preview</strong>
         </div>
-        <div role="table" aria-label="Tracks to export and metadata preview" className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-700">
+        <div ref={tableRef} role="table" aria-label="Tracks to export and metadata preview" className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-700">
           <div role="row" className="grid h-7 shrink-0 grid-cols-[20px_minmax(0,1fr)_48px_15%_20%_15%_12%] items-center bg-slate-900 text-[9px] uppercase tracking-wider">
             <div role="columnheader"><input ref={selectionRef} type="checkbox" aria-label="Select all tracks across all pages" aria-checked={selection.mixed ? 'mixed' : selection.all} checked={selection.all} disabled={!splits.length} onChange={(event) => setSelectedTracks(selectAllTracks(splits, event.target.checked))} className="accent-emerald-500" /></div>
             <div role="columnheader">Filename</div><div role="columnheader">Time</div>
@@ -360,12 +368,26 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
                 <div role="cell" className="text-slate-400">{formatTime(split.duration)}</div>
                 <div role="cell" className="truncate border-l border-slate-800 px-2" title={albumArtist}>{albumArtist || '—'}</div>
                 <div role="cell" className="min-w-0 border-l border-slate-800 px-1">
-                  <input aria-label={`Title for track ${idx + 1}`} value={title} title={title} className="w-full min-w-0 rounded bg-transparent px-1 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500" onChange={(event) => {
+                  <input aria-label={`Title for track ${idx + 1}`} value={title} title={title} onFocus={(event) => event.currentTarget.select()} onClick={(event) => { if (event.detail === 1) event.currentTarget.select(); }} className="w-full min-w-0 rounded bg-transparent px-1 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500" onChange={(event) => {
                     const value = event.target.value;
                     editedTrackTitlesRef.current.add(split.id);
                     setTracksData((prev) => ({ ...prev, [split.id]: { trackNumber: idx + 1, title: value, artist: albumArtist } }));
                     onTrackNameChange?.(split.id, value);
                   }} onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (event.key === 'Tab') {
+                      const nextIndex = idx + (event.shiftKey ? -1 : 1);
+                      if (nextIndex < 0 || nextIndex >= splits.length) return;
+                      event.preventDefault();
+                      const nextPage = Math.floor(nextIndex / EXPORT_PAGE_SIZE);
+                      if (nextPage !== pagination.page) {
+                        pendingTitleFocusRef.current = nextIndex;
+                        setPage(nextPage);
+                      } else {
+                        const input = tableRef.current?.querySelector<HTMLInputElement>(`input[aria-label="Title for track ${nextIndex + 1}"]`);
+                        input?.focus(); input?.select();
+                      }
+                      return;
+                    }
                     if (!['Enter', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
                     event.preventDefault();
                     const inputs = Array.from(event.currentTarget.closest('[role="table"]')?.querySelectorAll('input[aria-label^="Title for track "]') ?? []) as HTMLInputElement[];
@@ -401,7 +423,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
         <fieldset aria-label="Export controls" disabled={isSavingAll} className="m-0 flex min-h-0 min-w-0 flex-1 flex-col rounded border border-slate-700 bg-slate-900/70 p-2.5">
           <h3 className="mb-1 text-sm font-bold text-slate-200">Export</h3>
           <div className="flex shrink-0 items-center gap-1">
-            <span aria-label="Export destination" className="block h-7 min-w-0 flex-1 truncate rounded border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Choose destination...' : 'Browser save destination')}</span>
+            <span aria-label="Export destination" className="block h-7 min-w-0 flex-1 truncate rounded border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Destination' : 'Browser save destination')}</span>
             <button type="button" aria-label="Choose export folder" title="Choose export folder" className={`${controlClass} inline-flex h-7 w-7 shrink-0 items-center justify-center px-0`} disabled={!desktopExport} onClick={browseExportFolder}><FolderOpen className="h-3.5 w-3.5" /></button>
           </div>
           <div aria-label="Output settings" className="mt-2 flex shrink-0 flex-col gap-1">

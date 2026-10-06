@@ -81,6 +81,13 @@ async function run() {
       const all = document.querySelector('[aria-label="Select all tracks across all pages"]');
       const exportButton = () => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export');
       const initialBottom = exportButton().getBoundingClientRect().top;
+      const titleInput=number=>document.querySelector('[aria-label="Title for track '+number+'"]');
+      const assertSelected=number=>{const input=titleInput(number);if(document.activeElement!==input||input.selectionStart!==0||input.selectionEnd!==input.value.length)throw Error('Title not focused and selected: '+number);};
+      titleInput(2).focus();titleInput(2).setSelectionRange(1,1);titleInput(2).dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));assertSelected(2);
+      titleInput(2).dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true}));assertSelected(3);
+      titleInput(3).dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true}));assertSelected(2);
+      titleInput(13).focus();titleInput(13).dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true}));await pause();assertSelected(14);
+      titleInput(14).dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true}));await pause();assertSelected(13);
       const chooseFolder=document.querySelector('[aria-label="Choose export folder"]');
       if(chooseFolder.title!=='Choose export folder')throw Error('Folder tooltip missing');
       chooseFolder.click();await pause();
