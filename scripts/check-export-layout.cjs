@@ -54,8 +54,8 @@ app.whenReady().then(async () => {
       const button=controls.querySelector('[aria-label="Export selected tracks"]'),status=controls.querySelector('[role="status"]');
       const action=box(button),statusBox=box(status);
       if(!controls.querySelector('label[title]').title.includes('track'+String.fromCharCode(8217)+'s metadata'))throw Error('Embedding tooltip incorrect');
-      if(statusBox.top<action.bottom||Math.abs(statusBox.bottom-(bounds.bottom-11))>1)throw Error('Export information not anchored at bottom');
-      for(const input of controls.querySelectorAll('input,select'))if(box(input).bottom>action.top)throw Error('Setting below Export button');
+      if(statusBox.top<action.bottom||Math.abs(statusBox.bottom-(bounds.bottom-11))>1)throw Error('Export information not anchored at bottom: '+JSON.stringify({statusBox,bounds,action}));
+      for(const input of controls.querySelectorAll('input,select')){const label=input.closest('label')?.textContent;if(label==='Open folder after export'){if(box(input).top<action.bottom||box(input).bottom>statusBox.top)throw Error('Automatic opening checkbox misplaced');}else if(box(input).bottom>action.top)throw Error('Setting below Export button');}
       const artistHeader=document.querySelectorAll('[role="columnheader"]')[3],preview=document.querySelector('[aria-label="Metadata preview heading"]');
       if(Math.abs(box(artistHeader).left-box(preview).left)>1)throw Error('Metadata preview heading misaligned');
       const initial={controls:box(controls),table:box(table),pagination:box(pagination),info:box(info)};

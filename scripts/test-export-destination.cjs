@@ -12,10 +12,12 @@ const root = path.resolve(__dirname, '..');
   const file = path.join(profile,'not a folder.txt'); await fs.writeFile(file,'test');
   const handlers = new Map();
   let pickerCalls = 0, bridge;
+  const opened=[];
   const electron = {
     app: { getPath: () => profile, whenReady: () => ({ then: () => {} }), on: () => {} },
     ipcMain: { handle: (name, fn) => handlers.set(name,fn) },
     dialog: { showOpenDialog: async (_window, options) => { pickerCalls++; assert.equal(options.defaultPath, typed); return { filePaths: [picked] }; } },
+    shell: { openPath: async folder => { opened.push(folder); return ''; } },
     contextBridge: { exposeInMainWorld: (_name, api) => { bridge=api; } },
     ipcRenderer: { invoke: (name, ...args) => handlers.get(name)({},...args) },
   };
@@ -36,5 +38,11 @@ const root = path.resolve(__dirname, '..');
   assert.equal(await bridge.chooseExportFolder(),picked);
   assert.equal(await bridge.getExportFolder(),picked);
   assert.equal(pickerCalls,1);
+  const nestedFile=await bridge.saveExportFile({name:'nested.wav',data:new Uint8Array([4]),segments:['Artist','Album']});
+  const actualFolder=path.dirname(nestedFile);
+  await bridge.setExportFolder(typed);
+  await bridge.openExportFolder(actualFolder);
+  assert.equal(opened[0],path.join(picked,'Artist','Album'));
+  assert.equal(await bridge.getExportFolder(),typed);
   console.log('PASS: destination main/preload integration; space-containing paths, persistence, invalid-path rejection, typed-path export and folder picker');
 })().catch(error=>{console.error(error);process.exitCode=1;});

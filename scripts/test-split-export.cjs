@@ -22,11 +22,11 @@ async function run() {
       document.getElementById('root').style.cssText = 'height:503px;width:943px';
       window.alert = message => state.alerts.push(message);
       state.electronAPI = {
-        openExportFolder: async segments => { state.opened.push(segments); },
+        openExportFolder: async folder => { state.opened.push(folder); },
         getExportFolder: async () => 'C:/A very long export destination path/with many folders/that exceeds the available visual path width/test-output',
         setExportFolder: async folder => { if(!folder||folder==='invalid')throw Error('Invalid destination: choose an existing writable folder.');state.committedFolder=folder;return folder; },
         chooseExportFolder: async () => { state.folderPicks++; return 'C:/A very long export destination path/with many folders/that exceeds the available visual path width/chosen'; },
-        saveExportFile: async file => { await new Promise(resolve => setTimeout(resolve, 80)); if (state.failSave) throw Error('An intentionally long export failure message that must remain within the fixed status area without shifting any controls'); state.saved.push(file); return file.name; }
+        saveExportFile: async file => { await new Promise(resolve => setTimeout(resolve, 80)); if (state.failSave) throw Error('An intentionally long export failure message that must remain within the fixed status area without shifting any controls'); state.saved.push(file); return state.committedFolder+'/'+[...file.segments,file.name].join('/'); }
       };
       const buffer = new AudioBuffer({ length: 88200, numberOfChannels: 2, sampleRate: 44100 });
       for (let c = 0; c < 2; c++) for (let i = 0; i < buffer.length; i++)
@@ -82,6 +82,8 @@ async function run() {
       const all = document.querySelector('[aria-label="Select all tracks across all pages"]');
       const exportButton = () => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export');
       const initialBottom = exportButton().getBoundingClientRect().top;
+      const openManual=()=>document.querySelector('[aria-label="Open exported folder"]');
+      if(!openManual().disabled||!tick('Open folder after export').checked)throw Error('Initial folder opening defaults incorrect');
       const titleInput=number=>document.querySelector('[aria-label="Title for track '+number+'"]');
       const assertSelected=number=>{const input=titleInput(number);if(document.activeElement!==input||input.selectionStart!==0||input.selectionEnd!==input.value.length)throw Error('Title not focused and selected: '+number);};
       titleInput(2).focus();titleInput(2).setSelectionRange(1,1);titleInput(2).dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));assertSelected(2);
@@ -121,11 +123,16 @@ async function run() {
       document.querySelector('[aria-label="Export track 14"]').click(); await pause();
       document.querySelector('[aria-label="Previous page"]').click(); await pause();
       document.querySelector('[aria-label="Export track 1"]').click(); await pause();
-      tick('Save in Artist/Album folders').click(); tick('Show exported files after export').click(); await pause();
+      tick('Save in Artist/Album folders').click(); await pause();
       click('Export'); await waitFor(() => window.opened.length === 1);
       if (window.saved.length !== 2 || !window.saved[0].name.startsWith('01') || !window.saved[1].name.includes('Edited title')) throw Error('Export omitted other page');
-      if (window.opened[0].join('/') !== 'Updated Artist/Updated Album') throw Error('Wrong opened folder');
+      if (!window.opened[0].endsWith('/Updated Artist/Updated Album')) throw Error('Wrong opened folder');
       if (!new TextDecoder().decode(window.saved[0].data).includes('GENRE=Jazz')) throw Error('Missing shared genre');
+      if(openManual().disabled)throw Error('Manual opening not enabled after successful export');
+      const completedFolder=window.opened[0];
+      change(destination,'C:/Another destination with a long path/and additional folders/that exceeds the visible field width/after export');destination.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));await pause();
+      openManual().click();await pause();
+      if(window.opened[1]!==completedFolder)throw Error('Destination editing changed last export folder target');
       if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Layout shifted');
       for (const el of document.querySelectorAll('#root *')) {
         const css = getComputedStyle(el);
@@ -134,7 +141,9 @@ async function run() {
       all.click(); await pause(); all.click(); await pause();
       document.querySelector('[aria-label="Previous page"]').click(); await pause();
       document.querySelector('[aria-label="Export track 1"]').click(); document.querySelector('[aria-label="Export track 2"]').click(); await pause();
-      tick('Show exported files after export').click();
+      tick('Open folder after export').click();
+      if(localStorage.getItem('exportOpenFolderAfterExport')!=='false')throw Error('Disabled automatic opening choice not saved');
+      const opensWithAutomaticOff=window.opened.length;
       const fade = [...document.querySelectorAll('label')].find(l => l.textContent.includes('Micro fade'));
       fade.querySelector('input').click();
       const checks = [];
@@ -168,6 +177,9 @@ async function run() {
         await ctx.close();
         await waitFor(() => ![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export').disabled);
       }
+      if(window.opened.length!==opensWithAutomaticOff)throw Error('Automatic folder opening ignored disabled choice');
+      const savedWithAutomaticOff=window.committedFolder+'/Updated Artist/Updated Album';
+      openManual().click();await pause();if(window.opened.at(-1)!==savedWithAutomaticOff)throw Error('Manual opening failed with automatic opening off');
       tick('Embed metadata').click(); await pause();
       window.saved = []; click('Export');
       await waitFor(() => window.saved.length === 2 && !exportButton().disabled);

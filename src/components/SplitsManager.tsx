@@ -58,7 +58,8 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const tableRef = useRef<HTMLDivElement>(null);
   const pendingTitleFocusRef = useRef<number | null>(null);
   const [page, setPage] = useState(0);
-  const [showExportedFiles, setShowExportedFiles] = useState(false);
+  const [showExportedFiles, setShowExportedFiles] = useState(() => localStorage.getItem('exportOpenFolderAfterExport') !== 'false');
+  const [lastExportFolder, setLastExportFolder] = useState<string | null>(null);
   const [startTrackNumber] = useState<number>(1);
   const [padTrackNumbers] = useState<boolean>(true);
   const [namingPattern] = useState<NamingPattern>('track_title');
@@ -282,6 +283,11 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
     }
   };
 
+  const openCompletedFolder = async (folder: string) => {
+    try { await desktopExport?.openExportFolder(folder); }
+    catch (error) { setSaveResultNotice(`Files saved; unable to open folder: ${String(error)}`); }
+  };
+
   const handleExportAllTracks = async () => {
     const exportSplits = getSelectedSplits<any>(splits, selectedTracks);
     if (exportSplits.length === 0) { alert("No tracks selected for export."); return; }
@@ -293,6 +299,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
     try {
       if (desktopExport) await persistDestination(exportFolder);
       const filesToSave: FileToSave[] = [];
+      let savedFolder = '';
       const folderStructure = { enabled: createSubfolders, type: folderHierarchyType, artist: albumArtist, album: albumTitle };
       const segments = resolveFolderSegments(folderStructure);
       for (let i = 0; i < exportSplits.length; i++) {
@@ -302,7 +309,8 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
         setSaveProgress({ current: i, total: exportSplits.length, message: `Encoding split ${i + 1} of ${exportSplits.length}: ${trackTitle}...` });
         const encoded = await encodeSplitSlice(split);
         if (desktopExport) {
-          await desktopExport.saveExportFile({ name: encoded.fileName, data: new Uint8Array(await encoded.blob.arrayBuffer()), segments });
+          const savedPath = await desktopExport.saveExportFile({ name: encoded.fileName, data: new Uint8Array(await encoded.blob.arrayBuffer()), segments });
+          savedFolder = savedPath.slice(0, Math.max(savedPath.lastIndexOf('/'), savedPath.lastIndexOf(String.fromCharCode(92))));
         } else {
           filesToSave.push({ blob: encoded.blob, name: encoded.fileName });
         }
@@ -310,11 +318,9 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
       setSaveProgress({ current: exportSplits.length, total: exportSplits.length, message: 'Saving tracks to disk...' });
       if (desktopExport) {
-        setSaveResultNotice(`Saved ${exportSplits.length} audio files to ${[exportFolder, ...segments].join(' / ')}`);
-        if (showExportedFiles) {
-          try { await desktopExport.openExportFolder(segments); }
-          catch (error) { setSaveResultNotice(`Files saved; unable to open folder: ${String(error)}`); }
-        }
+        setLastExportFolder(savedFolder);
+        setSaveResultNotice(`Saved ${exportSplits.length} audio files to ${savedFolder}`);
+        if (showExportedFiles) await openCompletedFolder(savedFolder);
         return;
       }
       const result = await saveFilesPrompt(filesToSave, { mode: 'individual', folderStructure });
@@ -462,13 +468,18 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
             {checkbox('Embed metadata', includeTags, setIncludeTags, false, 'Write each track’s metadata into the exported audio file.')}
             {checkbox('Save in Artist/Album folders', createSubfolders, (value) => { setCreateSubfolders(value); localStorage.setItem('exportNestedFolders', String(value)); })}
             {checkbox('Micro fade between splits', autoSplitFades, setAutoSplitFades)}
-            {checkbox('Show exported files after export', showExportedFiles, setShowExportedFiles, !desktopExport)}
           </div>
-          <div aria-label="Export action" className="mt-auto shrink-0 pt-2">
+          <div aria-label="Export action" className="mt-auto shrink-0 pt-1">
             <button type="button" aria-label="Export selected tracks" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-4 w-4" />Export</button>
-            <div role="status" aria-live="polite" className="mt-1 h-[72px] shrink-0 pt-1 text-[10px] leading-[14px]">
-              <div className="truncate" title={`${selectedCount} of ${splits.length} tracks selected`}>{selectedCount} of {splits.length} tracks selected</div>
-              <div className="mt-1 line-clamp-3 break-words text-emerald-300" title={status}>{status}</div>
+            <div className="mt-1 flex h-5 items-center">
+              {checkbox('Open folder after export', showExportedFiles, (value) => { setShowExportedFiles(value); localStorage.setItem('exportOpenFolderAfterExport', String(value)); }, !desktopExport)}
+            </div>
+            <div className="mt-1 flex h-[72px] shrink-0 gap-1 pt-1">
+              <div role="status" aria-live="polite" className="min-w-0 flex-1 text-[10px] leading-[14px]">
+                <div className="truncate" title={`${selectedCount} of ${splits.length} tracks selected`}>{selectedCount} of {splits.length} tracks selected</div>
+                <div className="mt-1 line-clamp-3 break-words text-emerald-300" title={status}>{status}</div>
+              </div>
+              <button type="button" aria-label="Open exported folder" title="Open exported folder" disabled={!desktopExport || !lastExportFolder} onClick={() => { if (lastExportFolder) void openCompletedFolder(lastExportFolder); }} className={`${controlClass} inline-flex h-6 w-6 shrink-0 items-center justify-center px-0`}><FolderOpen className="h-3.5 w-3.5" /></button>
             </div>
           </div>
         </fieldset>

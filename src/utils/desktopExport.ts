@@ -1,5 +1,5 @@
 export interface DesktopExportAPI {
-  openExportFolder(segments: string[]): Promise<void>;
+  openExportFolder(folder: string): Promise<void>;
   getExportFolder(): Promise<string>;
   setExportFolder(folder: string): Promise<string>;
   chooseExportFolder(): Promise<string>;

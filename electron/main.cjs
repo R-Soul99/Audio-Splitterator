@@ -30,12 +30,10 @@ ipcMain.handle('export:choose-folder', async () => {
   const folder = result.filePaths[0];
   return setExportFolder(folder);
 });
-ipcMain.handle('export:open-folder', async (_event, segments) => {
-  const folder = await getExportFolder();
-  if (!folder || !Array.isArray(segments) || segments.length > 2 || !segments.every(safeComponent)) throw new Error('Invalid export destination.');
-  const destination = path.join(folder, ...segments);
-  await fs.access(destination);
-  const error = await shell.openPath(destination);
+ipcMain.handle('export:open-folder', async (_event, folder) => {
+  if (typeof folder !== 'string' || !path.isAbsolute(folder)) throw new Error('Invalid exported folder.');
+  if (!(await fs.stat(folder)).isDirectory()) throw new Error('Invalid exported folder.');
+  const error = await shell.openPath(folder);
   if (error) throw new Error(error);
 });
 ipcMain.handle('export:save-file', async (_event, { name, data, segments }) => {
