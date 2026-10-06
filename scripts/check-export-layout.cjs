@@ -41,6 +41,13 @@ app.whenReady().then(async () => {
       const table=document.querySelector('[role="table"]');
       const pagination=document.querySelector('[aria-label="Export pagination"]');
       const box=e=>e.getBoundingClientRect().toJSON();
+      const tags=controls.querySelector('[aria-label="Recording tags"]');
+      const exportPanel=controls.querySelector('[aria-label="Export panel"]');
+      const tagsBox=box(tags),exportBox=box(exportPanel);
+      if(tagsBox.height!==exportBox.height||tagsBox.right>=exportBox.left)throw Error('Bottom panels must have equal heights and a gap');
+      for(const selector of ['[aria-label="Export destination"]','[aria-label="Output settings"]','[aria-label="Export options"]','[aria-label="Export action"]'])if(!exportPanel.querySelector(selector))throw Error('Export control outside Export panel');
+      for(const el of exportPanel.querySelectorAll('[aria-label="Output settings"],[aria-label="Export options"],[aria-label="Export action"]'))if(parseFloat(getComputedStyle(el).borderLeftWidth)!==0)throw Error('Internal vertical divider');
+      for(const panel of [tags,exportPanel]){const bounds=box(panel);for(const el of panel.querySelectorAll('input,select,button,[role="status"]')){const r=box(el);if(r.left<bounds.left||r.right>bounds.right||r.top<bounds.top||r.bottom>bounds.bottom)throw Error('Control exceeds its enclosing panel');}}
       const initial={controls:box(controls),table:box(table),pagination:box(pagination)};
       edit('export-artist','An artist with a very long name '.repeat(5));edit('export-album','An album with a very long name '.repeat(5));edit('export-genre','A long genre description '.repeat(5));await pause();
       document.querySelector('[aria-label="Next page"]').click();await pause();document.querySelector('[aria-label="Next page"]').click();await pause();

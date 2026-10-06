@@ -173,7 +173,7 @@ async function run() {
       window.failSave = false;
       if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Long metadata changed action position');
       const rootBounds = document.getElementById('root').getBoundingClientRect();
-      for (const el of document.querySelectorAll('[role="row"], fieldset, [role="status"], [aria-label="Recording details"], [aria-label="Output settings"], [aria-label="Export options"]')) {
+      for (const el of document.querySelectorAll('[role="row"], fieldset, [role="status"], [aria-label="Recording tags"], [aria-label="Output settings"], [aria-label="Export options"]')) {
         const box = el.getBoundingClientRect();
         if (box.bottom > rootBounds.bottom + 1 || box.right > rootBounds.right + 1) throw Error('Layout exceeds fixed workspace');
       }
