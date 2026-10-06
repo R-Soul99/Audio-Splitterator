@@ -67,7 +67,7 @@ async function run() {
         const deadline = Date.now() + 30000;
         while (!predicate()) { if (Date.now() > deadline) throw Error('Export timed out: ' + window.alerts); await new Promise(r => setTimeout(r, 25)); }
       };
-      await waitFor(() => document.body.textContent.includes('Ready to export') && ![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export Selected')?.disabled);
+      await waitFor(() => document.body.textContent.includes('Ready to export') && ![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export')?.disabled);
       const click = text => {
         const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
         if (!button) throw Error('Missing button: ' + text); button.click();
@@ -79,7 +79,7 @@ async function run() {
       };
       const pause = () => new Promise(r => setTimeout(r, 50));
       const all = document.querySelector('[aria-label="Select all tracks across all pages"]');
-      const exportButton = () => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export Selected');
+      const exportButton = () => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export');
       const initialBottom = exportButton().getBoundingClientRect().top;
       document.querySelector('[aria-label="Next page"]').click(); await pause();
       change(document.querySelector('[aria-label="Title for track 10"]'), 'Edited title');
@@ -98,7 +98,7 @@ async function run() {
       document.querySelector('[aria-label="Next page"]').click(); await pause();
       document.querySelector('[aria-label="Export track 19"]').click(); await pause();
       tick('Save in Artist/Album folders').click(); tick('Show exported files after export').click(); await pause();
-      click('Export Selected'); await waitFor(() => window.opened.length === 1);
+      click('Export'); await waitFor(() => window.opened.length === 1);
       if (window.saved.length !== 2 || !window.saved[0].name.includes('Edited title') || !window.saved[1].name.startsWith('19')) throw Error('Export omitted other page');
       if (window.opened[0].join('/') !== 'Updated Artist/Updated Album') throw Error('Wrong opened folder');
       if (!new TextDecoder().decode(window.saved[0].data).includes('GENRE=Jazz')) throw Error('Missing shared genre');
@@ -122,7 +122,7 @@ async function run() {
         await new Promise(r => setTimeout(r, 50));
         if (format !== 'mp3') { const depthSelect = document.querySelector('[aria-label="Bit depth"]'); depthSelect.value = String(depth); depthSelect.dispatchEvent(new Event('change', { bubbles: true })); }
         await new Promise(r => setTimeout(r, 50));
-        click('Export Selected');
+        click('Export');
         await waitFor(() => window.saved.length === 2 || window.alerts.length > 0);
         if (window.alerts.length) throw Error(window.alerts.join('; '));
         const ctx = new AudioContext({ sampleRate: 44100 });
@@ -143,10 +143,10 @@ async function run() {
           checks.push({ format, depth, name: file.name, frames: audio.length, bytes: file.data.length });
         }
         await ctx.close();
-        await waitFor(() => ![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export Selected').disabled);
+        await waitFor(() => ![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export').disabled);
       }
       tick('Include tags').click(); await pause();
-      window.saved = []; click('Export Selected');
+      window.saved = []; click('Export');
       await waitFor(() => window.saved.length === 2 && !exportButton().disabled);
       if (!window.saved[0].name.includes('Updated Artist - Updated Album')) throw Error('Tags toggle changed filename');
       if (new TextDecoder().decode(window.saved[0].data).includes('Updated Artist')) throw Error('Tags were not disabled');
@@ -162,18 +162,18 @@ async function run() {
       const pathField = document.querySelector('[aria-label="Export destination"]');
       if (pathField.title.length < 80 || pathField.scrollWidth <= pathField.clientWidth) throw Error('Long path not truncated with tooltip');
       if (document.querySelector('dialog') || [...document.querySelectorAll('button')].some(button => button.textContent.includes('Edit'))) throw Error('Removed metadata dialogue still present');
-      window.saved = []; click('Export Selected');
+      window.saved = []; click('Export');
       await waitFor(() => window.saved.length === 2 && !exportButton().disabled);
       if (!window.saved[0].name.includes(longArtist.trim()) || window.saved[0].segments[0] !== longArtist.trim() || window.saved[0].segments[1] !== longAlbum.trim()) throw Error('Long shared metadata not used for filenames/folders');
       window.failSave = true;
-      click('Export Selected'); await pause();
+      click('Export'); await pause();
       if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Progress moved action');
       await waitFor(() => !exportButton().disabled && document.querySelector('[role="status"]').textContent.includes('Export failed'));
       if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Error moved action');
       window.failSave = false;
       if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Long metadata changed action position');
       const rootBounds = document.getElementById('root').getBoundingClientRect();
-      for (const el of document.querySelectorAll('[role="row"], fieldset, [role="status"], [aria-label="Recording tags"], [aria-label="Output settings"], [aria-label="Export options"]')) {
+      for (const el of document.querySelectorAll('[role="row"], fieldset, [role="status"], [aria-label="Recording info"], [aria-label="Output settings"], [aria-label="Export options"]')) {
         const box = el.getBoundingClientRect();
         if (box.bottom > rootBounds.bottom + 1 || box.right > rootBounds.right + 1) throw Error('Layout exceeds fixed workspace');
       }

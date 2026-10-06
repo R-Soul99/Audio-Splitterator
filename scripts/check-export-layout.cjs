@@ -41,18 +41,18 @@ app.whenReady().then(async () => {
       const table=document.querySelector('[role="table"]');
       const pagination=document.querySelector('[aria-label="Export pagination"]');
       const box=e=>e.getBoundingClientRect().toJSON();
-      const tags=controls.querySelector('[aria-label="Recording tags"]');
-      const exportPanel=controls.querySelector('[aria-label="Export panel"]');
-      const tagsBox=box(tags),exportBox=box(exportPanel);
-      if(tagsBox.height!==exportBox.height||tagsBox.right>=exportBox.left)throw Error('Bottom panels must have equal heights and a gap');
-      for(const selector of ['[aria-label="Export destination"]','[aria-label="Output settings"]','[aria-label="Export options"]','[aria-label="Export action"]'])if(!exportPanel.querySelector(selector))throw Error('Export control outside Export panel');
-      for(const el of exportPanel.querySelectorAll('[aria-label="Output settings"],[aria-label="Export options"],[aria-label="Export action"]'))if(parseFloat(getComputedStyle(el).borderLeftWidth)!==0)throw Error('Internal vertical divider');
-      for(const panel of [tags,exportPanel]){const bounds=box(panel);for(const el of panel.querySelectorAll('input,select,button,[role="status"]')){const r=box(el);if(r.left<bounds.left||r.right>bounds.right||r.top<bounds.top||r.bottom>bounds.bottom)throw Error('Control exceeds its enclosing panel');}}
-      const initial={controls:box(controls),table:box(table),pagination:box(pagination)};
+      const info=document.querySelector('[aria-label="Recording info"]');
+      if(info.getBoundingClientRect().bottom>table.getBoundingClientRect().top)throw Error('Recording info is not above table');
+      if(info.querySelectorAll('input[type="text"]').length!==3||info.querySelectorAll('input[type="checkbox"]').length!==1)throw Error('Recording info controls missing');
+      if(controls.querySelector('h3'))throw Error('Redundant Export heading');
+      const bounds=box(controls),tableBounds=box(table);
+      if(bounds.left!==tableBounds.left||bounds.right!==tableBounds.right)throw Error('Export panel must align with table edges');
+      for(const el of controls.querySelectorAll('input,select,button,[role="status"]')){const r=box(el);if(r.left<bounds.left||r.right>bounds.right||r.top<bounds.top||r.bottom>bounds.bottom)throw Error('Control exceeds Export panel');}
+      const initial={controls:box(controls),table:box(table),pagination:box(pagination),info:box(info)};
       edit('export-artist','An artist with a very long name '.repeat(5));edit('export-album','An album with a very long name '.repeat(5));edit('export-genre','A long genre description '.repeat(5));await pause();
       document.querySelector('[aria-label="Next page"]').click();await pause();document.querySelector('[aria-label="Next page"]').click();await pause();
       if(!pagination.textContent.includes('3 / 3'))throw Error('Multiple-page navigation failed');
-      const later={controls:box(controls),table:box(table),pagination:box(pagination)};
+      const later={controls:box(controls),table:box(table),pagination:box(pagination),info:box(info)};
       if(JSON.stringify(initial)!==JSON.stringify(later))throw Error('Editing or final page shifted layout');
       const main=document.querySelector('main').getBoundingClientRect();
       for(const el of controls.querySelectorAll('input,select,button,[role="status"],[aria-label]')){
