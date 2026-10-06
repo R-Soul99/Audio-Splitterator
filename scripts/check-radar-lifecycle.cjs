@@ -14,7 +14,7 @@ app.whenReady().then(async () => {
    window.component=()=>{ let root=wave()[Object.keys(wave()).find(k=>k.startsWith('__reactFiber'))];while(root.return)root=root.return;const queue=[root.stateNode.current];while(queue.length){const f=queue.shift();if(f.type?.name==='WaveformCanvas')return f;if(f.child)queue.push(f.child);if(f.sibling)queue.push(f.sibling);} };
    window.importAudio=()=>{ const input=document.querySelector('input[type=file]'); const d=new DataTransfer();d.items.add(new File(['test'],'radar.wav'));input.files=d.files;input.dispatchEvent(new Event('change',{bubbles:true})); };
    window.FileReader=class { readAsArrayBuffer(){ this.result=new ArrayBuffer(8);this.onload(); } };
-   window.AudioContext=class { decodeAudioData(){const b=new AudioBuffer({length:48000*20,numberOfChannels:2,sampleRate:48000});for(let c=0;c<2;c++){const a=b.getChannelData(c);a.fill(.1);a.fill(.001,48000*5,48000*7);for(const t of [5.6,5.8,6,6.2])a.fill(.1,Math.round(48000*t),Math.round(48000*(t+.02)));a.fill(.001,48000*12,48000*14);}return Promise.resolve(b);}close(){return Promise.resolve();} };
+   window.AudioContext=class { currentTime=0;state='running';destination={};createBufferSource(){return {connect(){},start(){},stop(){},disconnect(){}};}resume(){return Promise.resolve();} decodeAudioData(){const b=new AudioBuffer({length:48000*20,numberOfChannels:2,sampleRate:48000});for(let c=0;c<2;c++){const a=b.getChannelData(c);a.fill(.1);a.fill(.001,48000*5,48000*7);for(const t of [5.6,5.8,6,6.2])a.fill(.1,Math.round(48000*t),Math.round(48000*(t+.02)));a.fill(.001,48000*12,48000*14);}return Promise.resolve(b);}close(){return Promise.resolve();} };
    window.move=t=>{const c=wave(),r=c.getBoundingClientRect();props(c).onPointerMove({clientX:r.left+t/20*r.width,clientY:r.top+r.height/2});};
    window.detect=()=>document.querySelector('[aria-label="Detect noise floor"]');
    window.splitter=()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Auto-Split');
@@ -84,16 +84,55 @@ app.whenReady().then(async () => {
   await new Promise(resolve=>setTimeout(resolve,30));
   await run('pointer("onPointerUp",9)');
   assert.equal(await run('markers().length'),0,'normal single click does not split');
+  await run(`(async()=>{
+    const pause=()=>new Promise(resolve=>setTimeout(resolve,40));
+    const selection=()=>component().memoizedProps.selection;
+    const clear=async()=>{component().memoizedProps.onStop();component().memoizedProps.onSelectionChange(null);await pause();};
+    const at=async(type,t,y=.5)=>{const c=wave(),r=c.getBoundingClientRect();props(c)[type]({type,button:0,pointerId:1,clientX:r.left+t/20*r.width,clientY:r.top+r.height*y});await pause();};
+    const near=(actual,expected,message)=>{if(Math.abs(actual-expected)>1e-9)throw Error(message+': '+actual+' != '+expected);};
+    for(const previewOn of [true,false]){
+      preview().click();await pause();
+      if(preview().getAttribute('aria-pressed')!==String(previewOn))throw Error('Wrong Preview state');
+      await clear();await at('onPointerMove',11.9);await at('onPointerDown',11.9);await at('onPointerUp',11.9);
+      near(component().memoizedProps.currentTime,11.9,'Normal click must ignore candidate at 13s');
+      if(selection())throw Error('Normal click created a selection');
+      await at('onPointerMove',12.25);await at('onPointerDown',12.25);await at('onPointerMove',13.75);
+      near(selection().start,12.25,'Selection start must be raw');near(selection().end,13.75,'Live selection end must be raw');
+      await at('onPointerUp',13.75);
+      await at('onPointerMove',12.25);await at('onPointerDown',12.25);await at('onPointerMove',12.4);await at('onPointerUp',12.4);
+      near(selection().start,12.4,'Left brace must be raw');
+      await at('onPointerMove',13.75);await at('onPointerDown',13.75);await at('onPointerMove',13.6);await at('onPointerUp',13.6);
+      near(selection().end,13.6,'Right brace must be raw');
+      // Move the selection bar across the quiet run without changing its span.
+      await at('onPointerMove',13,.03);await at('onPointerDown',13,.03);await at('onPointerMove',13.1,.03);await at('onPointerUp',13.1,.03);
+      near(selection().start,12.5,'Selection move must be raw');near(selection().end,13.7,'Selection move preserves span');
+      await clear();await at('onPointerMove',19.6);await at('onPointerDown',19.6);await at('onPointerMove',20.2);
+      near(selection().end,20,'Live selection reaches exact end');await at('onPointerUp',20.2);near(selection().end,20,'Released selection reaches exact end');
+      await clear();
+    }
+  })()`);
+  assert.equal(await run('markers().length'),0,'normal editing never places a split');
   await run('chop().click()');await wait('chop().getAttribute("aria-pressed")==="true"');
   await run('move(9)');await new Promise(resolve=>setTimeout(resolve,30));
   await run('pointer("onPointerDown",9)');await new Promise(resolve=>setTimeout(resolve,30));
   await run('pointer("onPointerUp",9)');await wait('markers().length===1');
-  assert.equal(await run('markers()[0].time'),9,'freehand Chop uses clicked position');
+  assert.ok(Math.abs(await run('markers()[0].time')-9)<1e-9,'freehand Chop uses clicked position');
   await run('move(11.9)');await new Promise(resolve=>setTimeout(resolve,30));
   await run('pointer("onPointerDown",11.9)');await new Promise(resolve=>setTimeout(resolve,30));
   await run('pointer("onPointerUp",11.9)');await wait('markers().length===2');
   const snapped=await run('markers()[1].time');
   assert.ok(Math.abs(snapped - 13) < 1e-9, 'Chop snaps to the detected candidate at 13s when the quiet-run edge is within 150 ms, even with Preview Off');
+  // Even with Chop On, moving an existing split is normal editing, not split placement.
+  await run('move(13)');await new Promise(resolve=>setTimeout(resolve,30));
+  await run('pointer("onPointerDown",13)');await new Promise(resolve=>setTimeout(resolve,30));
+  await run('pointer("onPointerMove",13.2)');await new Promise(resolve=>setTimeout(resolve,30));
+  await run('pointer("onPointerUp",13.2)');await new Promise(resolve=>setTimeout(resolve,30));
+  assert.ok(Math.abs(await run('markers()[1].time')-13.2)<1e-9,'existing marker drag stays raw even with Chop On');
+  assert.equal(await run('markers().length'),2,'marker drag never creates another split');
+  await run('move(13.2)');await new Promise(resolve=>setTimeout(resolve,30));
+  await run('pointer("onPointerDown",13.2)');await new Promise(resolve=>setTimeout(resolve,30));
+  await run('pointer("onPointerMove",13)');await new Promise(resolve=>setTimeout(resolve,30));
+  await run('pointer("onPointerUp",13)');await new Promise(resolve=>setTimeout(resolve,30));
   await run('sensitivity(0)');await wait(`document.querySelector('[aria-label="Snap Sensitivity"]').getAttribute('aria-valuenow')==='0'`);
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="true"');
   await run('candidateStrokes=[];move(13)');await new Promise(resolve=>setTimeout(resolve,100));
@@ -116,6 +155,6 @@ app.whenReady().then(async () => {
   assert.equal(await run('detectControls().length'),1,'Preview restores current candidates without detection');
   await new Promise(resolve => setTimeout(resolve, 300));
   await win.webContents.capturePage().then(image=>require('fs').writeFileSync(require('path').join(app.getPath('temp'), 'splitterator-radar-review.png'),image.toPNG()));
-  console.log('PASS: independent detection, panel toggles, acquisition pings, new audio reset, shared Splitter threshold, stable geometry');app.exit(0);
+  console.log('PASS: independent detection, panel toggles, acquisition pings, new audio reset, shared Splitter threshold, stable geometry, raw normal editing with Preview On/Off, Chop candidate snapping');app.exit(0);
  } catch(e){console.error(e);app.exit(1);}
 });

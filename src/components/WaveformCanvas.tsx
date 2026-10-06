@@ -14,7 +14,6 @@ const MAX_SNAP_TRACES = 6;
 import {
   formatTime,
   calculateFadeGain,
-  findZeroCrossing,
   measureNoiseFloorDb,
   detectSilenceSplits,
   analyzeAnomalousPeaks,
@@ -542,17 +541,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     drawRuler();
   }, [drawRuler]);
 
-  // Snapping time to zero-crossing
-  const snapToZeroCrossing = useCallback((time: number): number => {
-    if (!audioBuffer) return time;
-    const sampleRate = audioBuffer.sampleRate;
-    const ch0 = audioBuffer.getChannelData(0);
-    const targetSample = Math.round(time * sampleRate);
-    const searchRange = Math.round(sampleRate * 0.05); // 50ms search
-    const snappedSample = findZeroCrossing(ch0, targetSample, searchRange);
-    return snappedSample / sampleRate;
-  }, [audioBuffer]);
-
   // Cache stereo analysis independently of pointer movement and knob changes.
   const [silenceBusy, setSilenceBusy] = useState(false);
   const [silenceLevels, setSilenceLevels] = useState<ReturnType<typeof analyzeSilenceLevels>>([]);
@@ -575,14 +563,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   }, [audioBuffer, cropStart, autoSplitEnd]);
   const quietRuns = useMemo(() => buildQuietRuns(silenceLevels, noiseFloorDb, snapSensitivity), [silenceLevels, noiseFloorDb, snapSensitivity]);
   const radarAcquisitionRef = useRef(new QuietRadarAcquisition());
-  const snapTimeToNoiseFloor = useCallback((time: number): number =>
+  // Candidate positions belong to Chop split placement, never normal editing.
+  const getChopSplitTime = useCallback((time: number): number =>
     acquireQuietTarget(time, quietRuns, snapAmountSec)?.time ?? time, [quietRuns, snapAmountSec]);
-
-  const snapEditTime = useCallback((time: number) => {
-    let snapped = snapTimeToNoiseFloor(time);
-    if (fadeSettings.zeroCrossing) snapped = snapToZeroCrossing(snapped);
-    return snapped;
-  }, [fadeSettings.zeroCrossing, snapTimeToNoiseFloor, snapToZeroCrossing]);
 
   const fadeControls: FadeControlGeometry[] = [
     { target: 'fadeIn', enabled: fadeSettings.fadeInEnabled, durationMs: fadeSettings.fadeInMs,
@@ -1100,7 +1083,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.strokeStyle = '#c084fc';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        const targetX = timeToX(snapTimeToNoiseFloor(hoverTime), width);
+        const targetX = timeToX(getChopSplitTime(hoverTime), width);
         ctx.moveTo(targetX, 0);
         ctx.lineTo(targetX, height);
         ctx.stroke();
@@ -1147,7 +1130,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, snapEditTime, snapTimeToNoiseFloor, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
 
   const drawOverlayRef = useRef(drawOverlay);
 
@@ -1181,7 +1164,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (radarAcquisitionRef.current.update(target) && target) startSnapTrace(target.time);
   };
 
-  const showSuccessfulSnap = (requested: number) => {
+  const showRadarGuidance = (requested: number) => {
     updateRadarAcquisition(radarReady ? acquireQuietTarget(requested, quietRuns, snapAmountSec) : null);
   };
 
@@ -1332,12 +1315,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setHoverPosition({ x, y });
 
     // Live radar acquisition is independent of Auto-Split's Gap setting.
-    // Hover stays at the pointer; the trace and actual marker use the quiet target.
+    // Hover/edit positions stay raw; guidance can show a quiet target independently.
     const markerContext = radarReady && (!activeDrag || activeDrag.type === 'marker' || activeDrag.type === 'chop');
     if (markerContext) {
       updateRadarAcquisition(acquireQuietTarget(time, quietRuns, snapAmountSec));
     } else if (!activeDrag || !['selectionStart', 'selectionEnd', 'selectionCreate'].includes(activeDrag.type)) {
-      // Selection snapping below updates the same latch; do not re-arm it first
+      // Selection guidance below updates the same latch; do not re-arm it first
       // on every pointer move merely because this is not passive marker hover.
       updateRadarAcquisition(null);
     }
@@ -1347,13 +1330,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Dragging active element logic
     if (activeDrag) {
       if (activeDrag.type === 'playhead') {
-        let nextTime = Math.max(cropStart, Math.min(cropEnd, time));
-        nextTime = snapEditTime(nextTime);
+        const nextTime = Math.max(cropStart, Math.min(cropEnd, selectionTime));
         onSeek(nextTime);
       } else if (activeDrag.type === 'marker' && activeDrag.id) {
-        showSuccessfulSnap(Math.max(cropStart, Math.min(autoSplitEnd, time)));
-        let nextTime = Math.max(cropStart, Math.min(autoSplitEnd, time));
-        nextTime = snapTimeToNoiseFloor(nextTime);
+        showRadarGuidance(Math.max(cropStart, Math.min(autoSplitEnd, time)));
+        const nextTime = Math.max(cropStart, Math.min(autoSplitEnd, selectionTime));
         if (!markerMoveStartedRef.current && markers.some(marker => marker.id === activeDrag.id && marker.time !== nextTime)) {
           onMarkerMoveStart?.();
           markerMoveStartedRef.current = true;
@@ -1376,11 +1357,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const nextNode = Math.max(0.05, Math.min(0.95, 1 - y / canvasDimensions.height));
         onFadeSettingsChange({ ...fadeSettings, fadeOutCurveNode: nextNode, fadeOutCurveNodePosition: nextPosition });
       } else if (activeDrag.type === 'selectionStart' && selection) {
-        showSuccessfulSnap(time);
-        onSelectionChange({ ...selection, start: selectionEndpoint(selectionTime, duration, snapEditTime) });
+        showRadarGuidance(time);
+        onSelectionChange({ ...selection, start: selectionEndpoint(selectionTime, duration) });
       } else if (activeDrag.type === 'selectionEnd' && selection) {
-        showSuccessfulSnap(time);
-        onSelectionChange({ ...selection, end: selectionEndpoint(selectionTime, duration, snapEditTime) });
+        showRadarGuidance(time);
+        onSelectionChange({ ...selection, end: selectionEndpoint(selectionTime, duration) });
       } else if (activeDrag.type === 'selectionMove' && selection && activeDrag.startTime !== undefined && activeDrag.startX !== undefined) {
         const dt = selectionTime - activeDrag.startTime;
         const curS = selection.start;
@@ -1400,10 +1381,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         onSelectionChange({ start: nextS, end: nextE });
       } else if (activeDrag.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
         if (activeDrag.startX !== undefined && Math.abs(x - activeDrag.startX) > 4) {
-          showSuccessfulSnap(time);
-          const snappedTime = selectionEndpoint(selectionTime, duration, snapEditTime);
-          const s = Math.min(activeDrag.startTime, snappedTime);
-          const e = Math.max(activeDrag.startTime, snappedTime);
+          showRadarGuidance(time);
+          const endTime = selectionEndpoint(selectionTime, duration);
+          const s = Math.min(activeDrag.startTime, endTime);
+          const e = Math.max(activeDrag.startTime, endTime);
           onSelectionChange?.({ start: s, end: e });
         }
       }
@@ -1477,10 +1458,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     } else if (hoveredElement === 'marker' && hoveredMarkerId) {
       setActiveDrag({ type: 'marker', id: hoveredMarkerId });
     } else if (chopEnabled) {
-      setActiveDrag({ type: 'chop', startTime: time, startX: x });
+      setActiveDrag({ type: 'chop', startTime: xToTime(x, rect.width), startX: x });
     } else {
       // Smart tool: Record drag start point; don't trigger playback until pointer release
-      setActiveDrag({ type: 'selectionCreate', startTime: selectionEndpoint(xToTime(x, rect.width), duration, snapEditTime), startX: x });
+      setActiveDrag({ type: 'selectionCreate', startTime: selectionEndpoint(xToTime(x, rect.width), duration), startX: x });
     }
   };
 
@@ -1507,8 +1488,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     if (activeDrag?.type === 'chop' && activeDrag.startTime !== undefined && !moved) {
       const requested = Math.max(cropStart, Math.min(autoSplitEnd, activeDrag.startTime));
-      showSuccessfulSnap(requested);
-      onAddMarker(snapTimeToNoiseFloor(requested));
+      showRadarGuidance(requested);
+      onAddMarker(getChopSplitTime(requested));
     } else if (activeDrag?.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
       const rect = canvas?.getBoundingClientRect();
       const x = rect ? e.clientX - rect.left : (activeDrag.startX ?? 0);
