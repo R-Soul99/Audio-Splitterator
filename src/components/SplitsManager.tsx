@@ -347,7 +347,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
           <label className="flex shrink-0 items-center gap-1.5" htmlFor="export-genre">Genre
             <input id="export-genre" type="text" title={genre} className={`${controlClass} h-6 w-[120px] min-w-0 py-0.5`} value={genre} onChange={(event) => setGenre(event.target.value)} />
           </label>
-          <div className="ml-auto shrink-0">{checkbox('Include tags', includeTags, setIncludeTags)}</div>
+          <div className="shrink-0">{checkbox('Include tags', includeTags, setIncludeTags)}</div>
         </div>
         <div className="grid h-6 shrink-0 grid-cols-[44%_56%] items-center">
           <div className="flex items-center gap-2 pr-2">
@@ -410,22 +410,9 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
           <span className="shrink-0">Export folder</span>
           <span aria-label="Export destination" className="block w-[300px] min-w-0 truncate rounded border border-slate-800 px-2 py-1 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Choose destination...' : 'Browser save destination')}</span>
           <button type="button" className={`${controlClass} h-6 shrink-0 py-0.5`} disabled={!desktopExport} onClick={browseExportFolder}>Browse&#8230;</button>
-          <div aria-label="Output settings" className="ml-2 flex items-center gap-3">
-            <label className="flex items-center gap-2">Format
-              <select aria-label="Format" className={`${controlClass} h-6 w-[76px] py-0.5`} value={format} onChange={(event) => setFormat(event.target.value as AudioFormat)}><option value="flac">FLAC</option><option value="wav">WAV</option><option value="mp3">MP3</option></select>
-            </label>
-            <label className="flex items-center gap-2"><span className="whitespace-nowrap">{format === 'mp3' ? 'Bitrate' : 'Bit depth'}</span>
-              <select aria-label={format === 'mp3' ? 'Bitrate' : 'Bit depth'} className={`${controlClass} h-6 w-[76px] py-0.5`} value={format === 'mp3' ? mp3Bitrate : format === 'flac' ? flacBitDepth : wavBitDepth} onChange={(event) => {
-                const value = Number(event.target.value);
-                if (format === 'mp3') setMp3Bitrate(value as Mp3Bitrate);
-                else if (format === 'flac') setFlacBitDepth(value as FlacBitDepth);
-                else setWavBitDepth(value as WavBitDepth);
-              }}>{format === 'mp3' ? [128, 192, 256, 320].map((value) => <option key={value} value={value}>{value} kbps</option>) : [16, 24].map((value) => <option key={value} value={value}>{value}-bit</option>)}</select>
-            </label>
-          </div>
         </div>
-        <div className="mt-1 flex items-start gap-3">
-          <div aria-label="Export action" className="w-[160px] shrink-0">
+        <div className="mt-1 flex items-start gap-2">
+          <div aria-label="Export action" className="w-[112px] shrink-0">
             <button type="button" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="inline-flex h-7 items-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-3.5 w-3.5" />Export</button>
             <div role="status" aria-live="polite" className="mt-1 h-11 w-full text-[9px] leading-[14px]">
               <div className="truncate">{selectedCount} of {splits.length} tracks selected</div>
@@ -436,6 +423,19 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
             {checkbox('Save in Artist/Album folders', createSubfolders, (value) => { setCreateSubfolders(value); localStorage.setItem('exportNestedFolders', String(value)); })}
             {checkbox('Micro fade between splits', autoSplitFades, setAutoSplitFades)}
             {checkbox('Show exported files after export', showExportedFiles, setShowExportedFiles, !desktopExport)}
+          </div>
+          <div aria-label="Output settings" className="flex w-[136px] shrink-0 flex-col gap-1">
+            <label className="flex items-center justify-between gap-2">Format
+              <select aria-label="Format" className={`${controlClass} h-6 w-[76px] py-0.5`} value={format} onChange={(event) => setFormat(event.target.value as AudioFormat)}><option value="flac">FLAC</option><option value="wav">WAV</option><option value="mp3">MP3</option></select>
+            </label>
+            <label className="flex items-center justify-between gap-2"><span className="whitespace-nowrap">{format === 'mp3' ? 'Bitrate' : 'Bit depth'}</span>
+              <select aria-label={format === 'mp3' ? 'Bitrate' : 'Bit depth'} className={`${controlClass} h-6 w-[76px] py-0.5`} value={format === 'mp3' ? mp3Bitrate : format === 'flac' ? flacBitDepth : wavBitDepth} onChange={(event) => {
+                const value = Number(event.target.value);
+                if (format === 'mp3') setMp3Bitrate(value as Mp3Bitrate);
+                else if (format === 'flac') setFlacBitDepth(value as FlacBitDepth);
+                else setWavBitDepth(value as WavBitDepth);
+              }}>{format === 'mp3' ? [128, 192, 256, 320].map((value) => <option key={value} value={value}>{value} kbps</option>) : [16, 24].map((value) => <option key={value} value={value}>{value}-bit</option>)}</select>
+            </label>
           </div>
         </div>
       </fieldset>
