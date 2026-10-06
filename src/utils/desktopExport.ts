@@ -1,4 +1,5 @@
 export interface DesktopExportAPI {
+  openExportFolder(segments: string[]): Promise<void>;
   getExportFolder(): Promise<string>;
   chooseExportFolder(): Promise<string>;
   saveExportFile(file: { name: string; data: Uint8Array; segments: string[] }): Promise<string>;

@@ -17,6 +17,14 @@ ipcMain.handle('export:choose-folder', async () => {
   await fs.writeFile(settingsPath(), JSON.stringify({ folder }), 'utf8');
   return folder;
 });
+ipcMain.handle('export:open-folder', async (_event, segments) => {
+  const folder = await getExportFolder();
+  if (!folder || !Array.isArray(segments) || segments.length > 2 || !segments.every(safeComponent)) throw new Error('Invalid export destination.');
+  const destination = path.join(folder, ...segments);
+  await fs.access(destination);
+  const error = await shell.openPath(destination);
+  if (error) throw new Error(error);
+});
 ipcMain.handle('export:save-file', async (_event, { name, data, segments }) => {
   const folder = await getExportFolder();
   if (!folder) throw new Error('Choose an export folder first.');
