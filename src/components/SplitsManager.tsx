@@ -53,8 +53,6 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const [albumTitle, setAlbumTitle] = useState<string>('');
   const [albumArtist, setAlbumArtist] = useState<string>('');
   const [genre, setGenre] = useState<string>('');
-  const [metadataDraft, setMetadataDraft] = useState<{ artist: string; album: string; genre: string } | null>(null);
-  const metadataDialogRef = useRef<HTMLDialogElement>(null);
   const selectionRef = useRef<HTMLInputElement>(null);
   const [page, setPage] = useState(0);
   const [showExportedFiles, setShowExportedFiles] = useState(false);
@@ -337,25 +335,15 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
   return (
     <div className="relative flex h-full min-h-0 flex-col gap-2 overflow-hidden select-none text-[10px] text-slate-300">
-      <div className="flex h-9 shrink-0 items-center gap-3 border border-slate-800 bg-slate-950/50 px-3 rounded">
-        <strong className="shrink-0 uppercase tracking-wider text-emerald-400">Recording details</strong>
-        <span className="min-w-0 flex-1 truncate" title={`Artist: ${albumArtist} | Album: ${albumTitle} | Genre: ${genre}`}>
-          Artist: {albumArtist || '—'} · Album: {albumTitle || '—'} · Genre: {genre || '—'}
-        </span>
-        <button type="button" disabled={isSavingAll} className={controlClass} onClick={() => {
-          setMetadataDraft({ artist: albumArtist, album: albumTitle, genre });
-          metadataDialogRef.current?.showModal();
-        }}>Edit…</button>
-      </div>
       <fieldset disabled={isSavingAll} className="m-0 flex min-h-0 flex-1 flex-col border-0 p-0">
-        <div className="grid h-8 shrink-0 grid-cols-[44%_56%] items-center">
-          <div className="flex items-center gap-3 pr-3">
+        <div className="grid h-6 shrink-0 grid-cols-[44%_56%] items-center">
+          <div className="flex items-center gap-2 pr-2">
             <span>Include in filename:</span>
             {checkbox('Track no.', includeTrackNumbers, setIncludeTrackNumbers)}
             {checkbox('Artist', includeArtistInFilename, setIncludeArtistInFilename)}
             {checkbox('Album', includeAlbumInFilename, setIncludeAlbumInFilename)}
           </div>
-          <div className="flex items-center justify-between border-l border-slate-700 pl-3">
+          <div className="flex items-center justify-between border-l border-slate-700 pl-2">
             <strong className="uppercase tracking-wider text-emerald-400">Track tags</strong>
             {checkbox('Include tags', includeTags, setIncludeTags)}
           </div>
@@ -398,52 +386,55 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
             })}
           </div>
         </div>
-        <div className="flex h-8 shrink-0 items-center justify-center gap-3">
-          <button type="button" aria-label="Previous page" className={controlClass} disabled={pagination.page === 0} onClick={() => setPage(pagination.page - 1)}>‹</button>
-          <span className="w-24 text-center font-mono">Page {pagination.page + 1} of {pagination.pageCount}</span>
-          <button type="button" aria-label="Next page" className={controlClass} disabled={pagination.page + 1 >= pagination.pageCount} onClick={() => setPage(pagination.page + 1)}>›</button>
-          {!splits.length && <span>No tracks to export</span>}
+        <div aria-label="Export pagination" className="flex h-6 shrink-0 items-center justify-end gap-1.5 text-[9px]">
+          {!splits.length && <span className="mr-auto text-slate-500">No tracks to export</span>}
+          <button type="button" aria-label="Previous page" className="h-5 w-5 rounded border border-slate-700 bg-slate-950 text-emerald-300 disabled:opacity-30" disabled={pagination.page === 0} onClick={() => setPage(pagination.page - 1)}>&#8249;</button>
+          <span className="w-12 text-center font-mono tabular-nums">{pagination.page + 1} / {pagination.pageCount}</span>
+          <button type="button" aria-label="Next page" className="h-5 w-5 rounded border border-slate-700 bg-slate-950 text-emerald-300 disabled:opacity-30" disabled={pagination.page + 1 >= pagination.pageCount} onClick={() => setPage(pagination.page + 1)}>&#8250;</button>
         </div>
       </fieldset>
-      <fieldset disabled={isSavingAll} className="m-0 h-[102px] shrink-0 rounded border border-slate-700 bg-slate-950/60 p-3">
-        <div className="flex h-7 items-center gap-2">
+      <fieldset aria-label="Export controls" disabled={isSavingAll} className="m-0 h-[144px] shrink-0 rounded border border-slate-700 bg-slate-950/60 p-2.5">
+        <div className="flex h-6 items-center gap-2">
           <span className="shrink-0">Export folder</span>
-          <span className="min-w-0 flex-1 truncate rounded border border-slate-800 px-2 py-1 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Choose destination…' : 'Browser save destination')}</span>
-          <button type="button" className={controlClass} disabled={!desktopExport} onClick={browseExportFolder}>Browse…</button>
-          <label className="ml-3 flex shrink-0 items-center gap-2">Format
-            <select aria-label="Format" className={controlClass} value={format} onChange={(event) => setFormat(event.target.value as AudioFormat)}><option value="flac">FLAC</option><option value="wav">WAV</option><option value="mp3">MP3</option></select>
-          </label>
-          <label className="flex shrink-0 items-center gap-2">{format === 'mp3' ? 'Bitrate' : 'Bit depth'}
-            <select aria-label={format === 'mp3' ? 'Bitrate' : 'Bit depth'} className={`${controlClass} w-[86px]`} value={format === 'mp3' ? mp3Bitrate : format === 'flac' ? flacBitDepth : wavBitDepth} onChange={(event) => {
-              const value = Number(event.target.value);
-              if (format === 'mp3') setMp3Bitrate(value as Mp3Bitrate);
-              else if (format === 'flac') setFlacBitDepth(value as FlacBitDepth);
-              else setWavBitDepth(value as WavBitDepth);
-            }}>{format === 'mp3' ? [128, 192, 256, 320].map((value) => <option key={value} value={value}>{value} kbps</option>) : [16, 24].map((value) => <option key={value} value={value}>{value}-bit</option>)}</select>
-          </label>
+          <span aria-label="Export destination" className="block w-[350px] shrink-0 truncate rounded border border-slate-800 px-2 py-1 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Choose destination...' : 'Browser save destination')}</span>
+          <button type="button" className={controlClass} disabled={!desktopExport} onClick={browseExportFolder}>Browse&#8230;</button>
         </div>
-        <div className="mt-3 flex h-9 items-center gap-3">
-          <button type="button" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="inline-flex shrink-0 items-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 py-2 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-3.5 w-3.5" />Export Selected</button>
-          <div className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-1 text-[9px]">
+        <div className="mt-2 grid grid-cols-[224px_176px_224px_148px] gap-3 border-t border-slate-800 pt-2">
+          <div aria-label="Recording details" className="grid grid-cols-[36px_1fr] items-center gap-x-2 gap-y-1">
+            <label htmlFor="export-artist">Artist</label>
+            <input id="export-artist" type="text" title={albumArtist} className={`${controlClass} h-6 min-w-0 w-full py-0.5`} value={albumArtist} onChange={(event) => setAlbumArtist(event.target.value)} />
+            <label htmlFor="export-album">Album</label>
+            <input id="export-album" type="text" title={albumTitle} className={`${controlClass} h-6 min-w-0 w-full py-0.5`} value={albumTitle} onChange={(event) => setAlbumTitle(event.target.value)} />
+            <label htmlFor="export-genre">Genre</label>
+            <input id="export-genre" type="text" title={genre} className={`${controlClass} h-6 min-w-0 w-full py-0.5`} value={genre} onChange={(event) => setGenre(event.target.value)} />
+          </div>
+          <div aria-label="Export action" className="border-l border-slate-800 pl-3">
+            <button type="button" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="inline-flex h-8 items-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-3.5 w-3.5" />Export Selected</button>
+            <div role="status" aria-live="polite" className="mt-1 h-11 w-full text-[9px] leading-[14px]">
+              <div className="truncate">{selectedCount} of {splits.length} tracks selected</div>
+              <div className="line-clamp-2 break-words text-emerald-300" title={status}>{status}</div>
+            </div>
+          </div>
+          <div aria-label="Export options" className="flex flex-col justify-center gap-2 border-l border-slate-800 pl-3 text-[9px]">
             {checkbox('Save in Artist/Album folders', createSubfolders, (value) => { setCreateSubfolders(value); localStorage.setItem('exportNestedFolders', String(value)); })}
             {checkbox('Micro fade between splits', autoSplitFades, setAutoSplitFades)}
             {checkbox('Show exported files after export', showExportedFiles, setShowExportedFiles, !desktopExport)}
           </div>
-          <div role="status" aria-live="polite" className="h-9 w-[190px] shrink-0 border-l border-slate-700 pl-3 text-[9px]">
-            <div>{selectedCount} of {splits.length} tracks selected</div>
-            <div className="truncate text-emerald-300" title={status}>{status}</div>
+          <div aria-label="Output settings" className="flex flex-col justify-center gap-2 border-l border-slate-800 pl-3">
+            <label className="flex items-center justify-between gap-2">Format
+              <select aria-label="Format" className={`${controlClass} w-[76px]`} value={format} onChange={(event) => setFormat(event.target.value as AudioFormat)}><option value="flac">FLAC</option><option value="wav">WAV</option><option value="mp3">MP3</option></select>
+            </label>
+            <label className="flex items-center justify-between gap-2"><span className="whitespace-nowrap">{format === 'mp3' ? 'Bitrate' : 'Bit depth'}</span>
+              <select aria-label={format === 'mp3' ? 'Bitrate' : 'Bit depth'} className={`${controlClass} w-[76px]`} value={format === 'mp3' ? mp3Bitrate : format === 'flac' ? flacBitDepth : wavBitDepth} onChange={(event) => {
+                const value = Number(event.target.value);
+                if (format === 'mp3') setMp3Bitrate(value as Mp3Bitrate);
+                else if (format === 'flac') setFlacBitDepth(value as FlacBitDepth);
+                else setWavBitDepth(value as WavBitDepth);
+              }}>{format === 'mp3' ? [128, 192, 256, 320].map((value) => <option key={value} value={value}>{value} kbps</option>) : [16, 24].map((value) => <option key={value} value={value}>{value}-bit</option>)}</select>
+            </label>
           </div>
         </div>
       </fieldset>
-      <dialog ref={metadataDialogRef} onCancel={() => setMetadataDraft(null)} onClose={() => setMetadataDraft(null)} className="m-auto w-[360px] rounded border border-slate-700 bg-slate-900 p-4 text-slate-200 shadow-2xl backdrop:bg-slate-950/80">
-        {metadataDraft && <form onSubmit={(event) => {
-          event.preventDefault(); setAlbumArtist(metadataDraft.artist); setAlbumTitle(metadataDraft.album); setGenre(metadataDraft.genre); metadataDialogRef.current?.close();
-        }}>
-          <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-400">Recording details</h3>
-          {(['artist', 'album', 'genre'] as const).map((key) => <label key={key} className="mb-2 block text-[11px] capitalize">{key}<input autoFocus={key === 'artist'} className={`${controlClass} mt-1 block w-full`} value={metadataDraft[key]} onChange={(event) => setMetadataDraft({ ...metadataDraft, [key]: event.target.value })} /></label>)}
-          <div className="mt-4 flex justify-end gap-2"><button type="button" className={controlClass} onClick={() => metadataDialogRef.current?.close()}>Cancel</button><button type="submit" className="rounded bg-emerald-700 px-3 py-1 text-xs">Save</button></div>
-        </form>}
-      </dialog>
       {/* Manual save Fallback Modal */}
       {fallbackModalData.isOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center z-50 p-4">

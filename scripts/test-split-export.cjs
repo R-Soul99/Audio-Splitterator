@@ -23,9 +23,9 @@ async function run() {
       window.alert = message => state.alerts.push(message);
       state.electronAPI = {
         openExportFolder: async segments => { state.opened.push(segments); },
-        getExportFolder: async () => 'test-output',
+        getExportFolder: async () => 'C:/A very long export destination path/with many folders/that exceeds the available visual path width/test-output',
         chooseExportFolder: async () => 'test-output',
-        saveExportFile: async file => { state.saved.push(file); return file.name; }
+        saveExportFile: async file => { await new Promise(resolve => setTimeout(resolve, 80)); if (state.failSave) throw Error('An intentionally long export failure message that must remain within the fixed status area without shifting any controls'); state.saved.push(file); return file.name; }
       };
       const buffer = new AudioBuffer({ length: 88200, numberOfChannels: 2, sampleRate: 44100 });
       for (let c = 0; c < 2; c++) for (let i = 0; i < buffer.length; i++)
@@ -90,9 +90,7 @@ async function run() {
       document.querySelector('[aria-label="Previous page"]').click(); await pause();
       if (document.querySelector('[aria-label="Title for track 10"]').value !== 'Edited title') throw Error('Title edit lost');
       if (document.querySelector('[aria-label="Export track 10"]').checked) throw Error('Selection lost');
-      click('Edit\u2026'); await pause();
-      const details = document.querySelectorAll('dialog input');
-      change(details[0], 'Updated Artist'); change(details[1], 'Updated Album'); change(details[2], 'Jazz'); await pause(); click('Save'); await pause();
+      change(document.getElementById('export-artist'), 'Updated Artist'); change(document.getElementById('export-album'), 'Updated Album'); change(document.getElementById('export-genre'), 'Jazz'); await pause();
       if (!document.body.textContent.includes('Updated Artist - Updated Album - Edited title.flac')) throw Error('Filename not updated');
       all.click(); await pause(); all.click(); await pause();
       if (document.body.textContent.includes('19 of 19 tracks selected')) throw Error('Global clear failed');
@@ -152,11 +150,30 @@ async function run() {
       await waitFor(() => window.saved.length === 2 && !exportButton().disabled);
       if (!window.saved[0].name.includes('Updated Artist - Updated Album')) throw Error('Tags toggle changed filename');
       if (new TextDecoder().decode(window.saved[0].data).includes('Updated Artist')) throw Error('Tags were not disabled');
-      click('Edit\u2026'); await pause();
-      change(document.querySelector('dialog input'), 'Cancelled artist'); await pause(); click('Cancel'); await pause();
-      if (document.body.textContent.includes('Cancelled artist')) throw Error('Cancel changed metadata');
+      const longArtist = 'Long Artist name '.repeat(8);
+      const longAlbum = 'Long Album name '.repeat(8);
+      const longGenre = 'Long Genre '.repeat(8);
+      change(document.getElementById('export-artist'), longArtist);
+      change(document.getElementById('export-album'), longAlbum);
+      change(document.getElementById('export-genre'), longGenre); await pause();
+      if (document.getElementById('export-artist').disabled) throw Error('Shared fields disabled with tags off');
+      const firstRow = document.querySelectorAll('[role="row"]')[1];
+      if (!firstRow.children[1].textContent.includes(longArtist.trim()) || firstRow.children[3].textContent !== longArtist || firstRow.children[5].textContent !== longAlbum || firstRow.children[6].textContent !== longGenre) throw Error('Direct metadata preview update failed');
+      const pathField = document.querySelector('[aria-label="Export destination"]');
+      if (pathField.title.length < 80 || pathField.scrollWidth <= pathField.clientWidth) throw Error('Long path not truncated with tooltip');
+      if (document.querySelector('dialog') || [...document.querySelectorAll('button')].some(button => button.textContent.includes('Edit'))) throw Error('Removed metadata dialogue still present');
+      window.saved = []; click('Export Selected');
+      await waitFor(() => window.saved.length === 2 && !exportButton().disabled);
+      if (!window.saved[0].name.includes(longArtist.trim()) || window.saved[0].segments[0] !== longArtist.trim() || window.saved[0].segments[1] !== longAlbum.trim()) throw Error('Long shared metadata not used for filenames/folders');
+      window.failSave = true;
+      click('Export Selected'); await pause();
+      if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Progress moved action');
+      await waitFor(() => !exportButton().disabled && document.querySelector('[role="status"]').textContent.includes('Export failed'));
+      if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Error moved action');
+      window.failSave = false;
+      if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Long metadata changed action position');
       const rootBounds = document.getElementById('root').getBoundingClientRect();
-      for (const el of document.querySelectorAll('[role="row"], fieldset, [role="status"]')) {
+      for (const el of document.querySelectorAll('[role="row"], fieldset, [role="status"], [aria-label="Recording details"], [aria-label="Output settings"], [aria-label="Export options"]')) {
         const box = el.getBoundingClientRect();
         if (box.bottom > rootBounds.bottom + 1 || box.right > rootBounds.right + 1) throw Error('Layout exceeds fixed workspace');
       }
