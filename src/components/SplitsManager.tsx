@@ -326,8 +326,8 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   useEffect(() => { setPage(pagination.page); }, [pagination.page]);
   useEffect(() => { if (selectionRef.current) selectionRef.current.indeterminate = selection.mixed; }, [selection.mixed]);
   const controlClass = 'rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-40';
-  const checkbox = (label: string, checked: boolean, change: (value: boolean) => void, disabled = false) => (
-    <label className="inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer">
+  const checkbox = (label: string, checked: boolean, change: (value: boolean) => void, disabled = false, tooltip?: string) => (
+    <label title={tooltip} className="inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer">
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => change(event.target.checked)} className="accent-emerald-500 disabled:opacity-40" />{label}
     </label>
   );
@@ -347,20 +347,11 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
           <label className="flex shrink-0 items-center gap-1.5" htmlFor="export-genre">Genre
             <input id="export-genre" type="text" title={genre} className={`${controlClass} h-6 w-[90px] min-w-0 py-0.5`} value={genre} onChange={(event) => setGenre(event.target.value)} />
           </label>
-          <div className="shrink-0">{checkbox('Include tags', includeTags, setIncludeTags)}</div>
         </div>
-        <div className="grid h-6 shrink-0 grid-cols-[38%_62%] items-center">
-          <div className="flex items-center gap-1.5 pr-1">
-            <span>Include in filename:</span>
-            {checkbox('Track no.', includeTrackNumbers, setIncludeTrackNumbers)}
-            {checkbox('Artist', includeArtistInFilename, setIncludeArtistInFilename)}
-            {checkbox('Album', includeAlbumInFilename, setIncludeAlbumInFilename)}
-          </div>
-          <div className="flex items-center justify-between border-l border-slate-700 pl-2">
-            <strong className="uppercase tracking-wider text-emerald-400">Track tags</strong>
-          </div>
+        <div className="grid h-5 shrink-0 grid-cols-[38%_62%] items-center">
+          <strong aria-label="Metadata preview heading" className="col-start-2 border-l border-slate-700 pl-2 uppercase tracking-wider text-emerald-400">Metadata preview</strong>
         </div>
-        <div role="table" aria-label="Tracks to export and track tags" className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-700">
+        <div role="table" aria-label="Tracks to export and metadata preview" className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-700">
           <div role="row" className="grid h-7 shrink-0 grid-cols-[20px_minmax(0,1fr)_48px_15%_20%_15%_12%] items-center bg-slate-900 text-[9px] uppercase tracking-wider">
             <div role="columnheader"><input ref={selectionRef} type="checkbox" aria-label="Select all tracks across all pages" aria-checked={selection.mixed ? 'mixed' : selection.all} checked={selection.all} disabled={!splits.length} onChange={(event) => setSelectedTracks(selectAllTracks(splits, event.target.checked))} className="accent-emerald-500" /></div>
             <div role="columnheader">Tracks to export</div><div role="columnheader">Time</div>
@@ -406,13 +397,13 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
         </div>
       </fieldset>
       <fieldset aria-label="Export controls" disabled={isSavingAll} className="m-0 flex min-h-0 min-w-0 flex-col rounded border border-slate-700 bg-slate-900/70 p-2.5">
-        <h3 className="mb-3 text-sm font-bold text-slate-200">Export</h3>
+        <h3 className="mb-2 text-sm font-bold text-slate-200">Export</h3>
         <div className="flex flex-col gap-1">
           <span>Destination</span>
           <span aria-label="Export destination" className="block h-7 w-full truncate rounded border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Choose destination...' : 'Browser save destination')}</span>
           <button type="button" className={`${controlClass} h-7 w-full`} disabled={!desktopExport} onClick={browseExportFolder}>Browse&#8230;</button>
         </div>
-        <div aria-label="Output settings" className="mt-3 flex flex-col gap-3">
+        <div aria-label="Output settings" className="mt-2 flex shrink-0 flex-col gap-2">
           <label className="flex flex-col gap-1">Format
             <select aria-label="Format" className={`${controlClass} h-7 w-full py-0.5`} value={format} onChange={(event) => setFormat(event.target.value as AudioFormat)}><option value="flac">FLAC</option><option value="wav">WAV</option><option value="mp3">MP3</option></select>
           </label>
@@ -425,15 +416,26 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
             }}>{format === 'mp3' ? [128, 192, 256, 320].map((value) => <option key={value} value={value}>{value} kbps</option>) : [16, 24].map((value) => <option key={value} value={value}>{value}-bit</option>)}</select>
           </label>
         </div>
-        <button type="button" aria-label="Export selected tracks" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="mt-3 inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-4 w-4" />Export</button>
-        <div aria-label="Export options" className="mt-2 flex flex-col gap-2 text-[10px] leading-[14px] [&_label]:items-start [&_label]:whitespace-normal [&_input]:mt-0.5 [&_input]:shrink-0">
+        <div aria-label="Filename inclusion" className="mt-2 shrink-0">
+          <div className="mb-1">Include in filename:</div>
+          <div className="flex items-center gap-1.5 text-[9px]">
+            {checkbox('Track no.', includeTrackNumbers, setIncludeTrackNumbers)}
+            {checkbox('Artist', includeArtistInFilename, setIncludeArtistInFilename)}
+            {checkbox('Album', includeAlbumInFilename, setIncludeAlbumInFilename)}
+          </div>
+        </div>
+        <div aria-label="Export options" className="mt-2 flex shrink-0 flex-col gap-1.5 text-[10px] leading-[14px] [&_label]:items-start [&_label]:whitespace-normal [&_input]:mt-0.5 [&_input]:shrink-0">
+          {checkbox('Embed metadata', includeTags, setIncludeTags, false, 'Write each track’s metadata into the exported audio file.')}
           {checkbox('Save in Artist/Album folders', createSubfolders, (value) => { setCreateSubfolders(value); localStorage.setItem('exportNestedFolders', String(value)); })}
           {checkbox('Micro fade between splits', autoSplitFades, setAutoSplitFades)}
           {checkbox('Show exported files after export', showExportedFiles, setShowExportedFiles, !desktopExport)}
         </div>
-        <div role="status" aria-live="polite" className="mt-3 h-[72px] shrink-0 border-t border-slate-700 pt-2 text-[10px] leading-[14px]">
-          <div className="truncate" title={`${selectedCount} of ${splits.length} tracks selected`}>{selectedCount} of {splits.length} tracks selected</div>
-          <div className="mt-1 line-clamp-3 break-words text-emerald-300" title={status}>{status}</div>
+        <div aria-label="Export action" className="mt-auto shrink-0 pt-2">
+          <button type="button" aria-label="Export selected tracks" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-4 w-4" />Export</button>
+          <div role="status" aria-live="polite" className="mt-1 h-[72px] shrink-0 pt-1 text-[10px] leading-[14px]">
+            <div className="truncate" title={`${selectedCount} of ${splits.length} tracks selected`}>{selectedCount} of {splits.length} tracks selected</div>
+            <div className="mt-1 line-clamp-3 break-words text-emerald-300" title={status}>{status}</div>
+          </div>
         </div>
       </fieldset>
       {/* Manual save Fallback Modal */}

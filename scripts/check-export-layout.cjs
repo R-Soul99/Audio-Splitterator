@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
       const box=e=>e.getBoundingClientRect().toJSON();
       const info=document.querySelector('[aria-label="Recording info"]');
       if(info.getBoundingClientRect().bottom>table.getBoundingClientRect().top)throw Error('Recording info is not above table');
-      if(info.querySelectorAll('input[type="text"]').length!==3||info.querySelectorAll('input[type="checkbox"]').length!==1)throw Error('Recording info controls missing');
+      if(info.querySelectorAll('input[type="text"]').length!==3||info.querySelectorAll('input[type="checkbox"]').length!==0)throw Error('Recording info controls missing');
       if(controls.querySelector('h3')?.textContent!=='Export')throw Error('Missing Export heading');
       const bounds=box(controls),tableBounds=box(table);
       const left=box(info.closest('fieldset'));
@@ -51,6 +51,13 @@ app.whenReady().then(async () => {
       for(const el of controls.querySelectorAll('input,select,button,[role="status"]')){const r=box(el);if(r.left<bounds.left||r.right>bounds.right||r.top<bounds.top||r.bottom>bounds.bottom)throw Error('Control exceeds Export panel');}
       const header=document.querySelector('header');
       if(header&&left.top-header.getBoundingClientRect().bottom>12)throw Error('Export header gap exceeds 12px');
+      const button=controls.querySelector('[aria-label="Export selected tracks"]'),status=controls.querySelector('[role="status"]');
+      const action=box(button),statusBox=box(status);
+      if(!controls.querySelector('label[title]').title.includes('track'+String.fromCharCode(8217)+'s metadata'))throw Error('Embedding tooltip incorrect');
+      if(statusBox.top<action.bottom||Math.abs(statusBox.bottom-(bounds.bottom-11))>1)throw Error('Export information not anchored at bottom');
+      for(const input of controls.querySelectorAll('input,select'))if(box(input).bottom>action.top)throw Error('Setting below Export button');
+      const artistHeader=document.querySelectorAll('[role="columnheader"]')[3],preview=document.querySelector('[aria-label="Metadata preview heading"]');
+      if(Math.abs(box(artistHeader).left-box(preview).left)>1)throw Error('Metadata preview heading misaligned');
       const initial={controls:box(controls),table:box(table),pagination:box(pagination),info:box(info)};
       if(document.querySelectorAll('[role="row"]').length!==13)throw Error('Expected 12 visible tracks on first page');
       for(const label of ['Artist','Album']){const input=[...document.querySelectorAll('label')].find(el=>el.textContent===label&&el.querySelector('input[type=checkbox]'))?.querySelector('input');if(!input||input.checked)throw Error('Filename metadata must default off');input.click();}await pause();

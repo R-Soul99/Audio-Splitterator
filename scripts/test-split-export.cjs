@@ -146,11 +146,16 @@ async function run() {
         await ctx.close();
         await waitFor(() => ![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export').disabled);
       }
-      tick('Include tags').click(); await pause();
+      tick('Embed metadata').click(); await pause();
       window.saved = []; click('Export');
       await waitFor(() => window.saved.length === 2 && !exportButton().disabled);
       if (!window.saved[0].name.includes('Updated Artist - Updated Album')) throw Error('Tags toggle changed filename');
       if (new TextDecoder().decode(window.saved[0].data).includes('Updated Artist')) throw Error('Tags were not disabled');
+      tick('Artist').click();tick('Album').click();tick('Embed metadata').click();await pause();
+      window.saved=[];click('Export');await waitFor(()=>window.saved.length===2&&!exportButton().disabled);
+      if(window.saved[0].name.includes('Updated Artist')||window.saved[0].name.includes('Updated Album'))throw Error('Embedding changed filename inclusion');
+      if(!new TextDecoder().decode(window.saved[0].data).includes('Updated Artist'))throw Error('Filename inclusion changed embedding');
+      tick('Artist').click();tick('Album').click();tick('Embed metadata').click();await pause();
       const longArtist = 'Long Artist name '.repeat(8);
       const longAlbum = 'Long Album name '.repeat(8);
       const longGenre = 'Long Genre '.repeat(8);
