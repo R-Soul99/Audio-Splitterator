@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { selectionEndpoint } from '../utils/waveformSelection';
 import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
 import { RotaryKnob } from './RotaryKnob';
@@ -1341,6 +1342,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       updateRadarAcquisition(null);
     }
 
+    const selectionTime = xToTime(x, rect.width);
+
     // Dragging active element logic
     if (activeDrag) {
       if (activeDrag.type === 'playhead') {
@@ -1374,12 +1377,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         onFadeSettingsChange({ ...fadeSettings, fadeOutCurveNode: nextNode, fadeOutCurveNodePosition: nextPosition });
       } else if (activeDrag.type === 'selectionStart' && selection) {
         showSuccessfulSnap(time);
-        onSelectionChange({ ...selection, start: Math.max(0, Math.min(duration, snapEditTime(time))) });
+        onSelectionChange({ ...selection, start: selectionEndpoint(selectionTime, duration, snapEditTime) });
       } else if (activeDrag.type === 'selectionEnd' && selection) {
         showSuccessfulSnap(time);
-        onSelectionChange({ ...selection, end: Math.max(0, Math.min(duration, snapEditTime(time))) });
+        onSelectionChange({ ...selection, end: selectionEndpoint(selectionTime, duration, snapEditTime) });
       } else if (activeDrag.type === 'selectionMove' && selection && activeDrag.startTime !== undefined && activeDrag.startX !== undefined) {
-        const dt = time - activeDrag.startTime;
+        const dt = selectionTime - activeDrag.startTime;
         const curS = selection.start;
         const curE = selection.end;
         const span = curE - curS;
@@ -1398,7 +1401,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       } else if (activeDrag.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
         if (activeDrag.startX !== undefined && Math.abs(x - activeDrag.startX) > 4) {
           showSuccessfulSnap(time);
-          const snappedTime = snapEditTime(time);
+          const snappedTime = selectionEndpoint(selectionTime, duration, snapEditTime);
           const s = Math.min(activeDrag.startTime, snappedTime);
           const e = Math.max(activeDrag.startTime, snappedTime);
           onSelectionChange?.({ start: s, end: e });
@@ -1470,14 +1473,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     } else if (hoveredElement === 'selectionEnd') {
       setActiveDrag({ type: 'selectionEnd' });
     } else if (hoveredElement === 'selectionBar' && selection) {
-      setActiveDrag({ type: 'selectionMove', startTime: time, startX: selection.start });
+      setActiveDrag({ type: 'selectionMove', startTime: xToTime(x, rect.width), startX: selection.start });
     } else if (hoveredElement === 'marker' && hoveredMarkerId) {
       setActiveDrag({ type: 'marker', id: hoveredMarkerId });
     } else if (chopEnabled) {
       setActiveDrag({ type: 'chop', startTime: time, startX: x });
     } else {
       // Smart tool: Record drag start point; don't trigger playback until pointer release
-      setActiveDrag({ type: 'selectionCreate', startTime: snapEditTime(time), startX: x });
+      setActiveDrag({ type: 'selectionCreate', startTime: selectionEndpoint(xToTime(x, rect.width), duration, snapEditTime), startX: x });
     }
   };
 
@@ -1510,7 +1513,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const rect = canvas?.getBoundingClientRect();
       const x = rect ? e.clientX - rect.left : (activeDrag.startX ?? 0);
       const pixelDiff = Math.abs(x - (activeDrag.startX ?? 0));
-      const endTime = xToTime(x, canvasDimensions.width);
+      const endTime = selectionEndpoint(xToTime(x, rect?.width ?? canvasDimensions.width), duration);
       const timeDiff = Math.abs(endTime - activeDrag.startTime);
 
       if (pixelDiff <= 5 || timeDiff < 0.05) {
@@ -2436,6 +2439,37 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               {hasSelection ? `${formatTime(selS, true)} – ${formatTime(selE, true)}` : 'None'}
             </span>
           </div>
+          {/* Time zoom controls sit outside the selectable audio. */}
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              className="w-5 h-4 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              title="Zoom horizontal in"
+              aria-label="Zoom horizontal in"
+            >
+              <ZoomIn className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={handleZoomFit}
+              className="w-5 h-4 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              title="Reset horizontal zoom to fit the full track"
+              aria-label="Reset horizontal zoom"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={handleZoomOut}
+              className="w-5 h-4 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              title="Zoom horizontal out"
+              aria-label="Zoom horizontal out"
+            >
+              <ZoomOut className="w-3 h-3" />
+            </button>
+          </div>
+
           <div className="flex shrink-0 items-center gap-1.5">
             <button type="button" onClick={handleSampleNoiseFloor} disabled={!audioBuffer}
               aria-label="Detect noise floor" title="Detect noise floor from the selected quiet section."
@@ -2455,14 +2489,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           </div>
         </div>
         {/* Fixed-height time ruler; never resizes with panel toggles so the waveform stays put. */}
-        <div className="shrink-0 border-b border-slate-800/70" style={{ height: `${RULER_HEIGHT}px` }}>
+        <div className="mr-9 shrink-0 border-b border-slate-800/70" style={{ height: `${RULER_HEIGHT}px` }}>
           <canvas
             ref={rulerCanvasRef}
             className="block w-full h-full select-none pointer-events-none"
             style={{ height: `${RULER_HEIGHT}px` }}
           />
         </div>
-        <div className="relative flex-1 min-h-0" ref={canvasContainerRef}>
+        <div className="flex flex-1 min-h-0">
+        <div className="relative flex-1 min-w-0 min-h-0" ref={canvasContainerRef}>
         {(importStatus || analysisBusy || importError || analysisError) && (
           <div role="status" className="pointer-events-none absolute left-3 right-3 top-3 z-30 rounded border border-slate-700 bg-slate-950/90 px-3 py-2 text-xs text-slate-200 shadow">
             {importStatus ? `${importStatus.stage} ${importStatus.name}...${importStatus.progress !== undefined ? ` ${Math.floor(importStatus.progress * 100)}%` : ''}`
@@ -2474,7 +2509,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         {/* Feedback Notification Toast (floats over the canvas; never shifts layout) */}
         {feedbackToast && (
           <div
-            className={`absolute top-3 left-3 right-3 z-20 flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs font-semibold animate-fade-in backdrop-blur-xs ${
+            className={`pointer-events-none absolute top-3 left-3 right-3 z-20 flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs font-semibold animate-fade-in backdrop-blur-xs ${
               feedbackToast.type === 'success'
                 ? 'bg-emerald-950/90 border-emerald-800/80 text-emerald-300'
                 : feedbackToast.type === 'warning'
@@ -2489,7 +2524,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             <button
               type="button"
               onClick={() => setFeedbackToast(null)}
-              className="text-slate-400 hover:text-white p-0.5 cursor-pointer ml-2"
+              className="pointer-events-auto text-slate-400 hover:text-white p-0.5 cursor-pointer ml-2"
             >
               <X className="w-3 h-3" />
             </button>
@@ -2519,7 +2554,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         {hoverTime !== null && hoverPosition && !activeDrag?.type.startsWith('fade') && !hoveredElement?.startsWith('fade') &&
           !fadeControls.some(control => control.enabled && Math.abs(hoverPosition.x - control.lengthX) <= 24) && (
           <div
-            className="absolute pointer-events-none -top-1 bg-slate-900 text-slate-200 border border-slate-800 px-2.5 py-0.5 rounded-md text-[10px] font-mono shadow-xl transform -translate-x-1/2 z-10 flex items-center gap-1.5"
+            className="absolute pointer-events-none top-1/2 -translate-y-1/2 bg-slate-900 text-slate-200 border border-slate-800 px-2.5 py-0.5 rounded-md text-[10px] font-mono shadow-xl transform -translate-x-1/2 z-10 flex items-center gap-1.5"
+            aria-label="Cursor time readout"
             style={{ left: `${hoverPosition.x}px` }}
           >
             <span className="text-emerald-400 font-bold">{formatTime(hoverTime, true)}</span>
@@ -2533,39 +2569,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           </div>
         )}
 
-        {/* Independent horizontal zoom row */}
-        <div className="absolute bottom-3 right-11 flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={handleZoomIn}
-            className="w-6 h-6 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-            title="Zoom horizontal in"
-            aria-label="Zoom horizontal in"
-          >
-            <ZoomIn className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={handleZoomFit}
-            className="w-6 h-6 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-            title="Reset horizontal zoom to fit the full track"
-            aria-label="Reset horizontal zoom"
-          >
-            <RotateCcw className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={handleZoomOut}
-            className="w-6 h-6 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-            title="Zoom horizontal out"
-            aria-label="Zoom horizontal out"
-          >
-            <ZoomOut className="w-3 h-3" />
-          </button>
         </div>
-
-        {/* Independent vertical zoom stack, aligned to the waveform edge */}
-        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1">
+        {/* Dedicated gutter: zoom controls never cover selectable audio. */}
+        <div aria-label="Vertical waveform zoom controls" className="flex w-9 shrink-0 flex-col items-center justify-center gap-1 border-l border-slate-800/70 bg-slate-950">
           <button
             type="button"
             onClick={handleVerticalZoomIn}
