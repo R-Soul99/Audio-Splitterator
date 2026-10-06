@@ -64,12 +64,23 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const [namingPattern] = useState<NamingPattern>('track_title');
   const [createSubfolders, setCreateSubfolders] = useState<boolean>(() => localStorage.getItem('exportNestedFolders') === 'true');
   const [exportFolder, setExportFolder] = useState('');
+  const destinationCommitRef = useRef<Promise<unknown>>(Promise.resolve());
   const desktopExport = getDesktopExport();
   useEffect(() => {
     desktopExport?.getExportFolder().then(setExportFolder).catch((error) => setSaveResultNotice(String(error)));
   }, []);
+  const persistDestination = (folder: string) => {
+    const pending = destinationCommitRef.current.catch(() => {}).then(() => desktopExport?.setExportFolder(folder));
+    destinationCommitRef.current = pending;
+    return pending;
+  };
+  const commitDestination = async () => {
+    if (!desktopExport) return;
+    try { await persistDestination(exportFolder); setSaveResultNotice(null); }
+    catch (error) { setSaveResultNotice(String(error)); }
+  };
   const browseExportFolder = async () => {
-    try { const folder = await desktopExport?.chooseExportFolder(); if (folder) setExportFolder(folder); }
+    try { await destinationCommitRef.current.catch(() => {}); const folder = await desktopExport?.chooseExportFolder(); if (folder) { setExportFolder(folder); setSaveResultNotice(null); } }
     catch (error) { setSaveResultNotice(`Unable to select export folder: ${String(error)}`); }
   };
   const [folderHierarchyType] = useState<FolderHierarchyType>('artist_album');
@@ -274,13 +285,13 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const handleExportAllTracks = async () => {
     const exportSplits = getSelectedSplits<any>(splits, selectedTracks);
     if (exportSplits.length === 0) { alert("No tracks selected for export."); return; }
-    if (desktopExport && !exportFolder) { await browseExportFolder(); return; }
 
     setIsSavingAll(true);
     setSaveProgress({ current: 0, total: exportSplits.length, message: 'Preparing tracks for export...' });
     setSaveResultNotice(null);
 
     try {
+      if (desktopExport) await persistDestination(exportFolder);
       const filesToSave: FileToSave[] = [];
       const folderStructure = { enabled: createSubfolders, type: folderHierarchyType, artist: albumArtist, album: albumTitle };
       const segments = resolveFolderSegments(folderStructure);
@@ -423,7 +434,7 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
         <fieldset aria-label="Export controls" disabled={isSavingAll} className="m-0 flex min-h-0 min-w-0 flex-1 flex-col rounded border border-slate-700 bg-slate-900/70 p-2.5">
           <h3 className="mb-1 text-sm font-bold text-slate-200">Export</h3>
           <div className="flex shrink-0 items-center gap-1">
-            <span aria-label="Export destination" className="block h-7 min-w-0 flex-1 truncate rounded border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Destination' : 'Browser save destination')}</span>
+            <input type="text" aria-label="Export destination" className={`${controlClass} h-7 min-w-0 flex-1 truncate py-1.5 font-mono`} title={exportFolder} placeholder="Destination &#8594;" value={exportFolder} onChange={(event) => setExportFolder(event.target.value)} onBlur={commitDestination} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void commitDestination(); } }} />
             <button type="button" aria-label="Choose export folder" title="Choose export folder" className={`${controlClass} inline-flex h-7 w-7 shrink-0 items-center justify-center px-0`} disabled={!desktopExport} onClick={browseExportFolder}><FolderOpen className="h-3.5 w-3.5" /></button>
           </div>
           <div aria-label="Output settings" className="mt-2 flex shrink-0 flex-col gap-1">

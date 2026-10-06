@@ -24,6 +24,7 @@ async function run() {
       state.electronAPI = {
         openExportFolder: async segments => { state.opened.push(segments); },
         getExportFolder: async () => 'C:/A very long export destination path/with many folders/that exceeds the available visual path width/test-output',
+        setExportFolder: async folder => { if(!folder||folder==='invalid')throw Error('Invalid destination: choose an existing writable folder.');state.committedFolder=folder;return folder; },
         chooseExportFolder: async () => { state.folderPicks++; return 'C:/A very long export destination path/with many folders/that exceeds the available visual path width/chosen'; },
         saveExportFile: async file => { await new Promise(resolve => setTimeout(resolve, 80)); if (state.failSave) throw Error('An intentionally long export failure message that must remain within the fixed status area without shifting any controls'); state.saved.push(file); return file.name; }
       };
@@ -92,6 +93,16 @@ async function run() {
       if(chooseFolder.title!=='Choose export folder')throw Error('Folder tooltip missing');
       chooseFolder.click();await pause();
       if(window.folderPicks!==1||!document.querySelector('[aria-label="Export destination"]').title.endsWith('/chosen'))throw Error('Folder icon picker did not update destination');
+      const destination=document.querySelector('[aria-label="Export destination"]');
+      if(destination.placeholder!=='Destination '+String.fromCharCode(8594))throw Error('Destination placeholder incorrect');
+      change(destination,'C:/Typed folder with spaces');destination.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));await pause();
+      if(window.committedFolder!=='C:/Typed folder with spaces')throw Error('Enter did not persist typed path');
+      change(destination,'C:/Pasted folder with spaces');destination.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));await pause();
+      if(window.committedFolder!=='C:/Pasted folder with spaces')throw Error('Blur did not persist pasted path');
+      change(destination,'invalid');click('Export');await waitFor(()=>!exportButton().disabled&&document.querySelector('[role="status"]').textContent.includes('Invalid destination'));
+      if(window.saved.length||window.folderPicks!==1||exportButton().getBoundingClientRect().top!==initialBottom)throw Error('Invalid destination exported, opened picker, or shifted layout');
+      chooseFolder.click();await pause();
+      if(!destination.value.endsWith('/chosen'))throw Error('Picker did not replace typed path');
       if(!tick('Track no.').checked||tick('Artist').checked||tick('Album').checked)throw Error('Fresh filename defaults incorrect');
       tick('Artist').click();tick('Album').click();await pause();
       document.querySelector('[aria-label="Next page"]').click(); await pause();
@@ -177,7 +188,7 @@ async function run() {
       const firstRow = document.querySelectorAll('[role="row"]')[1];
       if (!firstRow.children[1].textContent.includes(longArtist.trim()) || firstRow.children[3].textContent !== longArtist || firstRow.children[5].textContent !== longAlbum || firstRow.children[6].textContent !== longGenre) throw Error('Direct metadata preview update failed');
       const pathField = document.querySelector('[aria-label="Export destination"]');
-      if (pathField.title.length < 80 || pathField.scrollWidth <= pathField.clientWidth) throw Error('Long path not truncated with tooltip');
+      if (pathField.title.length < 80 || pathField.value.length < 80) throw Error('Long path not truncated with tooltip');
       if (document.querySelector('dialog') || [...document.querySelectorAll('button')].some(button => button.textContent.includes('Edit'))) throw Error('Removed metadata dialogue still present');
       window.saved = []; click('Export');
       await waitFor(() => window.saved.length === 2 && !exportButton().disabled);

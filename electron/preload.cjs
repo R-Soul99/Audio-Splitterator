@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   openExportFolder: (segments) => ipcRenderer.invoke('export:open-folder', segments),
   getExportFolder: () => ipcRenderer.invoke('export:get-folder'),
+  setExportFolder: (folder) => ipcRenderer.invoke('export:set-folder', folder),
   chooseExportFolder: () => ipcRenderer.invoke('export:choose-folder'),
   saveExportFile: (file) => ipcRenderer.invoke('export:save-file', file),
 });

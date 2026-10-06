@@ -10,7 +10,7 @@ app.setPath('userData', path.join(output, 'profile'));
 const preload = path.join(output, 'preload.cjs');
 fs.writeFileSync(preload, `require('electron').contextBridge.exposeInMainWorld('electronAPI', {
   getExportFolder: async () => 'C:/A very long export folder/with a long nested path/and another long folder/for checking destination truncation',
-  chooseExportFolder: async () => '', saveExportFile: async () => '', openExportFolder: async () => {}
+  setExportFolder: async folder => folder, chooseExportFolder: async () => '', saveExportFile: async () => '', openExportFolder: async () => {}
 });`);
 app.whenReady().then(async () => {
   // Offscreen uses content dimensions: the 980x650 Windows window has a 967x589 client area.
