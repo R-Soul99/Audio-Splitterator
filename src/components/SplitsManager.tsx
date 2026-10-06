@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Download,
+  FolderOpen,
   Tag,
   CheckCircle2,
 } from 'lucide-react';
@@ -336,25 +337,14 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   return (
     <div className="relative grid h-full min-h-0 grid-cols-[minmax(0,1fr)_190px] gap-2 overflow-hidden select-none text-[10px] text-slate-300">
       <fieldset disabled={isSavingAll} className="m-0 flex min-h-0 min-w-0 flex-col rounded border border-slate-700 bg-slate-950/20 p-2.5">
-        <div aria-label="Recording info" className="mb-0.5 flex h-7 shrink-0 items-center gap-1.5">
-          <strong className="mr-1 shrink-0 text-slate-300">Recording info</strong>
-          <label className="flex shrink-0 items-center gap-1.5" htmlFor="export-artist">Artist
-            <input id="export-artist" type="text" title={albumArtist} className={`${controlClass} h-6 w-[110px] min-w-0 py-0.5`} value={albumArtist} onChange={(event) => setAlbumArtist(event.target.value)} />
-          </label>
-          <label className="flex shrink-0 items-center gap-1.5" htmlFor="export-album">Album
-            <input id="export-album" type="text" title={albumTitle} className={`${controlClass} h-6 w-[110px] min-w-0 py-0.5`} value={albumTitle} onChange={(event) => setAlbumTitle(event.target.value)} />
-          </label>
-          <label className="flex shrink-0 items-center gap-1.5" htmlFor="export-genre">Genre
-            <input id="export-genre" type="text" title={genre} className={`${controlClass} h-6 w-[90px] min-w-0 py-0.5`} value={genre} onChange={(event) => setGenre(event.target.value)} />
-          </label>
-        </div>
         <div className="grid h-5 shrink-0 grid-cols-[38%_62%] items-center">
+          <strong className="uppercase tracking-wider text-slate-300">Tracks to export</strong>
           <strong aria-label="Metadata preview heading" className="col-start-2 border-l border-slate-700 pl-2 uppercase tracking-wider text-emerald-400">Metadata preview</strong>
         </div>
         <div role="table" aria-label="Tracks to export and metadata preview" className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-700">
           <div role="row" className="grid h-7 shrink-0 grid-cols-[20px_minmax(0,1fr)_48px_15%_20%_15%_12%] items-center bg-slate-900 text-[9px] uppercase tracking-wider">
             <div role="columnheader"><input ref={selectionRef} type="checkbox" aria-label="Select all tracks across all pages" aria-checked={selection.mixed ? 'mixed' : selection.all} checked={selection.all} disabled={!splits.length} onChange={(event) => setSelectedTracks(selectAllTracks(splits, event.target.checked))} className="accent-emerald-500" /></div>
-            <div role="columnheader">Tracks to export</div><div role="columnheader">Time</div>
+            <div role="columnheader">Filename</div><div role="columnheader">Time</div>
             {['Artist', 'Title', 'Album', 'Genre'].map((name) => <div role="columnheader" key={name} className="border-l border-slate-800 px-2">{name}</div>)}
           </div>
           <div className="grid min-h-0 flex-1" style={{ gridTemplateRows: `repeat(${EXPORT_PAGE_SIZE}, minmax(0, 1fr))` }}>
@@ -396,48 +386,60 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
           <button type="button" aria-label="Next page" className="h-5 w-5 rounded border border-slate-700 bg-slate-950 text-emerald-300 disabled:opacity-30" disabled={pagination.page + 1 >= pagination.pageCount} onClick={() => setPage(pagination.page + 1)}>&#8250;</button>
         </div>
       </fieldset>
-      <fieldset aria-label="Export controls" disabled={isSavingAll} className="m-0 flex min-h-0 min-w-0 flex-col rounded border border-slate-700 bg-slate-900/70 p-2.5">
-        <h3 className="mb-2 text-sm font-bold text-slate-200">Export</h3>
-        <div className="flex flex-col gap-1">
-          <span>Destination</span>
-          <span aria-label="Export destination" className="block h-7 w-full truncate rounded border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Choose destination...' : 'Browser save destination')}</span>
-          <button type="button" className={`${controlClass} h-7 w-full`} disabled={!desktopExport} onClick={browseExportFolder}>Browse&#8230;</button>
-        </div>
-        <div aria-label="Output settings" className="mt-2 flex shrink-0 flex-col gap-2">
-          <label className="flex flex-col gap-1">Format
-            <select aria-label="Format" className={`${controlClass} h-7 w-full py-0.5`} value={format} onChange={(event) => setFormat(event.target.value as AudioFormat)}><option value="flac">FLAC</option><option value="wav">WAV</option><option value="mp3">MP3</option></select>
-          </label>
-          <label className="flex flex-col gap-1"><span className="whitespace-nowrap">{format === 'mp3' ? 'Bitrate' : 'Bit depth'}</span>
-            <select aria-label={format === 'mp3' ? 'Bitrate' : 'Bit depth'} className={`${controlClass} h-7 w-full py-0.5`} value={format === 'mp3' ? mp3Bitrate : format === 'flac' ? flacBitDepth : wavBitDepth} onChange={(event) => {
-              const value = Number(event.target.value);
-              if (format === 'mp3') setMp3Bitrate(value as Mp3Bitrate);
-              else if (format === 'flac') setFlacBitDepth(value as FlacBitDepth);
-              else setWavBitDepth(value as WavBitDepth);
-            }}>{format === 'mp3' ? [128, 192, 256, 320].map((value) => <option key={value} value={value}>{value} kbps</option>) : [16, 24].map((value) => <option key={value} value={value}>{value}-bit</option>)}</select>
-          </label>
-        </div>
-        <div aria-label="Filename inclusion" className="mt-2 shrink-0">
-          <div className="mb-1">Include in filename:</div>
-          <div className="flex items-center gap-1.5 text-[9px]">
-            {checkbox('Track no.', includeTrackNumbers, setIncludeTrackNumbers)}
-            {checkbox('Artist', includeArtistInFilename, setIncludeArtistInFilename)}
-            {checkbox('Album', includeAlbumInFilename, setIncludeAlbumInFilename)}
+      <div aria-label="Export sidebar" className="flex min-h-0 min-w-0 flex-col gap-2">
+        <fieldset aria-label="Recording info" disabled={isSavingAll} className="m-0 h-[116px] shrink-0 rounded border border-slate-700 bg-slate-900/70 p-2">
+          <h3 className="mb-1 h-4 font-bold text-slate-200">Recording info</h3>
+          <div className="grid grid-cols-[32px_minmax(0,1fr)] items-center gap-x-1.5 gap-y-1">
+            <label htmlFor="export-artist">Artist</label>
+            <input id="export-artist" type="text" title={albumArtist} className={`${controlClass} h-6 w-full min-w-0 py-0.5`} value={albumArtist} onChange={(event) => setAlbumArtist(event.target.value)} />
+            <label htmlFor="export-album">Album</label>
+            <input id="export-album" type="text" title={albumTitle} className={`${controlClass} h-6 w-full min-w-0 py-0.5`} value={albumTitle} onChange={(event) => setAlbumTitle(event.target.value)} />
+            <label htmlFor="export-genre">Genre</label>
+            <input id="export-genre" type="text" title={genre} className={`${controlClass} h-6 w-full min-w-0 py-0.5`} value={genre} onChange={(event) => setGenre(event.target.value)} />
           </div>
-        </div>
-        <div aria-label="Export options" className="mt-2 flex shrink-0 flex-col gap-1.5 text-[10px] leading-[14px] [&_label]:items-start [&_label]:whitespace-normal [&_input]:mt-0.5 [&_input]:shrink-0">
-          {checkbox('Embed metadata', includeTags, setIncludeTags, false, 'Write each track’s metadata into the exported audio file.')}
-          {checkbox('Save in Artist/Album folders', createSubfolders, (value) => { setCreateSubfolders(value); localStorage.setItem('exportNestedFolders', String(value)); })}
-          {checkbox('Micro fade between splits', autoSplitFades, setAutoSplitFades)}
-          {checkbox('Show exported files after export', showExportedFiles, setShowExportedFiles, !desktopExport)}
-        </div>
-        <div aria-label="Export action" className="mt-auto shrink-0 pt-2">
-          <button type="button" aria-label="Export selected tracks" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-4 w-4" />Export</button>
-          <div role="status" aria-live="polite" className="mt-1 h-[72px] shrink-0 pt-1 text-[10px] leading-[14px]">
-            <div className="truncate" title={`${selectedCount} of ${splits.length} tracks selected`}>{selectedCount} of {splits.length} tracks selected</div>
-            <div className="mt-1 line-clamp-3 break-words text-emerald-300" title={status}>{status}</div>
+        </fieldset>
+        <fieldset aria-label="Export controls" disabled={isSavingAll} className="m-0 flex min-h-0 min-w-0 flex-1 flex-col rounded border border-slate-700 bg-slate-900/70 p-2.5">
+          <h3 className="mb-1 text-sm font-bold text-slate-200">Export</h3>
+          <div className="flex shrink-0 items-center gap-1">
+            <span aria-label="Export destination" className="block h-7 min-w-0 flex-1 truncate rounded border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono" title={exportFolder}>{exportFolder || (desktopExport ? 'Choose destination...' : 'Browser save destination')}</span>
+            <button type="button" aria-label="Choose export folder" title="Choose export folder" className={`${controlClass} inline-flex h-7 w-7 shrink-0 items-center justify-center px-0`} disabled={!desktopExport} onClick={browseExportFolder}><FolderOpen className="h-3.5 w-3.5" /></button>
           </div>
-        </div>
-      </fieldset>
+          <div aria-label="Output settings" className="mt-2 flex shrink-0 flex-col gap-1">
+            <label className="grid grid-cols-[52px_82px] items-center gap-2">Format
+              <select aria-label="Format" className={`${controlClass} h-6 w-[82px] py-0.5`} value={format} onChange={(event) => setFormat(event.target.value as AudioFormat)}><option value="flac">FLAC</option><option value="wav">WAV</option><option value="mp3">MP3</option></select>
+            </label>
+            <label className="grid grid-cols-[52px_82px] items-center gap-2"><span className="whitespace-nowrap">{format === 'mp3' ? 'Bitrate' : 'Bit depth'}</span>
+              <select aria-label={format === 'mp3' ? 'Bitrate' : 'Bit depth'} className={`${controlClass} h-6 w-[82px] py-0.5`} value={format === 'mp3' ? mp3Bitrate : format === 'flac' ? flacBitDepth : wavBitDepth} onChange={(event) => {
+                const value = Number(event.target.value);
+                if (format === 'mp3') setMp3Bitrate(value as Mp3Bitrate);
+                else if (format === 'flac') setFlacBitDepth(value as FlacBitDepth);
+                else setWavBitDepth(value as WavBitDepth);
+              }}>{format === 'mp3' ? [128, 192, 256, 320].map((value) => <option key={value} value={value}>{value} kbps</option>) : [16, 24].map((value) => <option key={value} value={value}>{value}-bit</option>)}</select>
+            </label>
+          </div>
+          <div aria-label="Filename inclusion" className="mt-2 shrink-0">
+            <div className="mb-1">Include in filename:</div>
+            <div className="flex items-center gap-1.5 text-[9px]">
+              {checkbox('Track no.', includeTrackNumbers, setIncludeTrackNumbers)}
+              {checkbox('Artist', includeArtistInFilename, setIncludeArtistInFilename)}
+              {checkbox('Album', includeAlbumInFilename, setIncludeAlbumInFilename)}
+            </div>
+          </div>
+          <div aria-label="Export options" className="mt-2 flex shrink-0 flex-col gap-1.5 text-[10px] leading-[14px] [&_label]:items-start [&_label]:whitespace-normal [&_input]:mt-0.5 [&_input]:shrink-0">
+            {checkbox('Embed metadata', includeTags, setIncludeTags, false, 'Write each track’s metadata into the exported audio file.')}
+            {checkbox('Save in Artist/Album folders', createSubfolders, (value) => { setCreateSubfolders(value); localStorage.setItem('exportNestedFolders', String(value)); })}
+            {checkbox('Micro fade between splits', autoSplitFades, setAutoSplitFades)}
+            {checkbox('Show exported files after export', showExportedFiles, setShowExportedFiles, !desktopExport)}
+          </div>
+          <div aria-label="Export action" className="mt-auto shrink-0 pt-2">
+            <button type="button" aria-label="Export selected tracks" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-4 w-4" />Export</button>
+            <div role="status" aria-live="polite" className="mt-1 h-[72px] shrink-0 pt-1 text-[10px] leading-[14px]">
+              <div className="truncate" title={`${selectedCount} of ${splits.length} tracks selected`}>{selectedCount} of {splits.length} tracks selected</div>
+              <div className="mt-1 line-clamp-3 break-words text-emerald-300" title={status}>{status}</div>
+            </div>
+          </div>
+        </fieldset>
+      </div>
       {/* Manual save Fallback Modal */}
       {fallbackModalData.isOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center z-50 p-4">

@@ -1,4 +1,4 @@
-export const EXPORT_PAGE_SIZE = 12;
+export const EXPORT_PAGE_SIZE = 13;
 
 export function getExportPage<T>(tracks: readonly T[], requestedPage: number) {
   const pageCount = Math.max(1, Math.ceil(tracks.length / EXPORT_PAGE_SIZE));

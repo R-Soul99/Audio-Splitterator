@@ -17,14 +17,14 @@ async function run() {
       import { SplitsManager } from '../../src/components/SplitsManager';
       localStorage.clear();
       const state = window as any;
-      state.saved = []; state.alerts = []; state.opened = [];
+      state.saved = []; state.alerts = []; state.opened = []; state.folderPicks = 0;
       document.body.style.cssText = 'margin:0;background:#020617';
       document.getElementById('root').style.cssText = 'height:503px;width:943px';
       window.alert = message => state.alerts.push(message);
       state.electronAPI = {
         openExportFolder: async segments => { state.opened.push(segments); },
         getExportFolder: async () => 'C:/A very long export destination path/with many folders/that exceeds the available visual path width/test-output',
-        chooseExportFolder: async () => 'test-output',
+        chooseExportFolder: async () => { state.folderPicks++; return 'C:/A very long export destination path/with many folders/that exceeds the available visual path width/chosen'; },
         saveExportFile: async file => { await new Promise(resolve => setTimeout(resolve, 80)); if (state.failSave) throw Error('An intentionally long export failure message that must remain within the fixed status area without shifting any controls'); state.saved.push(file); return file.name; }
       };
       const buffer = new AudioBuffer({ length: 88200, numberOfChannels: 2, sampleRate: 44100 });
@@ -81,6 +81,10 @@ async function run() {
       const all = document.querySelector('[aria-label="Select all tracks across all pages"]');
       const exportButton = () => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export');
       const initialBottom = exportButton().getBoundingClientRect().top;
+      const chooseFolder=document.querySelector('[aria-label="Choose export folder"]');
+      if(chooseFolder.title!=='Choose export folder')throw Error('Folder tooltip missing');
+      chooseFolder.click();await pause();
+      if(window.folderPicks!==1||!document.querySelector('[aria-label="Export destination"]').title.endsWith('/chosen'))throw Error('Folder icon picker did not update destination');
       if(!tick('Track no.').checked||tick('Artist').checked||tick('Album').checked)throw Error('Fresh filename defaults incorrect');
       tick('Artist').click();tick('Album').click();await pause();
       document.querySelector('[aria-label="Next page"]').click(); await pause();
