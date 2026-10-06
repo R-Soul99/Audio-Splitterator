@@ -33,7 +33,7 @@ app.whenReady().then(async () => {
       const queue=[fiber.stateNode.current];while(queue.length){const f=queue.shift(),p=f.memoizedProps;if(p?.onAddMarker&&p?.onSelectionChange&&p?.audioBuffer){for(let i=1;i<20;i++)p.onAddMarker(i);break;}if(f.child)queue.push(f.child);if(f.sibling)queue.push(f.sibling);}
     })()`);
     await run(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='EXPORT').click()`);
-    await wait(`!!document.getElementById('export-artist') && document.querySelector('[aria-label="Export pagination"]').textContent.includes('1 / 3')`);
+    await wait(`!!document.getElementById('export-artist') && document.querySelector('[aria-label="Export pagination"]').textContent.includes('1 / 2')`);
     const result = await run(`(async()=>{
       const pause=()=>new Promise(r=>setTimeout(r,80));
       const edit=(id,value)=>{const input=document.getElementById(id);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));};
@@ -44,14 +44,19 @@ app.whenReady().then(async () => {
       const info=document.querySelector('[aria-label="Recording info"]');
       if(info.getBoundingClientRect().bottom>table.getBoundingClientRect().top)throw Error('Recording info is not above table');
       if(info.querySelectorAll('input[type="text"]').length!==3||info.querySelectorAll('input[type="checkbox"]').length!==1)throw Error('Recording info controls missing');
-      if(controls.querySelector('h3'))throw Error('Redundant Export heading');
+      if(controls.querySelector('h3')?.textContent!=='Export')throw Error('Missing Export heading');
       const bounds=box(controls),tableBounds=box(table);
-      if(bounds.left!==tableBounds.left||bounds.right!==tableBounds.right)throw Error('Export panel must align with table edges');
+      const left=box(info.closest('fieldset'));
+      if(bounds.left<=left.right||bounds.top!==left.top||bounds.bottom!==left.bottom)throw Error('Sidebar must align beside left workspace');
       for(const el of controls.querySelectorAll('input,select,button,[role="status"]')){const r=box(el);if(r.left<bounds.left||r.right>bounds.right||r.top<bounds.top||r.bottom>bounds.bottom)throw Error('Control exceeds Export panel');}
+      const header=document.querySelector('header');
+      if(header&&left.top-header.getBoundingClientRect().bottom>12)throw Error('Export header gap exceeds 12px');
       const initial={controls:box(controls),table:box(table),pagination:box(pagination),info:box(info)};
+      if(document.querySelectorAll('[role="row"]').length!==13)throw Error('Expected 12 visible tracks on first page');
+      for(const label of ['Artist','Album']){const input=[...document.querySelectorAll('label')].find(el=>el.textContent===label&&el.querySelector('input[type=checkbox]'))?.querySelector('input');if(!input||input.checked)throw Error('Filename metadata must default off');input.click();}await pause();
       edit('export-artist','An artist with a very long name '.repeat(5));edit('export-album','An album with a very long name '.repeat(5));edit('export-genre','A long genre description '.repeat(5));await pause();
-      document.querySelector('[aria-label="Next page"]').click();await pause();document.querySelector('[aria-label="Next page"]').click();await pause();
-      if(!pagination.textContent.includes('3 / 3'))throw Error('Multiple-page navigation failed');
+      document.querySelector('[aria-label="Next page"]').click();await pause();
+      if(!pagination.textContent.includes('2 / 2'))throw Error('Multiple-page navigation failed');
       const later={controls:box(controls),table:box(table),pagination:box(pagination),info:box(info)};
       if(JSON.stringify(initial)!==JSON.stringify(later))throw Error('Editing or final page shifted layout');
       const main=document.querySelector('main').getBoundingClientRect();
@@ -60,7 +65,7 @@ app.whenReady().then(async () => {
       }
       for(const el of document.querySelectorAll('main *')){const style=getComputedStyle(el);if(['auto','scroll'].includes(style.overflowY)&&el.scrollHeight>el.clientHeight)throw Error('Vertical scrollbar');if(['auto','scroll'].includes(style.overflowX)&&el.scrollWidth>el.clientWidth)throw Error('Horizontal scrollbar');}
       const rows=[...document.querySelectorAll('[role="row"]')].slice(1);
-      for(const row of rows){const cells=[...row.children].map(box);if(cells.some(cell=>Math.abs((cell.top+cell.height/2)-(cells[0].top+cells[0].height/2))>1))throw Error('Filename and metadata misaligned');}
+      for(const row of rows){if(row.getBoundingClientRect().height<26)throw Error('Track rows too cramped');const cells=[...row.children].map(box);if(cells.some(cell=>Math.abs((cell.top+cell.height/2)-(cells[0].top+cells[0].height/2))>1))throw Error('Filename and metadata misaligned');}
       return {window:[innerWidth,innerHeight],...later,tracks:document.querySelector('[role="status"]').textContent};
     })()`);
     assert.equal(result.tracks.includes('20 of 20'),true);

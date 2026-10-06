@@ -19,7 +19,7 @@ async function run() {
       const state = window as any;
       state.saved = []; state.alerts = []; state.opened = [];
       document.body.style.cssText = 'margin:0;background:#020617';
-      document.getElementById('root').style.cssText = 'height:430px;width:916px';
+      document.getElementById('root').style.cssText = 'height:503px;width:943px';
       window.alert = message => state.alerts.push(message);
       state.electronAPI = {
         openExportFolder: async segments => { state.opened.push(segments); },
@@ -72,7 +72,7 @@ async function run() {
         const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
         if (!button) throw Error('Missing button: ' + text); button.click();
       };
-      const tick = label => [...document.querySelectorAll('label')].find(l => l.textContent.includes(label)).querySelector('input');
+      const tick = label => [...document.querySelectorAll('label')].find(l => l.textContent.includes(label) && l.querySelector('input[type=checkbox]')).querySelector('input');
       const change = (input, value) => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -81,25 +81,27 @@ async function run() {
       const all = document.querySelector('[aria-label="Select all tracks across all pages"]');
       const exportButton = () => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export');
       const initialBottom = exportButton().getBoundingClientRect().top;
+      if(!tick('Track no.').checked||tick('Artist').checked||tick('Album').checked)throw Error('Fresh filename defaults incorrect');
+      tick('Artist').click();tick('Album').click();await pause();
       document.querySelector('[aria-label="Next page"]').click(); await pause();
-      change(document.querySelector('[aria-label="Title for track 10"]'), 'Edited title');
-      document.querySelector('[aria-label="Export track 10"]').click(); await pause();
+      change(document.querySelector('[aria-label="Title for track 14"]'), 'Edited title');
+      document.querySelector('[aria-label="Export track 14"]').click(); await pause();
       if (!all.indeterminate) throw Error('Missing mixed selection');
-      document.querySelector('[aria-label="Next page"]').click(); await pause();
       if (!document.querySelector('[aria-label="Next page"]').disabled) throw Error('Final navigation enabled');
       document.querySelector('[aria-label="Previous page"]').click(); await pause();
-      if (document.querySelector('[aria-label="Title for track 10"]').value !== 'Edited title') throw Error('Title edit lost');
-      if (document.querySelector('[aria-label="Export track 10"]').checked) throw Error('Selection lost');
+      document.querySelector('[aria-label="Next page"]').click(); await pause();
+      if (document.querySelector('[aria-label="Title for track 14"]').value !== 'Edited title') throw Error('Title edit lost');
+      if (document.querySelector('[aria-label="Export track 14"]').checked) throw Error('Selection lost');
       change(document.getElementById('export-artist'), 'Updated Artist'); change(document.getElementById('export-album'), 'Updated Album'); change(document.getElementById('export-genre'), 'Jazz'); await pause();
       if (!document.body.textContent.includes('Updated Artist - Updated Album - Edited title.flac')) throw Error('Filename not updated');
       all.click(); await pause(); all.click(); await pause();
       if (document.body.textContent.includes('19 of 19 tracks selected')) throw Error('Global clear failed');
-      document.querySelector('[aria-label="Export track 10"]').click(); await pause();
-      document.querySelector('[aria-label="Next page"]').click(); await pause();
-      document.querySelector('[aria-label="Export track 19"]').click(); await pause();
+      document.querySelector('[aria-label="Export track 14"]').click(); await pause();
+      document.querySelector('[aria-label="Previous page"]').click(); await pause();
+      document.querySelector('[aria-label="Export track 1"]').click(); await pause();
       tick('Save in Artist/Album folders').click(); tick('Show exported files after export').click(); await pause();
       click('Export'); await waitFor(() => window.opened.length === 1);
-      if (window.saved.length !== 2 || !window.saved[0].name.includes('Edited title') || !window.saved[1].name.startsWith('19')) throw Error('Export omitted other page');
+      if (window.saved.length !== 2 || !window.saved[0].name.startsWith('01') || !window.saved[1].name.includes('Edited title')) throw Error('Export omitted other page');
       if (window.opened[0].join('/') !== 'Updated Artist/Updated Album') throw Error('Wrong opened folder');
       if (!new TextDecoder().decode(window.saved[0].data).includes('GENRE=Jazz')) throw Error('Missing shared genre');
       if (exportButton().getBoundingClientRect().top !== initialBottom) throw Error('Layout shifted');
@@ -108,7 +110,6 @@ async function run() {
         if (['auto', 'scroll'].includes(css.overflowY) && el.scrollHeight > el.clientHeight) throw Error('Panel scrollbar');
       }
       all.click(); await pause(); all.click(); await pause();
-      document.querySelector('[aria-label="Previous page"]').click(); await pause();
       document.querySelector('[aria-label="Previous page"]').click(); await pause();
       document.querySelector('[aria-label="Export track 1"]').click(); document.querySelector('[aria-label="Export track 2"]').click(); await pause();
       tick('Show exported files after export').click();
