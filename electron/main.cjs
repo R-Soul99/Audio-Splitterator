@@ -8,14 +8,33 @@ async function getExportFolder() {
   catch (error) { if (error.code === 'ENOENT') return ''; throw error; }
 }
 const safeComponent = (value) => typeof value === 'string' && value.length > 0 && value !== '.' && value !== '..' && !/[<>:"/\\|?*\x00-\x1f]/.test(value) && !/[. ]$/.test(value) && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(value);
+async function setExportFolder(folder) {
+  if (typeof folder !== 'string' || !folder.trim() || !path.isAbsolute(folder) || folder.includes(String.fromCharCode(0))) {
+    throw new Error('Invalid destination: enter a full folder path.');
+  }
+  try {
+    if (!(await fs.stat(folder)).isDirectory()) throw new Error('Not a folder');
+    await fs.access(folder, require('fs').constants.W_OK);
+  } catch {
+    throw new Error('Invalid destination: choose an existing writable folder.');
+  }
+  await fs.writeFile(settingsPath(), JSON.stringify({ folder }), 'utf8');
+  return folder;
+}
 ipcMain.handle('export:get-folder', () => getExportFolder());
+ipcMain.handle('export:set-folder', (_event, folder) => setExportFolder(folder));
 ipcMain.handle('export:choose-folder', async () => {
   const previous = await getExportFolder();
   const result = await dialog.showOpenDialog(mainWindow, { title: 'Choose default export folder', defaultPath: previous || app.getPath('music'), properties: ['openDirectory', 'createDirectory'] });
   if (result.canceled) return previous;
   const folder = result.filePaths[0];
-  await fs.writeFile(settingsPath(), JSON.stringify({ folder }), 'utf8');
-  return folder;
+  return setExportFolder(folder);
+});
+ipcMain.handle('export:open-folder', async (_event, folder) => {
+  if (typeof folder !== 'string' || !path.isAbsolute(folder)) throw new Error('Invalid exported folder.');
+  if (!(await fs.stat(folder)).isDirectory()) throw new Error('Invalid exported folder.');
+  const error = await shell.openPath(folder);
+  if (error) throw new Error(error);
 });
 ipcMain.handle('export:save-file', async (_event, { name, data, segments }) => {
   const folder = await getExportFolder();

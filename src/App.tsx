@@ -1191,10 +1191,10 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main inert={!!importStatus || waveformBusy} className={`flex-1 min-h-0 w-full flex flex-col ${workflowTab === 'edit' ? 'px-3 py-2 lg:px-4' : 'p-4 lg:p-6 lg:pb-4'}`}>
+      <main inert={!!importStatus || waveformBusy} className={`flex-1 min-h-0 w-full flex flex-col ${workflowTab === 'save' ? 'px-3 py-2' : workflowTab === 'edit' ? 'px-3 py-2 lg:px-4' : 'p-4 lg:p-6 lg:pb-4'}`}>
         <div className="flex-1 flex flex-col min-h-0 relative">
           {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
-          <div className={`flex-1 flex flex-col relative min-h-0 select-none ${workflowTab === 'edit' ? '' : 'bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]'}`}>
+          <div className={`flex-1 flex flex-col relative min-h-0 select-none ${workflowTab === 'edit' || workflowTab === 'save' ? '' : 'bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]'}`}>
 
             {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
             {workflowTab === 'record' && (

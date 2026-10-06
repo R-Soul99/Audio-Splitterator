@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Download,
+  FolderOpen,
   Tag,
   CheckCircle2,
 } from 'lucide-react';
 import { AudioMetadata, AudioFormat, Mp3Bitrate, WavBitDepth, FlacBitDepth, FlacCompressionLevel, FolderHierarchyType, NamingPattern } from '../types';
 import { formatTime, extractSlice } from '../utils/audioProcessing';
 import { saveFilesPrompt, FileToSave, resolveFolderSegments } from '../utils/fileSaver';
+import { getExportPage, getSelectedSplits, getSelectionState, selectAllTracks, EXPORT_PAGE_SIZE } from '../utils/exportPanel';
 import { getDesktopExport } from '../utils/desktopExport';
 // Keep encoders in the startup bundle: an open desktop app must not fetch a
 // stale hashed chunk after its on-disk build has been replaced.
@@ -52,17 +54,34 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const [albumTitle, setAlbumTitle] = useState<string>('');
   const [albumArtist, setAlbumArtist] = useState<string>('');
   const [genre, setGenre] = useState<string>('');
+  const selectionRef = useRef<HTMLInputElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const pendingTitleFocusRef = useRef<number | null>(null);
+  const [page, setPage] = useState(0);
+  const [showExportedFiles, setShowExportedFiles] = useState(() => localStorage.getItem('exportOpenFolderAfterExport') !== 'false');
+  const [lastExportFolder, setLastExportFolder] = useState<string | null>(null);
   const [startTrackNumber] = useState<number>(1);
   const [padTrackNumbers] = useState<boolean>(true);
   const [namingPattern] = useState<NamingPattern>('track_title');
   const [createSubfolders, setCreateSubfolders] = useState<boolean>(() => localStorage.getItem('exportNestedFolders') === 'true');
   const [exportFolder, setExportFolder] = useState('');
+  const destinationCommitRef = useRef<Promise<unknown>>(Promise.resolve());
   const desktopExport = getDesktopExport();
   useEffect(() => {
     desktopExport?.getExportFolder().then(setExportFolder).catch((error) => setSaveResultNotice(String(error)));
   }, []);
+  const persistDestination = (folder: string) => {
+    const pending = destinationCommitRef.current.catch(() => {}).then(() => desktopExport?.setExportFolder(folder));
+    destinationCommitRef.current = pending;
+    return pending;
+  };
+  const commitDestination = async () => {
+    if (!desktopExport) return;
+    try { await persistDestination(exportFolder); setSaveResultNotice(null); }
+    catch (error) { setSaveResultNotice(String(error)); }
+  };
   const browseExportFolder = async () => {
-    try { const folder = await desktopExport?.chooseExportFolder(); if (folder) setExportFolder(folder); }
+    try { await destinationCommitRef.current.catch(() => {}); const folder = await desktopExport?.chooseExportFolder(); if (folder) { setExportFolder(folder); setSaveResultNotice(null); } }
     catch (error) { setSaveResultNotice(`Unable to select export folder: ${String(error)}`); }
   };
   const [folderHierarchyType] = useState<FolderHierarchyType>('artist_album');
@@ -72,8 +91,8 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
   // Naming options
   const [includeTrackNumbers, setIncludeTrackNumbers] = useState<boolean>(true);
-  const [includeArtistInFilename, setIncludeArtistInFilename] = useState<boolean>(true);
-  const [includeAlbumInFilename, setIncludeAlbumInFilename] = useState<boolean>(true);
+  const [includeArtistInFilename, setIncludeArtistInFilename] = useState<boolean>(false);
+  const [includeAlbumInFilename, setIncludeAlbumInFilename] = useState<boolean>(false);
   const [includeTags, setIncludeTags] = useState<boolean>(true);
 
   // Track data dictionary keyed by split ID
@@ -235,15 +254,16 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
   const encodeSplitSlice = async (split: any): Promise<{ blob: Blob; fileName: string }> => {
     const rawSlice = extractSlice(sourceBuffer, split.startTime, split.endTime, getEffectiveFadeSettings());
     const track = tracksData[split.id];
-    const trackArtist = (track?.artist || albumArtist || '').trim();
+    const trackArtist = albumArtist.trim();
     const trackTitle = (track?.title || getTrackTitle(split, (split.trackNumber ?? split.index ?? 1) - 1)).trim();
-    const trackNumber = track?.trackNumber ?? split.trackNumber ?? split.index;
+    const trackNumber = splits.findIndex((item) => item.id === split.id) + startTrackNumber;
 
     const metadata: AudioMetadata = {
       artist: trackArtist,
       albumArtist: albumArtist.trim() || trackArtist,
       title: trackTitle,
       album: albumTitle.trim(),
+      genre: genre.trim(),
       trackNumber,
     };
 
@@ -263,17 +283,23 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
     }
   };
 
+  const openCompletedFolder = async (folder: string) => {
+    try { await desktopExport?.openExportFolder(folder); }
+    catch (error) { setSaveResultNotice(`Files saved; unable to open folder: ${String(error)}`); }
+  };
+
   const handleExportAllTracks = async () => {
-    const exportSplits = splits.filter((s) => selectedTracks[s.id]);
+    const exportSplits = getSelectedSplits<any>(splits, selectedTracks);
     if (exportSplits.length === 0) { alert("No tracks selected for export."); return; }
-    if (desktopExport && !exportFolder) { await browseExportFolder(); return; }
 
     setIsSavingAll(true);
     setSaveProgress({ current: 0, total: exportSplits.length, message: 'Preparing tracks for export...' });
     setSaveResultNotice(null);
 
     try {
+      if (desktopExport) await persistDestination(exportFolder);
       const filesToSave: FileToSave[] = [];
+      let savedFolder = '';
       const folderStructure = { enabled: createSubfolders, type: folderHierarchyType, artist: albumArtist, album: albumTitle };
       const segments = resolveFolderSegments(folderStructure);
       for (let i = 0; i < exportSplits.length; i++) {
@@ -283,7 +309,8 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
         setSaveProgress({ current: i, total: exportSplits.length, message: `Encoding split ${i + 1} of ${exportSplits.length}: ${trackTitle}...` });
         const encoded = await encodeSplitSlice(split);
         if (desktopExport) {
-          await desktopExport.saveExportFile({ name: encoded.fileName, data: new Uint8Array(await encoded.blob.arrayBuffer()), segments });
+          const savedPath = await desktopExport.saveExportFile({ name: encoded.fileName, data: new Uint8Array(await encoded.blob.arrayBuffer()), segments });
+          savedFolder = savedPath.slice(0, Math.max(savedPath.lastIndexOf('/'), savedPath.lastIndexOf(String.fromCharCode(92))));
         } else {
           filesToSave.push({ blob: encoded.blob, name: encoded.fileName });
         }
@@ -291,7 +318,9 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
 
       setSaveProgress({ current: exportSplits.length, total: exportSplits.length, message: 'Saving tracks to disk...' });
       if (desktopExport) {
-        setSaveResultNotice(`Saved ${exportSplits.length} audio files to ${[exportFolder, ...segments].join(' / ')}`);
+        setLastExportFolder(savedFolder);
+        setSaveResultNotice(`Saved ${exportSplits.length} audio files to ${savedFolder}`);
+        if (showExportedFiles) await openCompletedFolder(savedFolder);
         return;
       }
       const result = await saveFilesPrompt(filesToSave, { mode: 'individual', folderStructure });
@@ -304,247 +333,157 @@ export const SplitsManager: React.FC<SplitsManagerProps> = ({
     } catch (err) {
       console.error('Failed to export tracks:', err);
       const detail = err instanceof Error ? err.message : String(err);
-      alert(`Failed to encode and save track slices.\n\n${detail}`);
+      setSaveResultNotice(`Export failed: ${detail}`);
     } finally {
       setIsSavingAll(false);
     }
   };
 
   const handleCloseFallbackModal = () => { setFallbackModalData({ isOpen: false, files: [] }); };
-  const selectedCount = splits.filter((s) => selectedTracks[s.id]).length;
-  const isCompactList = splits.length > 8;
-  const isUltraCompactList = splits.length > 13;
-  const isHyperCompactList = splits.length > 20;
-  const listGapClass = isHyperCompactList ? 'gap-0' : isUltraCompactList ? 'gap-0.5' : isCompactList ? 'gap-0.5' : 'gap-1';
-  const listRowHeightClass = isHyperCompactList ? 'h-3' : isUltraCompactList ? 'h-5' : isCompactList ? 'h-6' : 'h-7';
-  const filenameRowFontClass = isHyperCompactList ? 'text-[7px]' : isUltraCompactList ? 'text-[8px]' : isCompactList ? 'text-[9px]' : 'text-[10px]';
-  const tagRowPaddingClass = isHyperCompactList ? 'py-0' : isUltraCompactList ? 'py-0' : isCompactList ? 'py-0.5' : 'py-1';
-  const tagRowFontClass = isHyperCompactList ? 'text-[7px]' : isUltraCompactList ? 'text-[8px]' : isCompactList ? 'text-[9px]' : 'text-[10px]';
-  const titleInputPaddingClass = isCompactList ? 'py-0' : 'py-0.5';
+  const selection = getSelectionState(splits, selectedTracks);
+  const selectedCount = selection.count;
+  const pagination = getExportPage<any>(splits, page);
+  useEffect(() => { setPage(pagination.page); }, [pagination.page]);
+  useEffect(() => {
+    const index = pendingTitleFocusRef.current;
+    if (index === null) return;
+    const input = tableRef.current?.querySelector<HTMLInputElement>(`input[aria-label="Title for track ${index + 1}"]`);
+    if (input) { input.focus(); input.select(); pendingTitleFocusRef.current = null; }
+  }, [pagination.page]);
+  useEffect(() => { if (selectionRef.current) selectionRef.current.indeterminate = selection.mixed; }, [selection.mixed]);
+  const controlClass = 'rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-40';
+  const checkbox = (label: string, checked: boolean, change: (value: boolean) => void, disabled = false, tooltip?: string) => (
+    <label title={tooltip} className="inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => change(event.target.checked)} className="accent-emerald-500 disabled:opacity-40" />{label}
+    </label>
+  );
+  const status = isSavingAll ? saveProgress.message : saveResultNotice || (selectedCount ? 'Ready to export' : 'Select tracks to export');
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-5 h-full min-h-0 select-none">
-
-      {/* LEFT COLUMN: Track list */}
-      <div className="md:col-span-5 flex flex-col min-h-0 overflow-hidden border-r-0 border-slate-800 pr-0 md:border-r md:pr-4">
-        {/* Header: checkboxes + All/None */}
-        <div className="flex-shrink-0 pb-2 border-b border-slate-800">
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Slices to Export</span>
-            </div>
-            <div className="flex items-center space-x-1.5">
-              <button type="button" onClick={() => setSelectedTracks(splits.reduce((acc, s) => ({ ...acc, [s.id]: true }), {}))} className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold hover:underline cursor-pointer">All</button>
-              <span className="text-slate-700 font-mono text-[9px]">•</span>
-              <button type="button" onClick={() => setSelectedTracks(splits.reduce((acc, s) => ({ ...acc, [s.id]: false }), {}))} className="text-[10px] text-slate-400 hover:text-slate-300 font-bold hover:underline cursor-pointer">None</button>
-            </div>
-          </div>
-          {/* Filename components */}
-          <div className="pt-1">
-            <div className="grid max-w-[360px] grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5">
-              <label className="flex items-center gap-1 text-[9px] font-semibold uppercase text-slate-300">
-                <input type="checkbox" checked={includeTrackNumbers} onChange={(e) => setIncludeTrackNumbers(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded accent-emerald-500" />
-                <span>Track no.</span>
-              </label>
-              <label htmlFor="filename-artist" className="flex items-center gap-1 text-[9px] font-semibold uppercase text-slate-300">
-                <input type="checkbox" checked={includeArtistInFilename} onChange={(e) => setIncludeArtistInFilename(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded accent-emerald-500" />
-                <span>Artist</span>
-              </label>
-              <label htmlFor="filename-album" className="flex items-center gap-1 text-[9px] font-semibold uppercase text-slate-300">
-                <input type="checkbox" checked={includeAlbumInFilename} onChange={(e) => setIncludeAlbumInFilename(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded accent-emerald-500" />
-                <span>Album</span>
-              </label>
-              <span />
-              <input id="filename-artist" type="text" value={albumArtist} onChange={(e) => setAlbumArtist(e.target.value)} disabled={!includeArtistInFilename} className="w-full min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-0.5 text-[10px] font-semibold text-slate-200 placeholder:text-[9px] placeholder-slate-600 focus:border-emerald-500/40 focus:outline-none disabled:opacity-30" placeholder="Artist..." />
-              <input id="filename-album" type="text" value={albumTitle} onChange={(e) => setAlbumTitle(e.target.value)} disabled={!includeAlbumInFilename} className="w-full min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-0.5 text-[10px] font-semibold text-slate-200 placeholder:text-[9px] placeholder-slate-600 focus:border-emerald-500/40 focus:outline-none disabled:opacity-30" placeholder="Album..." />
-            </div>
-          </div>
+    <div className="relative grid h-full min-h-0 grid-cols-[minmax(0,1fr)_190px] gap-2 overflow-hidden select-none text-[10px] text-slate-300">
+      <fieldset disabled={isSavingAll} className="m-0 flex min-h-0 min-w-0 flex-col rounded border border-slate-700 bg-slate-950/20 p-2.5">
+        <div className="grid h-5 shrink-0 grid-cols-[38%_62%] items-center">
+          <strong className="uppercase tracking-wider text-slate-300">Tracks to export</strong>
+          <strong aria-label="Metadata preview heading" className="col-start-2 border-l border-slate-700 pl-2 uppercase tracking-wider text-emerald-400">Metadata preview</strong>
         </div>
-
-        {/* Tracks list (resolved filename + duration) */}
-        <div className={`flex-1 min-h-0 flex flex-col justify-start ${listGapClass} overflow-hidden pr-1.5`}>
-          {splits.map((split, idx) => {
-            const isChecked = !!selectedTracks[split.id];
-            const trackTitle = getTrackTitle(split, idx);
-            const fileName = constructFileName(idx + 1, albumArtist, trackTitle, namingPattern, padTrackNumbers);
-            return (
-              <div key={split.id} onClick={() => setSelectedTracks((prev) => ({ ...prev, [split.id]: !prev[split.id] }))} className={`flex ${listRowHeightClass} min-h-0 shrink-0 items-center gap-2 border rounded-lg px-2 cursor-pointer transition ${isChecked ? 'bg-emerald-950/10 border-emerald-500/20' : 'bg-slate-950/40 border-slate-850 hover:bg-slate-900/30'}`}>
-                <input type="checkbox" checked={isChecked} onChange={() => {}} className={`rounded accent-emerald-500 cursor-pointer shrink-0 ${isHyperCompactList ? 'h-2 w-2' : isUltraCompactList ? 'h-2.5 w-2.5' : 'h-3 w-3'}`} />
-                <span className={`flex-1 min-w-0 truncate font-mono ${isChecked ? 'text-emerald-300' : 'text-slate-300'} ${filenameRowFontClass}`}>{fileName}.{format}</span>
-                <span className={`shrink-0 font-mono w-12 text-center ${filenameRowFontClass} text-slate-400`}>{formatTime(split.duration)}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Export button */}
-        <div className="flex-shrink-0 pt-3 mt-2 border-t border-slate-800 text-center">
-          <div className="mb-2 space-y-1 text-left text-[10px]">
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 text-slate-400">Export folder</span>
-              <span className="min-w-0 flex-1 truncate text-slate-200" title={exportFolder}>{exportFolder || 'Choose a folder'}</span>
-              <button type="button" onClick={browseExportFolder} disabled={isSavingAll || !desktopExport} className="rounded border border-slate-700 px-2 py-1 text-emerald-300 cursor-pointer disabled:opacity-40">Browse…</button>
-            </div>
-            <label className="flex items-center gap-2 text-slate-300">
-              <input type="checkbox" checked={createSubfolders} disabled={isSavingAll} onChange={(event) => { setCreateSubfolders(event.target.checked); localStorage.setItem('exportNestedFolders', String(event.target.checked)); }} className="accent-emerald-500" />
-              Save in nested folders: Artist → Album → audio files
-            </label>
+        <div ref={tableRef} role="table" aria-label="Tracks to export and metadata preview" className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-700">
+          <div role="row" className="grid h-7 shrink-0 grid-cols-[20px_minmax(0,1fr)_48px_15%_20%_15%_12%] items-center bg-slate-900 text-[9px] uppercase tracking-wider">
+            <div role="columnheader"><input ref={selectionRef} type="checkbox" aria-label="Select all tracks across all pages" aria-checked={selection.mixed ? 'mixed' : selection.all} checked={selection.all} disabled={!splits.length} onChange={(event) => setSelectedTracks(selectAllTracks(splits, event.target.checked))} className="accent-emerald-500" /></div>
+            <div role="columnheader">Filename</div><div role="columnheader">Time</div>
+            {['Artist', 'Title', 'Album', 'Genre'].map((name) => <div role="columnheader" key={name} className="border-l border-slate-800 px-2">{name}</div>)}
           </div>
-          <div className="mb-2 flex flex-wrap items-center justify-center gap-3">
-            <label className="flex max-w-[170px] items-center gap-1.5 text-left text-[9px] font-semibold leading-tight text-slate-300 cursor-pointer select-none" title="Apply a 10ms micro fade between splits to prevent pops or clicks">
-              <input type="checkbox" checked={autoSplitFades} onChange={(e) => setAutoSplitFades(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
-              <span>Micro fade between splits</span>
-            </label>
-            <button type="button" onClick={handleExportAllTracks} disabled={selectedCount === 0 || isSavingAll} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold border border-emerald-500/20 cursor-pointer shadow-md transition-all uppercase tracking-wider text-[11px] disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2">
-              <Download className="w-4 h-4" />
-              <span>Export Selected</span>
-            </button>
-          </div>
-          <div className="text-[10px] font-mono text-slate-500 mt-2">Ready to export <strong className="text-emerald-400">{selectedCount}</strong> out of <strong className="text-slate-300">{splits.length}</strong> slices</div>
-          <div role="status" className="mt-1 text-[10px] text-emerald-300 break-all">{isSavingAll ? saveProgress.message : saveResultNotice}</div>
-        </div>
-      </div>
-
-      {/* RIGHT COLUMN: Tag preview table, format settings, include tags */}
-      <div className="md:col-span-7 flex flex-col h-full min-h-0 overflow-hidden">
-        <div className="flex flex-1 min-h-0 flex-col gap-4 pr-1">
-          {/* Tag Preview Table */}
-          <div className="flex-shrink-0 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
-                <Tag className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Tag Preview</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-300 cursor-pointer select-none">
-                  <input type="checkbox" checked={includeTags} onChange={(e) => setIncludeTags(e.target.checked)} className="rounded accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
-                  <span>Include Tags</span>
-                </label>
-                <div className="flex items-center space-x-1.5">
-                  <button type="button" onClick={() => {}} className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold hover:underline cursor-pointer">All</button>
-                  <span className="text-slate-700 font-mono text-[9px]">•</span>
-                  <button type="button" onClick={() => {}} className="text-[10px] text-slate-400 hover:text-slate-300 font-bold hover:underline cursor-pointer">None</button>
+          <div className="grid min-h-0 flex-1" style={{ gridTemplateRows: `repeat(${EXPORT_PAGE_SIZE}, minmax(0, 1fr))` }}>
+            {Array.from({ length: EXPORT_PAGE_SIZE }, (_, slot) => {
+              const split = pagination.items[slot];
+              if (!split) return <div key={`empty-${slot}`} aria-hidden="true" className="border-b border-slate-800/50" />;
+              const idx = pagination.page * EXPORT_PAGE_SIZE + slot;
+              const title = getTrackTitle(split, idx);
+              const filename = `${constructFileName(idx + 1, albumArtist, title, namingPattern, padTrackNumbers)}.${format}`;
+              return <div role="row" key={split.id} className={`grid min-h-0 grid-cols-[20px_minmax(0,1fr)_48px_15%_20%_15%_12%] items-center border-b border-slate-800/70 font-mono ${selectedTracks[split.id] ? 'bg-emerald-950/10 text-emerald-300' : 'text-slate-400'}`}>
+                <div role="cell"><input type="checkbox" aria-label={`Export track ${idx + 1}`} checked={!!selectedTracks[split.id]} onChange={(event) => setSelectedTracks((prev) => ({ ...prev, [split.id]: event.target.checked }))} className="accent-emerald-500" /></div>
+                <div role="cell" className="truncate pr-2" title={filename}>{filename}</div>
+                <div role="cell" className="text-slate-400">{formatTime(split.duration)}</div>
+                <div role="cell" className="truncate border-l border-slate-800 px-2" title={albumArtist}>{albumArtist || '—'}</div>
+                <div role="cell" className="min-w-0 border-l border-slate-800 px-1">
+                  <input aria-label={`Title for track ${idx + 1}`} value={title} title={title} onFocus={(event) => event.currentTarget.select()} onClick={(event) => { if (event.detail === 1) event.currentTarget.select(); }} className="w-full min-w-0 rounded bg-transparent px-1 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500" onChange={(event) => {
+                    const value = event.target.value;
+                    editedTrackTitlesRef.current.add(split.id);
+                    setTracksData((prev) => ({ ...prev, [split.id]: { trackNumber: idx + 1, title: value, artist: albumArtist } }));
+                    onTrackNameChange?.(split.id, value);
+                  }} onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (event.key === 'Tab') {
+                      const nextIndex = idx + (event.shiftKey ? -1 : 1);
+                      if (nextIndex < 0 || nextIndex >= splits.length) return;
+                      event.preventDefault();
+                      const nextPage = Math.floor(nextIndex / EXPORT_PAGE_SIZE);
+                      if (nextPage !== pagination.page) {
+                        pendingTitleFocusRef.current = nextIndex;
+                        setPage(nextPage);
+                      } else {
+                        const input = tableRef.current?.querySelector<HTMLInputElement>(`input[aria-label="Title for track ${nextIndex + 1}"]`);
+                        input?.focus(); input?.select();
+                      }
+                      return;
+                    }
+                    if (!['Enter', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
+                    event.preventDefault();
+                    const inputs = Array.from(event.currentTarget.closest('[role="table"]')?.querySelectorAll('input[aria-label^="Title for track "]') ?? []) as HTMLInputElement[];
+                    const next = inputs[inputs.indexOf(event.currentTarget) + (event.key === 'ArrowUp' ? -1 : 1)];
+                    next?.focus(); next?.select();
+                  }} />
                 </div>
-              </div>
-            </div>
-
-            {/* Metadata input row */}
-            <div className="grid grid-cols-4 gap-2">
-              <div className="flex flex-col space-y-0.5">
-                <label className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">Artist</label>
-                <input type="text" value={albumArtist} onChange={(e) => setAlbumArtist(e.target.value)} className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-200 font-semibold focus:outline-none focus:border-emerald-500/40 placeholder-slate-600" placeholder="Artist..." />
-              </div>
-              <div className="flex flex-col space-y-0.5">
-                <label className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">Title</label>
-                <input type="text" disabled className="bg-slate-900/50 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-500 font-semibold cursor-not-allowed" value="(per track)" />
-              </div>
-              <div className="flex flex-col space-y-0.5">
-                <label className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">Album</label>
-                <input type="text" value={albumTitle} onChange={(e) => setAlbumTitle(e.target.value)} className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-200 font-semibold focus:outline-none focus:border-emerald-500/40 placeholder-slate-600" placeholder="Album..." />
-              </div>
-              <div className="flex flex-col space-y-0.5">
-                <label className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">Genre</label>
-                <input type="text" value={genre} onChange={(e) => setGenre(e.target.value)} className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-200 font-semibold focus:outline-none focus:border-emerald-500/40 placeholder-slate-600" placeholder="Genre..." />
-              </div>
-            </div>
-
-          </div>
-
-          {/* Tag rows for each track */}
-          <div className={`-mt-[9px] flex flex-1 min-h-0 flex-col ${listGapClass} overflow-hidden pr-1`}>
-            {splits.map((split, idx) => {
-              const trackTitle = getTrackTitle(split, idx);
-              const isChecked = !!selectedTracks[split.id];
-              return (
-                <div key={split.id} className={`grid ${listRowHeightClass} shrink-0 min-h-0 grid-cols-4 border rounded-lg font-mono transition ${tagRowFontClass} ${isChecked ? 'bg-emerald-950/10 border-emerald-500/20 text-emerald-300' : 'bg-slate-950/40 border-slate-850 text-slate-400'}`}>
-                  <div className={`flex min-h-0 items-center truncate border-r border-slate-800 px-2 ${tagRowPaddingClass}`}>{albumArtist || '—'}</div>
-                  <div className={`flex min-h-0 items-center border-r border-slate-800 px-0.5 ${tagRowPaddingClass}`}>
-                    <input
-                      type="text"
-                      value={trackTitle}
-                      onChange={(event) => {
-                        editedTrackTitlesRef.current.add(split.id);
-                        setTracksData((previous) => ({
-                          ...previous,
-                          [split.id]: {
-                            trackNumber: previous[split.id]?.trackNumber ?? split.trackNumber ?? idx + 1,
-                            title: event.target.value,
-                            artist: previous[split.id]?.artist ?? albumArtist,
-                          },
-                        }));
-                      }}
-                      onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
-                        if (!['Enter', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
-                        event.preventDefault();
-                        const titleInputs = Array.from(
-                          event.currentTarget.closest('.dark-scroll')?.querySelectorAll('input[aria-label^="Title for track "]') ?? []
-                        ) as HTMLInputElement[];
-                        const currentIndex = titleInputs.indexOf(event.currentTarget);
-                        const direction = event.key === 'ArrowUp' ? -1 : 1;
-                        const targetInput = titleInputs[currentIndex + direction];
-                        targetInput?.focus();
-                        targetInput?.select();
-                      }}
-                      aria-label={`Title for track ${idx + 1}`}
-                      className={`w-full min-w-0 bg-transparent px-1.5 ${titleInputPaddingClass} font-mono text-inherit focus:outline-none focus:bg-slate-900/80 focus:ring-1 focus:ring-emerald-500/50 rounded ${tagRowFontClass}`}
-                    />
-                  </div>
-                  <div className={`flex min-h-0 items-center truncate border-r border-slate-800 px-2 ${tagRowPaddingClass}`}>{albumTitle || '—'}</div>
-                  <div className={`flex min-h-0 items-center truncate px-2 ${tagRowPaddingClass}`}>{genre || '—'}</div>
-                </div>
-              );
+                <div role="cell" className="truncate border-l border-slate-800 px-2" title={albumTitle}>{albumTitle || '—'}</div>
+                <div role="cell" className="truncate border-l border-slate-800 px-2" title={genre}>{genre || '—'}</div>
+              </div>;
             })}
           </div>
-
-          {/* Format Settings Card */}
-          <div className="space-y-2.5 bg-slate-950/40 p-3 rounded-xl border border-slate-900 flex-shrink-0 text-[11px]">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col space-y-1 text-left">
-                <label className="text-[10px] text-slate-400 font-semibold">Output Audio Format</label>
-                <select value={format} onChange={(e) => setFormat(e.target.value as AudioFormat)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] text-slate-100 font-bold focus:outline-none cursor-pointer">
-                  <option value="flac">FLAC (Lossless)</option>
-                  <option value="wav">WAV (Lossless uncompressed)</option>
-                  <option value="mp3">MP3 (Compressed)</option>
-                </select>
-              </div>
-              <div className="flex flex-col space-y-1 text-left">
-                {format === 'flac' && (
-                  <>
-                    <label className="text-slate-400 font-semibold">Bit Depth</label>
-                    <div className="grid grid-cols-2 gap-1 bg-slate-900 p-0.5 rounded border border-slate-800">
-                      <button type="button" onClick={() => setFlacBitDepth(16)} className={`py-1 text-[10px] font-bold rounded cursor-pointer transition ${flacBitDepth === 16 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>16-bit</button>
-                      <button type="button" onClick={() => setFlacBitDepth(24)} className={`py-1 text-[10px] font-bold rounded cursor-pointer transition ${flacBitDepth === 24 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>24-bit</button>
-                    </div>
-                  </>
-                )}
-                {format === 'wav' && (
-                  <>
-                    <label className="text-slate-400 font-semibold">Bit Depth</label>
-                    <div className="grid grid-cols-2 gap-1 bg-slate-900 p-0.5 rounded border border-slate-800">
-                      <button type="button" onClick={() => setWavBitDepth(16)} className={`py-1 text-[10px] font-bold rounded cursor-pointer transition ${wavBitDepth === 16 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>16-bit</button>
-                      <button type="button" onClick={() => setWavBitDepth(24)} className={`py-1 text-[10px] font-bold rounded cursor-pointer transition ${wavBitDepth === 24 ? 'bg-slate-800 text-emerald-400' : 'text-slate-400'}`}>24-bit</button>
-                    </div>
-                  </>
-                )}
-                {format === 'mp3' && (
-                  <>
-                    <label className="text-slate-400 font-semibold">Encoding Bitrate</label>
-                    <select value={mp3Bitrate} onChange={(e) => setMp3Bitrate(Number(e.target.value) as Mp3Bitrate)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] text-slate-100 font-bold focus:outline-none cursor-pointer">
-                      <option value={128}>128 kbps (Draft)</option>
-                      <option value={192}>192 kbps (Standard)</option>
-                      <option value={256}>256 kbps (High Quality)</option>
-                      <option value={320}>320 kbps (Extreme/Archival)</option>
-                    </select>
-                  </>
-                )}
-              </div>
+        </div>
+        <div aria-label="Export pagination" className="flex h-6 shrink-0 items-center justify-end gap-1.5 text-[9px]">
+          {!splits.length && <span className="mr-auto text-slate-500">No tracks to export</span>}
+          <button type="button" aria-label="Previous page" className="h-5 w-5 rounded border border-slate-700 bg-slate-950 text-emerald-300 disabled:opacity-30" disabled={pagination.page === 0} onClick={() => setPage(pagination.page - 1)}>&#8249;</button>
+          <span className="w-12 text-center font-mono tabular-nums">{pagination.page + 1} / {pagination.pageCount}</span>
+          <button type="button" aria-label="Next page" className="h-5 w-5 rounded border border-slate-700 bg-slate-950 text-emerald-300 disabled:opacity-30" disabled={pagination.page + 1 >= pagination.pageCount} onClick={() => setPage(pagination.page + 1)}>&#8250;</button>
+        </div>
+      </fieldset>
+      <div aria-label="Export sidebar" className="flex min-h-0 min-w-0 flex-col gap-2">
+        <fieldset aria-label="Recording info" disabled={isSavingAll} className="m-0 h-[116px] shrink-0 rounded border border-slate-700 bg-slate-900/70 p-2">
+          <h3 className="mb-1 h-4 font-bold text-slate-200">Recording info</h3>
+          <div className="grid grid-cols-[32px_minmax(0,1fr)] items-center gap-x-1.5 gap-y-1">
+            <label htmlFor="export-artist">Artist</label>
+            <input id="export-artist" type="text" title={albumArtist} className={`${controlClass} h-6 w-full min-w-0 py-0.5`} value={albumArtist} onChange={(event) => setAlbumArtist(event.target.value)} />
+            <label htmlFor="export-album">Album</label>
+            <input id="export-album" type="text" title={albumTitle} className={`${controlClass} h-6 w-full min-w-0 py-0.5`} value={albumTitle} onChange={(event) => setAlbumTitle(event.target.value)} />
+            <label htmlFor="export-genre">Genre</label>
+            <input id="export-genre" type="text" title={genre} className={`${controlClass} h-6 w-full min-w-0 py-0.5`} value={genre} onChange={(event) => setGenre(event.target.value)} />
+          </div>
+        </fieldset>
+        <fieldset aria-label="Export controls" disabled={isSavingAll} className="m-0 flex min-h-0 min-w-0 flex-1 flex-col rounded border border-slate-700 bg-slate-900/70 p-2.5">
+          <h3 className="mb-1 text-sm font-bold text-slate-200">Export</h3>
+          <div className="flex shrink-0 items-center gap-1">
+            <input type="text" aria-label="Export destination" className={`${controlClass} h-7 min-w-0 flex-1 truncate py-1.5 font-mono`} title={exportFolder} placeholder="Destination &#8594;" value={exportFolder} onChange={(event) => setExportFolder(event.target.value)} onBlur={commitDestination} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void commitDestination(); } }} />
+            <button type="button" aria-label="Choose export folder" title="Choose export folder" className={`${controlClass} inline-flex h-7 w-7 shrink-0 items-center justify-center px-0`} disabled={!desktopExport} onClick={browseExportFolder}><FolderOpen className="h-3.5 w-3.5" /></button>
+          </div>
+          <div aria-label="Output settings" className="mt-2 flex shrink-0 flex-col gap-1">
+            <label className="grid grid-cols-[52px_82px] items-center gap-2">Format
+              <select aria-label="Format" className={`${controlClass} h-6 w-[82px] py-0.5`} value={format} onChange={(event) => setFormat(event.target.value as AudioFormat)}><option value="flac">FLAC</option><option value="wav">WAV</option><option value="mp3">MP3</option></select>
+            </label>
+            <label className="grid grid-cols-[52px_82px] items-center gap-2"><span className="whitespace-nowrap">{format === 'mp3' ? 'Bitrate' : 'Bit depth'}</span>
+              <select aria-label={format === 'mp3' ? 'Bitrate' : 'Bit depth'} className={`${controlClass} h-6 w-[82px] py-0.5`} value={format === 'mp3' ? mp3Bitrate : format === 'flac' ? flacBitDepth : wavBitDepth} onChange={(event) => {
+                const value = Number(event.target.value);
+                if (format === 'mp3') setMp3Bitrate(value as Mp3Bitrate);
+                else if (format === 'flac') setFlacBitDepth(value as FlacBitDepth);
+                else setWavBitDepth(value as WavBitDepth);
+              }}>{format === 'mp3' ? [128, 192, 256, 320].map((value) => <option key={value} value={value}>{value} kbps</option>) : [16, 24].map((value) => <option key={value} value={value}>{value}-bit</option>)}</select>
+            </label>
+          </div>
+          <div aria-label="Filename inclusion" className="mt-2 shrink-0">
+            <div className="mb-1">Include in filename:</div>
+            <div className="flex items-center gap-1.5 text-[9px]">
+              {checkbox('Track no.', includeTrackNumbers, setIncludeTrackNumbers)}
+              {checkbox('Artist', includeArtistInFilename, setIncludeArtistInFilename)}
+              {checkbox('Album', includeAlbumInFilename, setIncludeAlbumInFilename)}
             </div>
           </div>
-        </div>
-
+          <div aria-label="Export options" className="mt-2 flex shrink-0 flex-col gap-1.5 text-[10px] leading-[14px] [&_label]:items-start [&_label]:whitespace-normal [&_input]:mt-0.5 [&_input]:shrink-0">
+            {checkbox('Embed metadata', includeTags, setIncludeTags, false, 'Write each track’s metadata into the exported audio file.')}
+            {checkbox('Save in Artist/Album folders', createSubfolders, (value) => { setCreateSubfolders(value); localStorage.setItem('exportNestedFolders', String(value)); })}
+            {checkbox('Micro fade between splits', autoSplitFades, setAutoSplitFades)}
+          </div>
+          <div aria-label="Export action" className="mt-auto shrink-0 pt-1">
+            <button type="button" aria-label="Export selected tracks" onClick={handleExportAllTracks} disabled={!selectedCount || isSavingAll} className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded border border-emerald-400/30 bg-emerald-700 px-3 font-bold uppercase tracking-wide text-white hover:bg-emerald-600 disabled:opacity-40"><Download className="h-4 w-4" />Export</button>
+            <div className="mt-1 flex h-5 items-center">
+              {checkbox('Open folder after export', showExportedFiles, (value) => { setShowExportedFiles(value); localStorage.setItem('exportOpenFolderAfterExport', String(value)); }, !desktopExport)}
+            </div>
+            <div className="mt-1 flex h-[72px] shrink-0 gap-1 pt-1">
+              <div role="status" aria-live="polite" className="min-w-0 flex-1 text-[10px] leading-[14px]">
+                <div className="truncate" title={`${selectedCount} of ${splits.length} tracks selected`}>{selectedCount} of {splits.length} tracks selected</div>
+                <div className="mt-1 line-clamp-3 break-words text-emerald-300" title={status}>{status}</div>
+              </div>
+              <button type="button" aria-label="Open exported folder" title="Open exported folder" disabled={!desktopExport || !lastExportFolder} onClick={() => { if (lastExportFolder) void openCompletedFolder(lastExportFolder); }} className={`${controlClass} inline-flex h-6 w-6 shrink-0 items-center justify-center px-0`}><FolderOpen className="h-3.5 w-3.5" /></button>
+            </div>
+          </div>
+        </fieldset>
       </div>
-
       {/* Manual save Fallback Modal */}
       {fallbackModalData.isOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center z-50 p-4">
