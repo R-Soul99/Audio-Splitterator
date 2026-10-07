@@ -19,14 +19,15 @@ function TimeReadout({ label, value, disabled, commit }: { label: string; value:
     onFocus={() => { setDraft(value?.toFixed(6) ?? ''); setInvalid(false); }} onChange={e => setDraft(e.target.value)} onBlur={save}
     onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { cancelBlur.current = true; setDraft(null); setInvalid(false); e.currentTarget.blur(); } }} /></label>;
 }
-export function LoopSampleControls({ audioBuffer, selection, isLooping, onSelectionChange, onLoopChange, startBeat, placingStartBeat, onPlacementChange, onStartBeatChange }: {
-  audioBuffer: AudioBuffer | null; selection: TimeSelection | null; isLooping: boolean;
+export function LoopSampleControls({ active, audioBuffer, selection, isLooping, onSelectionChange, onLoopChange, startBeat, placingStartBeat, onPlacementChange, onStartBeatChange }: {
+  active: boolean; audioBuffer: AudioBuffer | null; selection: TimeSelection | null; isLooping: boolean;
   startBeat: number | null; placingStartBeat: boolean;
   onPlacementChange?: (active: boolean) => void; onStartBeatChange?: (sample: number | null) => void;
   onSelectionChange?: (selection: TimeSelection | null, edit?: SelectionEdit) => void; onLoopChange?: (enabled: boolean) => void;
 }) {
   const [section, setSection] = useState<'controls' | 'save'>('controls');
   const [fine, setFine] = useState(false);
+  useEffect(() => setFine(false), [active, section]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => setFine(e.shiftKey);
     const clear = () => setFine(false);
@@ -47,7 +48,7 @@ export function LoopSampleControls({ audioBuffer, selection, isLooping, onSelect
       return adjustBeatSample(startBeat ?? samples.start, samples, delta);
     };
     const label = `${direction < 0 ? 'Decrease' : 'Increase'} ${target === 'beat' ? 'Start Beat' : target === 'start' ? 'Start' : 'End'}`;
-    return <button type="button" aria-label={label} title={`${label}: click for 10 ms; Shift-click for 1 ms (nearest audio sample).`} disabled={next(fine) === null} onClick={e => {
+    return <button type="button" className="loop-adjust-button" data-fine={fine && active && section === 'controls'} aria-label={label} title={`${label}: click for 10 ms; Shift-click for 1 ms (nearest audio sample).`} disabled={next(fine) === null} onClick={e => {
       const value = next(e.shiftKey);
       if (typeof value === 'number') onStartBeatChange?.(value);
       else if (value) apply(value);

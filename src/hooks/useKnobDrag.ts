@@ -26,12 +26,12 @@ export function useKnobDrag({ value, min, max, sensitivity, step, fineStep, disa
       setDragging(false);
       setFineAdjusting(false);
     };
-    window.addEventListener('keydown', updateModifier);
-    window.addEventListener('keyup', updateModifier);
+    window.addEventListener('keydown', updateModifier, true);
+    window.addEventListener('keyup', updateModifier, true);
     window.addEventListener('blur', cancel);
     return () => {
-      window.removeEventListener('keydown', updateModifier);
-      window.removeEventListener('keyup', updateModifier);
+      window.removeEventListener('keydown', updateModifier, true);
+      window.removeEventListener('keyup', updateModifier, true);
       window.removeEventListener('blur', cancel);
     };
   }, [dragging]);

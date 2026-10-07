@@ -65,10 +65,19 @@ app.whenReady().then(async () => {
     }
     await mouse('mouseMoved', rect.left + rect.width / 2, rect.top + rect.height * 0.7);
     await wait(`!!document.querySelector('[aria-label="Cursor time readout"]')`);
-    const tooltip = await run(`(() => { const t = document.querySelector('[aria-label="Cursor time readout"]'), r = t.getBoundingClientRect(); return { centre: r.top + r.height / 2, x: r.left + r.width / 2, pointerEvents: getComputedStyle(t).pointerEvents }; })()`);
-    assert.ok(Math.abs(tooltip.centre - (rect.top + rect.height / 2)) <= 1, 'Readout centres in stereo gap');
+    const tooltip = await run(`(() => { const t = document.querySelector('[aria-label="Cursor time readout"]'), r = t.getBoundingClientRect(); return { rect:r.toJSON(), ruler:document.querySelector('[aria-label="Waveform time ruler"]').getBoundingClientRect().toJSON(), centre: r.top + r.height / 2, x: r.left + r.width / 2, pointerEvents: getComputedStyle(t).pointerEvents }; })()`);
+    assert.ok(tooltip.rect.top>=tooltip.ruler.top && tooltip.rect.bottom<=tooltip.ruler.bottom, 'Readout entirely inside existing ruler');
+    assert.ok(tooltip.rect.bottom<=rect.top, 'No readout inside waveform');
     assert.ok(Math.abs(tooltip.x - (rect.left + rect.width / 2)) <= 1, 'Readout follows cursor horizontally');
     assert.equal(tooltip.pointerEvents, 'none');
+    for (const x of [rect.left+1,rect.right-1]) {
+      await mouse('mouseMoved',x,rect.top+rect.height*.7);
+      const edge=await run(`document.querySelector('[aria-label="Cursor time readout"]').getBoundingClientRect().toJSON()`);
+      assert.ok(edge.left>=tooltip.ruler.left && edge.right<=tooltip.ruler.right, 'Readout clamps at ruler edge');
+      assert.equal(await run(`document.elementFromPoint(${edge.left+edge.width/2},${edge.top+3}).getAttribute('aria-label')`),'Waveform time ruler');
+      await win.webContents.capturePage();await pause();fs.writeFileSync(path.join(__dirname,`../build/ruler-${x<rect.left+2?'left':'right'}.png`),(await win.webContents.capturePage()).toPNG());
+    }
+    assert.deepEqual(await bounds(),rect,'Readout never moves waveform');
     // Start near the end at the former vertical-control position and drag past audio into the gutter.
     await drag(rect.right - 30, rect.right + 10, rect.top + rect.height / 2);
     let selected = await run('currentSelection()');
@@ -100,7 +109,7 @@ app.whenReady().then(async () => {
     await mouse('mouseMoved', rect.left + rect.width * 0.6, rect.top + rect.height * 0.7);
     fs.mkdirSync(path.join(__dirname, '../build'), { recursive: true });
     fs.writeFileSync(path.join(__dirname, '../build/cursor-selection-review.png'), (await win.webContents.capturePage()).toPNG());
-    console.log('PASS: centred pointer-transparent readout; native right-edge selection, exact end, captured overshoot, bracket extension, region move, zoomed end and working zoom controls');
+    console.log('PASS: ruler-contained pointer-transparent readout and edge clamping; native right-edge selection, exact end, captured overshoot, bracket extension, region move, zoomed end and working zoom controls');
     app.exit(0);
   } catch (error) { console.error(error); app.exit(1); }
 });

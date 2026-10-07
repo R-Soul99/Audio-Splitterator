@@ -112,6 +112,37 @@ app.whenReady().then(async () => {
     await setRegion(0,.005);assert.equal(await run(`document.querySelector('[aria-label="Increase Start"]').disabled`),true,'10ms cannot cross End');
     await fineClick('Increase Start');assert.deepEqual(await run('currentSelection()'),{start:.001,end:.005});
     await setRegion(1,3);
+    const shift = async held => {await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:held?'keyDown':'keyUp',key:'Shift',code:'ShiftLeft',windowsVirtualKeyCode:16,modifiers:held?8:0});await pause();};
+    const fineState = async () => run(`[...document.querySelectorAll('.loop-adjust-button')].map(b=>b.dataset.fine)`);
+    for (const label of ['Increase Start','Decrease Start','Increase End','Decrease End','Increase Start Beat','Decrease Start Beat']) {
+      await shift(true);assert.ok((await fineState()).every(v=>v==='true'));
+      const r=await run(`document.querySelector('[aria-label="${label}"]').getBoundingClientRect().toJSON()`);
+      await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',buttons:1,clickCount:1,modifiers:8});await pause();
+      assert.equal(await run(`document.querySelector('[aria-label="${label}"]').matches(':active')`),true);
+      await snapshot('fine-pressed');
+      await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',buttons:0,clickCount:1,modifiers:8});await pause();
+      assert.equal(await run(`document.querySelector('[aria-label="${label}"]').matches(':active')`),false);
+      await shift(false);assert.ok((await fineState()).every(v=>v==='false'));
+      const style=await run(`(()=>{const s=getComputedStyle(document.querySelector('[aria-label="${label}"]'));return {border:s.borderTopColor,shadow:s.boxShadow,background:s.backgroundColor};})()`);
+      assert.equal(style.border,'rgb(51, 65, 85)');assert.equal(style.shadow,'none');assert.equal(style.background,'rgb(2, 6, 23)');
+    }
+    await snapshot('fine-released');
+    await shift(true);await run(`window.dispatchEvent(new Event('blur'))`);await pause();assert.ok((await fineState()).every(v=>v==='false'));await shift(false);
+    await shift(true);await click('Auto-Split');await click('Loop / Sample');assert.ok((await fineState()).every(v=>v==='false'));await shift(false);
+    await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await pause();
+    await run(`document.querySelector('[aria-label="Increase Start"]').focus()`);await pause();
+    assert.equal(await run(`getComputedStyle(document.querySelector('[aria-label="Increase Start"]')).outlineStyle`),'dashed');await snapshot('keyboard-focus');
+    await click('Auto-Split');
+    const knob=await run(`document.querySelector('[aria-label="Noise floor"]').getBoundingClientRect().toJSON()`);
+    await shift(true);await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:knob.x+knob.width/2,y:knob.y+knob.height/2,button:'left',buttons:1,clickCount:1,modifiers:8});await pause();
+    assert.ok(await run(`document.querySelector('[aria-label="Noise floor"]').className.includes('border-amber-400')`));
+    await shift(false);assert.equal(await run(`document.querySelector('[aria-label="Noise floor"]').className.includes('border-amber-400')`),false,'Shared knob clears on Shift release without movement');
+    await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',x:knob.x+knob.width/2,y:knob.y+knob.height/2,button:'left',buttons:0,clickCount:1});await pause();
+    await shift(true);await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:knob.x+knob.width/2,y:knob.y+knob.height/2,button:'left',buttons:1,clickCount:1,modifiers:8});await pause();
+    await click('Loop / Sample');await click('Auto-Split');assert.equal(await run(`document.querySelector('[aria-label="Noise floor"]').className.includes('border-amber-400')`),false,'Tab change cancels shared knob fine state');
+    await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',x:knob.x+knob.width/2,y:knob.y+knob.height/2,button:'left',buttons:0,clickCount:1});await shift(false);
+    await click('Loop / Sample');await setRegion(1,3);
+    console.log('PASS: all six arrows release pressed/fine styling, blur/tab clear, distinct keyboard focus, shared knob Shift release');
     await snapshot('stopped');
     await setRegion(1, 1 + 1/48000); assert.equal(await run(`document.querySelector('[aria-label="Halve selection"]').disabled`),true);
     await click('Loop and play the selected region'); assert.equal(await run('sources.at(-1).node.loopEnd - sources.at(-1).node.loopStart > 0'),true);

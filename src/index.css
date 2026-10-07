@@ -288,3 +288,12 @@
 .loop-length output { color: #7dd3fc; font-family: monospace; font-variant-numeric: tabular-nums; }
 .loop-control-status { flex: 1; min-width: 0; height: 14px; line-height: 14px; font-size: 8px; color: #6ee7b7; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .loop-sample-controls button[aria-disabled=true] { opacity: .55; }
+
+/* Timing readout stays inside the existing 18 px ruler and never owns input. */
+.ruler-cursor-readout { position: absolute; top: 1px; height: 15px; max-width: 100%; padding: 0 3px; border: 1px solid #334155; border-radius: 3px; background: #0f172a; color: #34d399; font: bold 9px/13px monospace; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+.loop-sample-controls .loop-adjust-button { outline: none; }
+.loop-sample-controls .loop-adjust-button[data-fine=true]:not(:disabled) { border-color: #fbbf24; color: #fbbf24; }
+.loop-sample-controls .loop-adjust-button:active:not(:disabled) { background: #1e293b; box-shadow: inset 0 1px 3px #000; }
+.loop-sample-controls .loop-adjust-button:focus-visible { outline: 1px dashed #94a3b8; outline-offset: 1px; }
+
+.ruler-cursor-context { margin-left: 4px; color: #7dd3fc; font: 8px/11px sans-serif; }

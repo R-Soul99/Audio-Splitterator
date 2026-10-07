@@ -1972,6 +1972,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     };
   }, [showPeakTamerPopover, audioBuffer, peakThresholdDb, peakScope, selection?.start, selection?.end]);
 
+  const cursorReadoutContext = hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? 'Bracket' : hoveredElement === 'selectionBar' ? 'Selection' : hoveredElement === 'marker' ? 'Marker' : '';
+  const cursorReadoutWidth = Math.max(64, formatTime(hoverTime ?? 0, true).length * 6 + 12) + (cursorReadoutContext ? cursorReadoutContext.length * 5 + 10 : 0);
   return (
     <div className="gap-2 select-none flex flex-col h-full min-w-0 min-h-0 overflow-hidden" ref={containerRef}>
       {/* Editing controls and compact timing readouts share the toolbar. */}
@@ -2125,7 +2127,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <span className="ml-auto shrink-0 text-[8px] text-slate-500">{showLoopSample ? 'Shift + Click = 1 ms' : 'Shift + Knob = Fine'}</span>
           </div>
 
-          <div hidden={!showLoopSample}><LoopSampleControls audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onSelectionChange={onSelectionChange} onLoopChange={onLoopChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
+          <div hidden={!showLoopSample}><LoopSampleControls active={showLoopSample} audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onSelectionChange={onSelectionChange} onLoopChange={onLoopChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">
@@ -2513,12 +2515,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           </div>
         </div>
         {/* Fixed-height time ruler; never resizes with panel toggles so the waveform stays put. */}
-        <div className="mr-9 shrink-0 border-b border-slate-800/70" style={{ height: `${RULER_HEIGHT}px` }}>
+        <div aria-label="Waveform time ruler" className="relative mr-9 shrink-0 overflow-hidden border-b border-slate-800/70" style={{ height: `${RULER_HEIGHT}px` }}>
           <canvas
             ref={rulerCanvasRef}
             className="block w-full h-full select-none pointer-events-none"
             style={{ height: `${RULER_HEIGHT}px` }}
           />
+          {hoverTime !== null && hoverPosition && (
+            <div aria-label="Cursor time readout" className="ruler-cursor-readout" style={{ width: `${cursorReadoutWidth}px`, left: `${Math.max(0, Math.min(hoverPosition.x - cursorReadoutWidth / 2, canvasDimensions.width - cursorReadoutWidth))}px` }}>
+              {formatTime(hoverTime, true)}
+              {cursorReadoutContext && <span className="ruler-cursor-context">{cursorReadoutContext}</span>}
+            </div>
+          )}
         </div>
         <div className="flex flex-1 min-h-0">
         <div className="relative flex-1 min-w-0 min-h-0" ref={canvasContainerRef}>
@@ -2574,24 +2582,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           style={{ height: `${canvasDimensions.height}px` }}
         />
 
-        {/* Hover Time Tooltip (Sleek HUD Style, only shows timestamp by default to avoid clutter) */}
-        {hoverTime !== null && hoverPosition && !activeDrag?.type.startsWith('fade') && !hoveredElement?.startsWith('fade') &&
-          !fadeControls.some(control => control.enabled && Math.abs(hoverPosition.x - control.lengthX) <= 24) && (
-          <div
-            className="absolute pointer-events-none top-1/2 -translate-y-1/2 bg-slate-900 text-slate-200 border border-slate-800 px-2.5 py-0.5 rounded-md text-[10px] font-mono shadow-xl transform -translate-x-1/2 z-10 flex items-center gap-1.5"
-            aria-label="Cursor time readout"
-            style={{ left: `${hoverPosition.x}px` }}
-          >
-            <span className="text-emerald-400 font-bold">{formatTime(hoverTime, true)}</span>
-            {hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? (
-              <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Bracket</span>
-            ) : hoveredElement === 'selectionBar' ? (
-              <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Selection</span>
-            ) : hoveredElement === 'marker' ? (
-              <span className="text-purple-400 text-[9px] font-sans px-1 bg-purple-500/10 rounded border border-purple-500/20">Marker</span>
-            ) : null}
-          </div>
-        )}
 
         </div>
         {/* Dedicated gutter: zoom controls never cover selectable audio. */}
