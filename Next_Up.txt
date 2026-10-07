@@ -38,8 +38,8 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     peak readouts and the central Reset control.
     Software monitoring controls and the input-to-speaker route are removed;
     capture, waveform, VUs, oscilloscope and preamp detection remain available.
-    Recording transport / preservation refinement implemented locally (8 October
-    2026), awaiting Leroy's review; this supersedes the merged transport behaviour:
+    Recording transport / preservation refinement approved by Leroy for merging
+    (8 October 2026); this supersedes the original merged transport behaviour:
     The fixed 136px main button is Record / circle when idle and Stop / square
     while recording or paused. The compact button underneath is Pause / Resume,
     disabled when idle or finalising. Its pause icon gently flashes once per
@@ -63,8 +63,9 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     resource release and fixed geometry. Async loading rejection tested separately.
     Ready / Recording / Paused screenshots visually inspected; no clipping / scroll.
     Existing rotated WAV / FLAC exports and approved playback sync remain intact.
-    Physical soundcard / long-take recording still needs Leroy's interactive check.
-    Renderer-only change; native packaging not repeated. No merge or push.
+    Leroy approved the recording refinements after interactive review.
+    Automated checks used controlled input; physical-input / long-take capture was
+    not exercised by the agent. Renderer-only change; native packaging not repeated.
 12. Stage 1 tested and approved by Leroy; retained unmerged for this follow-up.
     Permanent Loop / Sample tab in the existing fixed Tools panel; no pop-up or separate loop region.
     - Existing selection loop switch and illuminated indicator.
@@ -228,3 +229,9 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     continuous handover checks retain queued previous-source audio comparisons.
     Renderer-only changes; native packaging not repeated.
     Prior playback synchronisation approval stands. No merge or push.
+
+    Integration status (8 October 2026): Leroy approved merging the current
+    feat/record-stop-pause-preservation branch into main, including its preserved
+    Loop / Sample, Start Beat, export, waveform / Slide and playback timing work.
+    Earlier per-pass review / no-merge notes above describe development history.
+    Other feature branches and unrelated local files are outside this merge.
