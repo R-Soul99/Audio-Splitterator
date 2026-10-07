@@ -230,3 +230,25 @@
 .dark-scroll::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+/* The paused button blinks; the Resume label stays steady. */
+@keyframes recording-pause-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .recording-paused-button {
+    animation: recording-pause-blink 1s ease-in-out infinite;
+  }
+}
+
+/* The small REC lamp signals pause even when larger animations are reduced. */
+@keyframes recording-led-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+
+.recording-paused-led {
+  animation: recording-led-blink 1s ease-in-out infinite;
+}
