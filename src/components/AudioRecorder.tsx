@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import {
   Square,
   Pause,
@@ -11,10 +11,12 @@ import { RotaryKnob } from './RotaryKnob';
 import { useKnobDrag } from '../hooks/useKnobDrag';
 import { AudioDeviceOption } from '../types';
 import { formatTime } from '../utils/audioProcessing';
+import { finaliseRecordingTake } from '../utils/recordingTake';
 import { combinedStereoLevelDb } from '../utils/recordingDisplay';
 
 interface AudioRecorderProps {
-  onRecordingComplete: (audioBuffer: AudioBuffer, defaultName: string, artist?: string, album?: string, markerTimes?: number[]) => void;
+  onRecordingComplete: (audioBuffer: AudioBuffer, defaultName: string, artist?: string, album?: string, markerTimes?: number[]) => void | Promise<void>;
+  active?: boolean;
   isRecordingActive: boolean;
   setIsRecordingActive: (active: boolean) => void;
   onClearRecording?: () => void;
@@ -137,6 +139,7 @@ const VerticalToggle: React.FC<VerticalToggleProps> = ({ topLabel, bottomLabel, 
 
 export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   onRecordingComplete,
+  active = true,
   isRecordingActive,
   setIsRecordingActive,
   onClearRecording,
@@ -149,6 +152,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [channelMode, setChannelMode] = useState<'stereo' | 'mono'>('stereo');
   const [recordingSampleRate, setRecordingSampleRate] = useState<number>(44100);
   const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isFinalising, setIsFinalising] = useState(false);
+  const startingRef = useRef(false);
+  const finalisingRef = useRef(false);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [durationSec, setDurationSec] = useState<number>(0);
   const [recordingMarkerCount, setRecordingMarkerCount] = useState<number>(0);
@@ -180,9 +189,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const calibrationPeakRef = useRef(0);
   const calibrationProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { dragging: gainDragging, fineAdjusting: gainFineAdjusting, ...gainDragHandlers } = useKnobDrag({ value: inputBoostDb, min: 0, max: 36, sensitivity: 0.28, step: 1, fineStep: 0.1, disabled: isRecording || isCalibrating, onChange: setInputBoostDb });
+  const { dragging: gainDragging, fineAdjusting: gainFineAdjusting, ...gainDragHandlers } = useKnobDrag({ value: inputBoostDb, min: 0, max: 36, sensitivity: 0.28, step: 1, fineStep: 0.1, disabled: isRecording || isStarting || isFinalising || isCalibrating, onChange: setInputBoostDb });
   const beginCalibration = () => {
-    if (!isMonitoringActive || isRecording || !calibrationProcessorRef.current) return;
+    if (!isMonitoringActive || isRecording || isStarting || isFinalising || !calibrationProcessorRef.current) return;
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
     calibrationPeakRef.current = 0;
     calibrationHoldRef.current = true;
@@ -254,6 +263,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     if (containerRef.current) {
       const parent = containerRef.current.parentElement;
       if (parent) {
+        if (!parent.clientWidth || !parent.clientHeight) return;
         const pWidth = parent.clientWidth;
         const pHeight = parent.clientHeight;
 
@@ -270,6 +280,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       }
     }
   }, []);
+
+  useLayoutEffect(() => {
+    if (active) calculateScale();
+  }, [active, calculateScale]);
 
   useEffect(() => {
     window.addEventListener('resize', calculateScale);
@@ -364,7 +378,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       }
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close();
+        audioContextRef.current.close().catch(() => {});
       }
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -716,6 +730,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           return;
         }
 
+        // Navigation may finish while an idle device request is pending.
+        if (!activeRef.current && !startingRef.current && !isRecordingRef.current) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
         mediaStreamRef.current = stream;
         setDeviceError(null);
 
@@ -792,7 +811,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   );
 
   const stopMonitoringStream = () => {
-    if (isRecording) return;
+    if (isRecordingRef.current || startingRef.current) return;
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -803,7 +822,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       mediaStreamRef.current = null;
     }
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close();
+      audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
 
@@ -825,12 +844,13 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   };
 
   useEffect(() => {
-    if (isStandbyMode) {
+    if (isRecordingRef.current || startingRef.current || finalisingRef.current) return;
+    if (isStandbyMode || !active) {
       stopMonitoringStream();
     } else {
       startMonitoringStream();
     }
-  }, [isStandbyMode, startMonitoringStream]);
+  }, [active, isRecording, isStarting, isFinalising, isStandbyMode, startMonitoringStream]);
 
   const handleDeviceChange = (newDeviceId: string) => {
     setSelectedDeviceId(newDeviceId);
@@ -875,11 +895,15 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   };
 
   const startRecording = async (confirmedReplacement = false) => {
+    if (startingRef.current || finalisingRef.current || isRecordingRef.current) return;
     if (hasLoadedAudio && !confirmedReplacement) {
       setShowReplaceRecordingDialog(true);
       return;
     }
 
+    startingRef.current = true;
+    setIsStarting(true);
+    setDeviceError(null);
     handleResetPeak();
     smoothedPeakDbRef.current = { left: -60, right: -60 };
     recordedChunksLeftRef.current = [];
@@ -922,7 +946,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           e.outputBuffer.getChannelData(ch).fill(0);
         }
 
-        if (!isRecordingRef.current || isPausedRef.current) return;
+        if (!isRecordingRef.current || isPausedRef.current || finalisingRef.current) return;
 
         const inputBuffer = e.inputBuffer;
         const leftChannel = inputBuffer.getChannelData(0);
@@ -949,18 +973,23 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       setIsRecordingActive(true);
     } catch (err) {
       console.error('Failed to start recording:', err);
-      alert('Could not access soundcard. Please check browser permissions.');
+      setDeviceError('Could not start recording. Check the input device and retry.');
+    } finally {
+      startingRef.current = false;
+      setIsStarting(false);
     }
   };
 
   const togglePause = () => {
-    if (!isRecording) return;
-    if (isPaused) {
+    if (!isRecordingRef.current || finalisingRef.current || startingRef.current) return;
+    if (isPausedRef.current) {
+      setDeviceError(null);
       pausedDurationRef.current += performance.now() - pauseStartTimeRef.current;
       setIsPaused(false);
       isPausedRef.current = false;
     } else {
       pauseStartTimeRef.current = performance.now();
+      setDurationSec((pauseStartTimeRef.current - recordingStartTimeRef.current - pausedDurationRef.current) / 1000);
       setIsPaused(true);
       isPausedRef.current = true;
     }
@@ -983,7 +1012,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
   useEffect(() => {
     const handleRecordingShortcut = (event: KeyboardEvent) => {
-      if (event.code !== 'KeyM' || event.ctrlKey || event.metaKey || event.altKey || !isRecordingRef.current) return;
+      if (!active || finalisingRef.current || event.code !== 'KeyM' || event.ctrlKey || event.metaKey || event.altKey || !isRecordingRef.current) return;
       if (
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
@@ -999,59 +1028,63 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
     window.addEventListener('keydown', handleRecordingShortcut, true);
     return () => window.removeEventListener('keydown', handleRecordingShortcut, true);
-  }, [dropRecordingMarker]);
+  }, [active, dropRecordingMarker]);
 
   const stopRecording = async () => {
-    if (!isRecording) return;
-
-    setIsRecording(false);
-    setIsPaused(false);
-    isRecordingRef.current = false;
-    isPausedRef.current = false;
-    setIsRecordingActive(false);
-
-    if (processorNodeRef.current) {
-      processorNodeRef.current.disconnect();
-      processorNodeRef.current = null;
+    // These synchronous guards protect the gap before React renders disabled controls.
+    if (!isRecordingRef.current || finalisingRef.current || startingRef.current) return;
+    finalisingRef.current = true;
+    setIsFinalising(true);
+    setDeviceError(null);
+    if (!isPausedRef.current) {
+      pauseStartTimeRef.current = performance.now();
+      setDurationSec((pauseStartTimeRef.current - recordingStartTimeRef.current - pausedDurationRef.current) / 1000);
     }
-
-    const audioCtx = audioContextRef.current;
-    if (!audioCtx) return;
-
-    const sampleRate = audioCtx.sampleRate;
-    const isStereo = channelMode === 'stereo';
-    const totalSamples = totalRecordedSamplesRef.current;
-
-    if (totalSamples === 0) {
-      alert('No audio captured.');
-      return;
-    }
-
-    const mergedLeft = new Float32Array(totalSamples);
-    let offset = 0;
-    for (const chunk of recordedChunksLeftRef.current) {
-      mergedLeft.set(chunk, offset);
-      offset += chunk.length;
-    }
-
-    let mergedRight: Float32Array | null = null;
-    if (isStereo) {
-      mergedRight = new Float32Array(totalSamples);
-      offset = 0;
-      for (const chunk of recordedChunksRightRef.current) {
-        mergedRight.set(chunk, offset);
-        offset += chunk.length;
+    isPausedRef.current = true;
+    setIsPaused(true);
+    try {
+      // Paint the busy state before allocating a potentially large take.
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      const audioCtx = audioContextRef.current;
+      const totalSamples = totalRecordedSamplesRef.current;
+      if (!audioCtx || totalSamples === 0) throw new Error('No audio captured. Resume capture and retry.');
+      const stereo = channelMode === 'stereo';
+      await finaliseRecordingTake(
+        (channels, length, rate) => audioCtx.createBuffer(channels, length, rate),
+        stereo ? [recordedChunksLeftRef.current, recordedChunksRightRef.current] : [recordedChunksLeftRef.current],
+        totalSamples,
+        audioCtx.sampleRate,
+        buffer => onRecordingComplete(buffer, 'Recording', '', '', [...recordingMarkerTimesRef.current]),
+      );
+      // Commit only after Edit accepts the complete buffer. Failure retains the paused take.
+      isRecordingRef.current = false;
+      isPausedRef.current = false;
+      setIsRecording(false);
+      setIsPaused(false);
+      setIsRecordingActive(false);
+      recordedChunksLeftRef.current = [];
+      recordedChunksRightRef.current = [];
+      totalRecordedSamplesRef.current = 0;
+      recordingMarkerTimesRef.current = [];
+      recordingMarkerWriteIndicesRef.current = [];
+      setRecordingMarkerCount(0);
+      setDurationSec(0);
+      recordingWaveformLeftHistoryRef.current.fill(-60);
+      recordingWaveformRightHistoryRef.current.fill(-60);
+      recordingWaveformWriteIndexRef.current = 0;
+      if (processorNodeRef.current) {
+        processorNodeRef.current.onaudioprocess = null;
+        try { processorNodeRef.current.disconnect(); } catch { /* Already disconnected. */ }
+        processorNodeRef.current = null;
       }
+      try { stopMonitoringStream(); } catch (error) { console.error('Capture cleanup failed:', error); }
+    } catch (error) {
+      console.error('Failed to finalise recording:', error);
+      setDeviceError(`Take retained: ${error instanceof Error ? error.message : 'Could not load recording.'} Stop to retry or Resume.`);
+    } finally {
+      finalisingRef.current = false;
+      setIsFinalising(false);
     }
-
-    const finalBuffer = audioCtx.createBuffer(isStereo ? 2 : 1, totalSamples, sampleRate);
-    finalBuffer.copyToChannel(mergedLeft, 0);
-    if (isStereo && mergedRight) {
-      finalBuffer.copyToChannel(mergedRight, 1);
-    }
-
-    const defaultName = 'Recording';
-    onRecordingComplete(finalBuffer, defaultName, '', '', recordingMarkerTimesRef.current);
   };
 
   const dbToHeightPercent = (db: number) => {
@@ -1091,6 +1124,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               <div className="relative">
                 <canvas aria-label="Combined recording waveform" ref={recordingWaveformCanvasRef} width={1000} height={220} className="block h-[220px] w-full bg-slate-950" />
                 <span className="pointer-events-none absolute left-2 top-0 font-mono text-xs font-bold tracking-wider text-slate-300">RECORDING WAVEFORM</span>
+                {deviceError && <div role="alert" title={deviceError} className="absolute bottom-2 left-2 right-2 truncate rounded border border-red-800 bg-slate-950/95 px-2 py-1 text-xs text-red-300">{deviceError}</div>}
               </div>
 
               <div className="mt-auto flex shrink-0 items-stretch gap-3 pt-3">
@@ -1098,7 +1132,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   <div className="flex items-center gap-3">
                     <span className={`h-3 w-3 rounded-full ${isRecording ? (isPaused ? 'bg-amber-400' : 'animate-pulse bg-red-500') : 'bg-slate-700'}`} />
                     <span className={`font-mono text-[12px] font-bold uppercase tracking-[0.22em] ${isRecording ? (isPaused ? 'text-amber-300' : 'text-red-400') : 'text-slate-500'}`}>
-                      {isRecording ? (isPaused ? 'Paused' : 'Rec') : 'Ready'}
+                      {isFinalising ? 'Finalising' : isStarting ? 'Starting' : isRecording ? (isPaused ? 'Paused' : 'Rec') : 'Ready'}
                     </span>
                   </div>
 
@@ -1205,7 +1239,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 id="input-device"
                 value={selectedDeviceId}
                 onChange={(e) => handleDeviceChange(e.target.value)}
-                disabled={isRecording}
+                disabled={isRecording || isStarting || isFinalising}
                 className="w-full cursor-pointer rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-xs font-semibold text-slate-200 focus:border-emerald-500/50 focus:outline-none disabled:opacity-50"
               >
                 {devices.length === 0 && <option value="">Default Audio Input</option>}
@@ -1220,7 +1254,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   topLabel="44.1"
                   bottomLabel="48"
                   isTop={recordingSampleRate === 44100}
-                  disabled={isRecording}
+                  disabled={isRecording || isStarting || isFinalising}
                   title="Toggle sample rate"
                   onToggle={() => handleSampleRateChange(recordingSampleRate === 44100 ? 48000 : 44100)}
                 />
@@ -1231,7 +1265,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   topLabel="Stereo"
                   bottomLabel="Mono"
                   isTop={channelMode === 'stereo'}
-                  disabled={isRecording}
+                  disabled={isRecording || isStarting || isFinalising}
                   title="Toggle stereo / mono"
                   onToggle={() => handleModeChange(channelMode === 'stereo' ? 'mono' : 'stereo')}
                 />
@@ -1243,7 +1277,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               <div className="relative flex flex-col items-center justify-center gap-0.5">
                 <span className="text-[10px] text-slate-400">Gain</span>
                 <div
-                  className={`relative h-[124px] w-[124px] touch-none ${isRecording || isCalibrating ? 'opacity-40' : 'cursor-ns-resize'} ${gainFineAdjusting ? 'rounded-full ring-1 ring-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : ''}`}
+                  className={`relative h-[124px] w-[124px] touch-none ${isRecording || isStarting || isFinalising || isCalibrating ? 'opacity-40' : 'cursor-ns-resize'} ${gainFineAdjusting ? 'rounded-full ring-1 ring-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : ''}`}
                   {...gainDragHandlers}
                   title="Preamp boost gain (drag up / down)"
                 >
@@ -1263,7 +1297,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <div className="flex items-start justify-center gap-10">
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-[9px] uppercase text-slate-400">Detect</span>
-                    <button type="button" aria-label="Detect preamp level" aria-pressed={isCalibrating} disabled={!isMonitoringActive || isRecording} title="Hold while playing a loud passage to set the preamp level automatically." className={`flex h-[26px] w-[26px] items-center justify-center rounded border touch-none select-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${isCalibrating ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-950 border-slate-700 text-slate-300'}`}
+                    <button type="button" aria-label="Detect preamp level" aria-pressed={isCalibrating} disabled={!isMonitoringActive || isRecording || isStarting || isFinalising} title="Hold while playing a loud passage to set the preamp level automatically." className={`flex h-[26px] w-[26px] items-center justify-center rounded border touch-none select-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${isCalibrating ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-950 border-slate-700 text-slate-300'}`}
                       onPointerDown={(event) => { if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); beginCalibration(); }}
                       onPointerUp={(event) => { finishCalibration(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
                       onPointerCancel={() => finishCalibration(true)} onLostPointerCapture={() => finishCalibration(true)}
@@ -1287,10 +1321,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <div className="absolute -right-7 top-3 flex w-6 flex-col items-center gap-1">
                   <span
                     role="img"
-                    aria-label={isRecording ? (isPaused ? 'Recording indicator flashing: paused' : 'Recording indicator on') : 'Recording indicator off'}
+                    aria-label={isRecording && !isFinalising ? (isPaused ? 'Recording indicator flashing: paused' : 'Recording indicator on') : 'Recording indicator off'}
                     className="flex h-4 w-4 items-center justify-center rounded-full border-2 border-slate-600 bg-slate-950 shadow-[inset_0_1px_3px_rgba(0,0,0,0.8)]"
                   >
-                    <span className={`h-2.5 w-2.5 rounded-full ${isRecording && isPaused ? 'recording-paused-led' : ''} ${isRecording
+                    <span className={`h-2.5 w-2.5 rounded-full ${isRecording && isPaused && !isFinalising ? 'recording-paused-led' : ''} ${isRecording && !isFinalising
                       ? 'bg-[radial-gradient(circle_at_35%_30%,#fecaca,#ef4444_45%,#991b1b)] shadow-[0_0_9px_rgba(239,68,68,0.9)]'
                       : 'bg-[radial-gradient(circle_at_35%_30%,#7f1d1d,#450a0a_55%,#200606)]'}`} />
                   </span>
@@ -1299,47 +1333,49 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <button
                   type="button"
                   onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
+                  disabled={isStarting || isFinalising}
+                  aria-busy={isStarting || isFinalising}
                   onClick={() => {
-                    if (isStandbyMode) {
+                    if (isRecording) {
+                      stopRecording();
+                    } else if (isStandbyMode) {
                       onWakeAudioEngine?.();
-                    } else if (isRecording) {
-                      togglePause();
                     } else {
                       startRecording();
                     }
                   }}
-                  className={`flex h-[136px] w-[136px] shrink-0 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-shadow duration-300 ${
-                    isStandbyMode
+                  className={`flex h-[136px] w-[136px] shrink-0 disabled:cursor-wait disabled:opacity-50 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-shadow duration-300 ${
+                    isStandbyMode && !isRecording
                       ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500 hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
                       : isRecording
                       ? isPaused
-                        ? 'recording-paused-button bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500'
+                        ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500'
                         : 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:bg-red-600'
                       : 'bg-red-600 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:bg-red-500 hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
                   }`}
-                  title={isStandbyMode ? 'Audio engine is sleeping in Standby. Click to wake and record.' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start Recording'}
-                  aria-label={isStandbyMode ? 'Wake audio engine' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start recording'}
+                  title={isFinalising ? 'Finalising recording' : isStarting ? 'Starting recording' : isRecording ? 'Stop and finalise recording' : isStandbyMode ? 'Audio engine is sleeping in Standby. Click to wake.' : 'Start recording'}
+                  aria-label={isFinalising ? 'Finalising recording' : isStarting ? 'Starting recording' : isRecording ? 'Stop recording' : isStandbyMode ? 'Wake audio engine' : 'Start recording'}
                 >
                   {isRecording ? (
-                    <Pause aria-hidden="true" className="h-11 w-11 fill-current text-white/90" />
+                    <Square aria-hidden="true" className="h-11 w-11 fill-current text-white/90" />
                   ) : <span className="h-11 w-11 rounded-full bg-white/90" />}
                 </button>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : isRecording ? (isPaused ? 'RESUME' : 'PAUSE') : 'RECORD'}</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isFinalising ? 'FINALISING' : isStarting ? 'STARTING' : isRecording ? 'STOP' : isStandbyMode ? 'WAKE' : 'RECORD'}</span>
               </div>
 
               <div className="flex flex-col items-center gap-1">
                 <button
                   type="button"
                   onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
-                  disabled={!isRecording}
-                  onClick={stopRecording}
+                  disabled={!isRecording || isFinalising || isStarting}
+                  onClick={togglePause}
                   className="flex h-10 w-[76px] cursor-pointer items-center justify-center rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 shadow transition hover:bg-slate-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  title="Stop recording"
-                  aria-label="Stop recording"
+                  title={isPaused ? 'Resume the same recording' : 'Pause recording without discarding audio'}
+                  aria-label={isPaused ? 'Resume recording' : 'Pause recording'}
                 >
-                  <Square className="h-6 w-6 fill-current" />
+                  <Pause aria-hidden="true" className={`h-6 w-6 fill-current ${isPaused && !isFinalising ? 'recording-paused-icon' : ''}`} />
                 </button>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Stop</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">{isPaused && !isFinalising ? 'Resume' : 'Pause'}</span>
               </div>
             </div>
           </div>

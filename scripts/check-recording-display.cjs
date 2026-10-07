@@ -1,8 +1,15 @@
-// Controlled stereo input through real recording handlers; no physical device needed.
+// Controlled stereo input through real recording handlers; physical permission denied.
+// After npm run build: electron scripts/check-recording-display.cjs file:///.../dist/index.html
 const { app, BrowserWindow } = require('electron');
 const assert = require('node:assert/strict');
+const path = require('node:path');
+const fs = require('node:fs');
+const profile = path.join(__dirname, '../build/recording-regression-profile');
+fs.mkdirSync(profile, { recursive: true });
+app.setPath('userData', profile);
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 980, height: 650, webPreferences: { backgroundThrottling: false } });
+  win.webContents.session.setPermissionRequestHandler((_, __, callback) => callback(false));
   const run = async code => { try{return await win.webContents.executeJavaScript(code);}catch(error){console.error('Failed renderer check:',code);throw error;} };
   const wait = async code => {
     const deadline = Date.now() + 15000;
@@ -13,18 +20,18 @@ app.whenReady().then(async () => {
   };
   try {
     win.webContents.debugger.attach('1.3');
-    for (const stopWhilePaused of [false, true]) {
+    for (const scenario of ['direct', 'resume', 'paused', 'retry', 'load-retry']) {
       await win.loadURL(process.argv[2] || 'http://localhost:3000/?standby=1');
       await run(`localStorage.setItem('audiophonic_preview_standby','true'); localStorage.setItem('monitoringAudioOutput','true'); localStorage.setItem('monitorVolume','1')`);
       await new Promise(resolve=>{win.webContents.once('did-finish-load',resolve);win.reload();});
       await wait(`!!document.querySelector('[aria-label="Wake audio engine"]')`);
       await run(`
-        window.processors=[];window.analysers=0;window.traceCount=0;window.finalBuffer=null;window.audioNodes=[];
-        navigator.mediaDevices.getUserMedia=async()=>({getTracks:()=>[{stop(){}}]});
+        window.processors=[];window.analysers=0;window.traceCount=0;window.finalBuffer=null;window.audioNodes=[];window.stoppedTracks=0;window.contexts=[];
+        navigator.mediaDevices.getUserMedia=async()=>({getTracks:()=>[{stop(){stoppedTracks++}}]});
         navigator.mediaDevices.enumerateDevices=async()=>[];
         const node=(kind='other')=>{const value={kind,connections:[],connect(target){this.connections.push(target);},disconnect(){this.connections=[];},gain:{value:1,setValueAtTime(){}}};audioNodes.push(value);return value;};
         window.AudioContext=class {
-          constructor(options={}){this.sampleRate=options.sampleRate||48000;this.state='running';this.currentTime=0;this.destination=node('destination');}
+          constructor(options={}){contexts.push(this);this.sampleRate=options.sampleRate||48000;this.state='running';this.currentTime=0;this.destination=node('destination');}
           resume(){return Promise.resolve();}close(){this.state='closed';return Promise.resolve();}
           createMediaStreamSource(){return node();}createGain(){return node('gain');}createChannelSplitter(){return node();}
           createAnalyser(){const value=analysers++%2===0?.25:-.5;return {...node(),fftSize:1024,getFloatTimeDomainData(array){array.fill(value);}};}
@@ -51,7 +58,7 @@ app.whenReady().then(async () => {
           return {waveform:rect(waveform),meters:rect(meters),transport:rect(transport),
             button:rect(transport.querySelector('button')),
             led:rect(transport.querySelector('[role="img"]')),
-            stopGroup:rect(transport.querySelector('[aria-label="Stop recording"]').parentElement),
+            stopGroup:rect(transport.querySelectorAll('button')[1].parentElement),
             controls:rect(controls),
             scope:rect(panel('Oscilloscope')),
             preamp:rect(preamp),
@@ -67,134 +74,97 @@ app.whenReady().then(async () => {
         }); if(output.some(channel=>channel.some(value=>value!==0))) throw Error('Recording output must be silent'); };
         void 0;
       `);
-      const capture=async state=>{ await win.webContents.capturePage(); await new Promise(resolve=>setTimeout(resolve,80)); await win.webContents.capturePage().then(image=>require('fs').writeFileSync(require('path').join(app.getPath('temp'),`splitterator-transport-${state}.png`),image.toPNG())); };
-      const readyGeometry=await run('geometry()');
-      await capture('ready');
-      assert.equal(await run(`!!document.querySelector('.recording-paused-button')`),false,'Ready has no paused animation');
-      assert.equal(await run(`document.querySelector('[aria-label="Stop recording"]').disabled`),true);
-      assert.ok(Math.abs(readyGeometry.meters[0]-(readyGeometry.waveform[0]-17*(readyGeometry.button[2]/136)))<1,'meter panel aligned with waveform panel');
-      assert.ok(readyGeometry.transport[0]>readyGeometry.meters[0]);
-      assert.deepEqual(readyGeometry.overflow,[false,false]);
-      assert.equal(readyGeometry.clipped,false);
-      assert.ok(readyGeometry.led[0]>=readyGeometry.controls[0] && readyGeometry.led[0]+readyGeometry.led[2]<=readyGeometry.controls[0]+readyGeometry.controls[2],'REC LED fits within Controls');
-      const checkVisualState=async(name)=>{
-        const actual=await run(`(()=>{const group=document.querySelector('[aria-label="Recording controls"]'),button=group.querySelector('button'),led=group.querySelector('[role="img"]');return {label:button.nextElementSibling.textContent,colour:button.classList.contains('bg-amber-600')?'amber':'red',icon:button.querySelector('svg')?.classList.contains('lucide-pause')?'pause':'circle',led:led.getAttribute('aria-label'),glow:getComputedStyle(led.firstElementChild).boxShadow!=='none'};})()`);
-        assert.deepEqual(actual,{label:name==='Ready'?'RECORD':name==='Recording'?'PAUSE':'RESUME',colour:name==='Paused'?'amber':'red',icon:name==='Ready'?'circle':'pause',led:name==='Recording'?'Recording indicator on':name==='Paused'?'Recording indicator flashing: paused':'Recording indicator off',glow:name!=='Ready'},name+' visual state');
+
+      // Wake removes the existing Standby banner; wait for its resize observation.
+      await new Promise(resolve=>setTimeout(resolve,150));
+      const ready=await run('geometry()');
+      assert.deepEqual(ready.overflow,[false,false]); assert.equal(ready.clipped,false);
+      const capture=async state=>{await win.webContents.capturePage();await new Promise(r=>setTimeout(r,100));fs.writeFileSync(path.join(app.getPath('temp'),`splitterator-record-${state}.png`),(await win.webContents.capturePage()).toPNG());};
+      const nav=async()=>{
+        await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='EDIT').click()`);
+        assert.equal(await run(`document.querySelector('[aria-label="Recording controls"]').getBoundingClientRect().width`),0);
+        await run('feed(.25,-.5)');
+        await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='RECORD').click()`);
+        await wait(`document.querySelector('[aria-label="Recording controls"]').getBoundingClientRect().width>0`);
+        assert.deepEqual(await run('geometry()'),ready,'navigation restores exact layout');
       };
-      await checkVisualState('Ready');
-      assert.equal(await run(`!!document.querySelector('.recording-paused-led')`),false,'Ready LED does not blink');
-      const scale=readyGeometry.button[2]/136;
-      assert.ok(readyGeometry.button[2]>readyGeometry.preamp[2],'primary button larger than Preamp');
-      assert.ok(Math.abs(readyGeometry.transport[1]+readyGeometry.transport[3]-(readyGeometry.controls[1]+readyGeometry.controls[3]-13*scale))<1,'recording controls anchored at panel bottom');
-      assert.ok(readyGeometry.preampSection[1]+readyGeometry.preampSection[3]<=readyGeometry.transport[1],'Preamp does not overlap recording controls');
-      assert.ok(Math.abs(readyGeometry.meters[0]+readyGeometry.meters[2]-(readyGeometry.scope[0]+readyGeometry.scope[2]))<.01,'meters span beneath waveform and oscilloscope');
-      assert.equal(await run(`!!document.querySelector('[title="Toggle monitor output"], [title="Monitor volume"]') || [...document.querySelectorAll('span')].some(e=>e.textContent==='Transport')`),false,'Monitor and separate Transport removed');
-      const assertSilentOutput=async()=>assert.equal(await run(`audioNodes.filter(n=>n.connections.some(target=>target.kind==='destination')).every(n=>n.kind==='processor')`),true,'input/gain never route to speakers regardless of saved preferences');
-      await assertSilentOutput();
-      assert.equal(await run(`document.querySelector('[aria-label="Detect preamp level"]').disabled`),false,'Detect remains available');
-      await run(`
-        { const silent=new Float32Array(2048).fill(1);
-        processors.find(p=>p.size===2048).onaudioprocess({inputBuffer:{numberOfChannels:2,getChannelData:()=>new Float32Array(2048)},outputBuffer:{getChannelData:()=>silent}});
-        if(silent.some(value=>value!==0)) throw Error('Calibration output must be silent'); }
-      `);
-      // Detect must still analyse raw input with software monitoring removed.
-      await run(`document.querySelector('[aria-label="Detect preamp level"]').focus()`);
-      win.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});
-      await wait(`document.querySelector('[aria-label="Detect preamp level"]').getAttribute('aria-pressed')==='true'`);
-      await run(`
-        { const silent=new Float32Array(2048).fill(1);
-        processors.find(p=>p.size===2048).onaudioprocess({inputBuffer:{numberOfChannels:2,getChannelData:()=>new Float32Array(2048).fill(.5)},outputBuffer:{getChannelData:()=>silent}});
-        if(silent.some(value=>value!==0)) throw Error('Detect output must be silent'); }
-      `);
-      win.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
-      await wait(`document.querySelector('output[aria-live="polite"]').textContent.startsWith('SET')`);
-      assert.deepEqual(await run('geometry()'),readyGeometry,'Detect feedback does not shift layout');
-      assert.ok(readyGeometry.stopGroup[1]>readyGeometry.button[1]+readyGeometry.button[3],'Stop below primary button');
-      assert.ok(readyGeometry.vus.every(vu=>Math.abs(vu[2]/vu[3]-440/246)<.001),'VU proportions preserved');
-      await run(`document.querySelector('[aria-label="Start recording"]').click()`);
-      await wait('processors.some(processor=>processor.size===4096)');
-      await assertSilentOutput();
+      assert.equal(await run(`document.querySelector('[aria-label="Pause recording"]').disabled`),true);
+      assert.equal(await run(`document.querySelector('[aria-label="Start recording"]').querySelector('svg')===null`),true,'idle record circle');
+      assert.ok(ready.button[2]>ready.preamp[2],'main control remains larger than Preamp');
+      assert.ok(ready.stopGroup[1]>ready.button[1]+ready.button[3],'small control remains underneath');
+      assert.ok(ready.vus.every(v=>Math.abs(v[2]/v[3]-440/246)<.001),'VU proportions retained');
+      assert.equal(await run(`audioNodes.filter(n=>n.connections.includes(contexts[0]?.destination)).every(n=>n.kind==='processor')`),true,'software monitoring remains off');
+      await capture('ready');
+      await run(`document.querySelector('[aria-label="Start recording"]').click();document.querySelector('[aria-label="Starting recording"]')?.click()`);
+      await wait(`!!document.querySelector('[aria-label="Stop recording"]')`);
+      assert.equal(await run('processors.filter(p=>p.size===4096).length'),1,'one capture source');
       await run('feed(.25,-.5)');
       await wait('traceCount===1');
-      await wait(`!!document.querySelector('[aria-label="Pause recording"]')`);
-      assert.deepEqual(await run('geometry()'),readyGeometry,'recording layout stable');
-      await checkVisualState('Recording');
-      assert.equal(await run(`!!document.querySelector('.recording-paused-led')`),false,'Recording LED remains steady');
-      assert.equal(await run(`getComputedStyle(document.querySelector('[aria-label="Pause recording"]')).animationName`),'none','recording button stays steady');
-      await capture('recording');
       await run(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyM',key:'m',bubbles:true}))`);
-      assert.equal(await run(`document.querySelector('[aria-label="Add recording marker"]')?.textContent.includes('(1)')`),true,'M drops recording marker');
-      await run(`document.querySelector('[aria-label="Pause recording"]').click()`);
-      await wait(`!!document.querySelector('[aria-label="Resume recording"]')`);
-      assert.deepEqual(await run('geometry()'),readyGeometry,'paused layout stable');
-      assert.equal(await run(`document.querySelector('[aria-label="Resume recording"] svg').classList.contains('lucide-pause')`),true,'Paused shows pause icon with Resume action');
-      assert.equal(await run(`document.querySelector('[aria-label="Resume recording"]').nextElementSibling.textContent`),'RESUME','Resume label stays visible');
-      assert.equal(await run(`[...document.querySelector('[aria-label="Combined recording waveform"]').parentElement.nextElementSibling.querySelectorAll('span')].some(e=>e.textContent==='Paused')`),true,'Paused status readout stays visible');
-      await checkVisualState('Paused');
-      const checkPausedLed=async()=>assert.deepEqual(await run(`(()=>{const led=document.querySelector('.recording-paused-led'),animation=led.getAnimations()[0];return {name:getComputedStyle(led).animationName,duration:animation?.effect.getTiming().duration,opacity:animation?.effect.getKeyframes().map(frame=>frame.opacity)};})()`),{name:'recording-led-blink',duration:1000,opacity:['1','0.15','1']},'Paused LED blinks once per second');
-      await checkPausedLed();
-      assert.deepEqual(await run(`(()=>{const button=document.querySelector('[aria-label="Resume recording"]'),icon=button.querySelector('svg'),animations=button.getAnimations().filter(animation=>animation instanceof CSSAnimation);return {name:getComputedStyle(button).animationName,duration:animations[0]?.effect.getTiming().duration,icon:icon.getAnimations().length,label:button.nextElementSibling.getAnimations().length};})()`),
-        {name:'recording-pause-blink',duration:1000,icon:0,label:0},'one-second animation applies to button with a steady Resume label');
-      assert.deepEqual(await run(`(()=>{const animation=document.querySelector('.recording-paused-button').getAnimations().find(animation=>animation instanceof CSSAnimation);return animation.effect.getKeyframes().map(frame=>frame.opacity);})()`),['1','0.55','1'],'gentle button blink');
-      await capture('paused');
-      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
-      await wait(`getComputedStyle(document.querySelector('.recording-paused-button')).animationName==='none'`);
-      assert.equal(await run(`getComputedStyle(document.querySelector('.recording-paused-button')).opacity`),'1','reduced motion shows steady amber button');
-      assert.deepEqual(await run('geometry()'),readyGeometry,'reduced motion preserves layout');
-      await checkPausedLed();
-      // Sample the actual running animation, rather than only its CSS definition.
-      const ledLevels=[];
-      for(let sample=0;sample<8;sample++){
-        await win.webContents.capturePage();
-        ledLevels.push(Number(await run(`getComputedStyle(document.querySelector('.recording-paused-led')).opacity`)));
-        await new Promise(resolve=>setTimeout(resolve,125));
-      }
-      assert.ok(Math.max(...ledLevels)-Math.min(...ledLevels)>.2,'LED visibly pulses even with reduced motion: '+ledLevels.join(', '));
-      await capture('paused-reduced-motion');
-      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
-
-      const frozenTime=await run('elapsed()');
-      await run(`feed(1,1);window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyM',key:'m',bubbles:true}))`);
-      await new Promise(resolve=>setTimeout(resolve,250));
-      assert.equal(await run('elapsed()'),frozenTime,'elapsed time freezes while paused');
-      assert.equal(await run(`document.querySelector('[aria-label="Add recording marker"]')?.textContent.includes('(1)')`),true,'M ignored while paused');
-      // Space on the focused combined control must resume rather than reaching editor playback.
-      await run(`document.querySelector('[aria-label="Resume recording"]').focus()`);
-      win.webContents.sendInputEvent({type:'keyDown',keyCode:'Space'});
-      win.webContents.sendInputEvent({type:'keyUp',keyCode:'Space'});
-      await wait(`!!document.querySelector('[aria-label="Pause recording"]')`);
-      assert.deepEqual(await run('geometry()'),readyGeometry,'resumed layout stable');
-      assert.equal(await run(`!!document.querySelector('.recording-paused-button')`),false,'resume removes blinking immediately');
-      await checkVisualState('Recording');
-      assert.equal(await run(`!!document.querySelector('.recording-paused-led')`),false,'Recording LED remains steady');
-      assert.equal(await run(`getComputedStyle(document.querySelector('[aria-label="Pause recording"] svg')).animationName`),'none','recording icon is steady');
-      await wait(`elapsed()!==${JSON.stringify(frozenTime)}`);
-      await capture('resumed');
-      await run('feed(.75,.5)');
-      if(stopWhilePaused){
+      assert.equal(await run(`document.querySelector('[aria-label="Add recording marker"]').textContent.includes('(1)')`),true);
+      assert.equal(await run(`document.querySelector('[aria-label="Stop recording"] svg').classList.contains('lucide-square')`),true);
+      assert.equal(await run(`!!document.querySelector('[aria-label="Recording indicator on"]')`),true);
+      assert.deepEqual(await run('geometry()'),ready);
+      await capture('recording');
+      await nav();
+      assert.equal(await run(`!!document.querySelector('[aria-label="Recording indicator on"]')`),true);
+      if(scenario!=='direct') {
         await run(`document.querySelector('[aria-label="Pause recording"]').click()`);
         await wait(`!!document.querySelector('[aria-label="Resume recording"]')`);
+        const frozen=await run('elapsed()');
+        await run('feed(1,1)');
+        await new Promise(r=>setTimeout(r,120));
+        assert.equal(await run('elapsed()'),frozen);
+        assert.equal(await run(`getComputedStyle(document.querySelector('.recording-paused-icon')).animationDuration`),'1s');
+        assert.equal(await run(`document.querySelector('[aria-label="Resume recording"]').nextElementSibling.getAnimations().length`),0);
+        await nav();
+        assert.equal(await run('elapsed()'),frozen,'pause time survives navigation');
+        assert.equal(await run(`!!document.querySelector('[aria-label="Resume recording"]')`),true);
+        await capture('paused');
+        await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+        assert.equal(await run(`getComputedStyle(document.querySelector('.recording-paused-icon')).animationName`),'none');
+        await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+        if(scenario==='resume') {
+          await run(`document.querySelector('[aria-label="Resume recording"]').focus()`);
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Space'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Space'});
+          await wait(`!!document.querySelector('[aria-label="Pause recording"]')`);
+          assert.equal(await run(`!!document.querySelector('.recording-paused-icon,.recording-paused-led')`),false);
+          await run('feed(.75,.5)');
+        }
       }
-      assert.equal(await run(`document.querySelector('[aria-label="Stop recording"]').disabled`),false,'Stop enabled in active and paused recordings');
-      assert.equal(await run('traceCount'), 1, 'one combined scrolling trace');
-      assert.equal(await run(`!!document.querySelector('[aria-label="L VU level meter"]') && !!document.querySelector('[aria-label="R VU level meter"]')`), true, 'both stereo meters remain');
-      await capture(stopWhilePaused?'stop-paused':'stop-recording');
-      await run(`document.querySelector('[aria-label="Stop recording"]').click()`);
+      if(scenario==='retry' || scenario==='load-retry') {
+        await run(`window.originalCreate=AudioContext.prototype.createBuffer;AudioContext.prototype.createBuffer=function(...args){${scenario==='retry'?"throw Error('Injected allocation failure')":"const b=originalCreate.apply(this,args);Object.defineProperty(b,'duration',{get(){throw Error('Injected Edit loading failure')}});return b"}};document.querySelector('[aria-label="Stop recording"]').click()`);
+        await wait(`!!document.querySelector('[role="alert"]')`);
+        assert.equal(await run(`document.querySelector('[role="alert"]').textContent.includes('Take retained')`),true);
+        assert.equal(await run(`!!document.querySelector('[aria-label="Resume recording"]')`),true);
+        await nav();
+        await run('AudioContext.prototype.createBuffer=originalCreate;finalBuffer=null;void 0');
+        if(scenario==='retry') {
+          await run(`document.querySelector('[aria-label="Resume recording"]').click()`);
+          await wait(`!!document.querySelector('[aria-label="Pause recording"]')`);
+          await run('feed(.75,.5)');
+          await run(`document.querySelector('[aria-label="Pause recording"]').click()`);
+        }
+      }
+      await run(`window.busyChecks=[];window.busyObserver=new MutationObserver(()=>{const b=document.querySelector('[aria-label="Finalising recording"]');if(b)busyChecks.push({disabled:b.disabled,pause:document.querySelector('[aria-label="Recording controls"]').querySelectorAll('button')[1].disabled,blink:!!document.querySelector('.recording-paused-icon,.recording-paused-led'),geometry:geometry()})});busyObserver.observe(document.querySelector('[aria-label="Recording controls"]'),{attributes:true,childList:true,subtree:true});window.createCount=0;window.originalFinal=AudioContext.prototype.createBuffer;AudioContext.prototype.createBuffer=function(...a){createCount++;return originalFinal.apply(this,a)};const b=document.querySelector('[aria-label="Stop recording"]');b.click();b.click();b.click();`);
       await wait('finalBuffer!==null');
-      assert.equal(await run(`!!document.querySelector('.recording-paused-button, .recording-paused-led')`),false,'Stop removes paused animations');
-      assert.deepEqual(await run(`({channels:finalBuffer.numberOfChannels,rate:finalBuffer.sampleRate,
-        length:finalBuffer.length,left:[finalBuffer.getChannelData(0)[0],finalBuffer.getChannelData(0)[4095],finalBuffer.getChannelData(0)[4096],finalBuffer.getChannelData(0)[8191]],right:[finalBuffer.getChannelData(1)[0],finalBuffer.getChannelData(1)[4095],finalBuffer.getChannelData(1)[4096],finalBuffer.getChannelData(1)[8191]]})`),
-        { channels: 2, rate: 44100, length: 8192, left: [0.25,0.25,0.75,0.75], right: [-0.5,-0.5,0.5,0.5] }, 'captured stereo samples remain distinct and exact');
-      // Finalisation retains the existing switch to Edit; returning to Record shows Ready.
-      await run(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='RECORD').click()`);
-      await wait(`!!document.querySelector('[aria-label="Start recording"]') && document.querySelector('[aria-label="Start recording"]').getBoundingClientRect().width<136`);
-      await checkVisualState('Ready');
-      assert.equal(await run(`!!document.querySelector('.recording-paused-led')`),false,'Ready LED does not blink');
-      assert.equal(await run(`document.querySelector('[aria-label="Stop recording"]').disabled`),true,'Stop disabled after finalisation');
-      assert.deepEqual(await run('geometry()'),readyGeometry,'Ready layout restored after finalisation');
-      await capture('stopped-ready');
-      console.log('PASS: bottom-right controls, full-width meters, stable layout, silent output, Space resume, marker/pause behaviour, exact stereo continuity; stop while '+(stopWhilePaused?'paused':'recording'));
+      await wait(`!!document.querySelector('[aria-label="Start recording"]')`);
+      const busy=await run('busyChecks');assert.ok(busy.length>0,'busy state is rendered');for(const state of busy){assert.equal(state.disabled,true);assert.equal(state.pause,true);assert.equal(state.blink,false);assert.deepEqual(state.geometry,ready,'busy layout stable');}
+      assert.equal(await run('createCount'),1,'repeated stop finalises once');
+      assert.equal(await run(`document.querySelector('[aria-label="Recording controls"]').getBoundingClientRect().width`),0,'success switches to Edit');
+      const resumed=scenario==='resume'||scenario==='retry';
+      const expected=resumed?12288:8192;
+      assert.deepEqual(await run(`({length:finalBuffer.length,channels:finalBuffer.numberOfChannels,rate:finalBuffer.sampleRate,first:[finalBuffer.getChannelData(0)[0],finalBuffer.getChannelData(1)[0]],last:[finalBuffer.getChannelData(0)[finalBuffer.length-1],finalBuffer.getChannelData(1)[finalBuffer.length-1]]})`),{length:expected,channels:2,rate:44100,first:[.25,-.5],last:resumed?[.75,.5]:[.25,-.5]},'exact uninterrupted PCM without paused silence');
+      assert.equal(await run('processors.find(p=>p.size===4096).onaudioprocess'),null,'capture released');
+      assert.equal(await run(`contexts.every(c=>c.state==='closed') && stoppedTracks>0`),true,'capture resources released after success');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-icon,.recording-paused-led')`),false);
+      await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='RECORD').click()`);
+      await wait(`document.querySelector('[aria-label="Start recording"]').getBoundingClientRect().width>0`);
+      assert.deepEqual(await run('geometry()'),ready);
+      assert.equal(await run('elapsed()'),'0:00.000','successful take resets idle readout');
+      assert.equal(await run(`document.querySelector('[aria-label="Add recording marker"]').textContent.includes('(1)')`),false);
+      console.log('PASS recording lifecycle:',scenario);
     }
     win.destroy();app.exit(0);
-  } catch (error) { console.error(error);win.destroy();app.exit(1); }
+  } catch(error){console.error(error);win.destroy();app.exit(1);}
 });

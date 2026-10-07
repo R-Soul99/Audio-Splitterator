@@ -1222,21 +1222,20 @@ export default function App() {
           <div className={`flex-1 flex flex-col relative min-h-0 select-none ${workflowTab === 'edit' || workflowTab === 'save' ? '' : 'bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]'}`}>
 
             {/* WORKFLOW VIEW 1: RECORD CONSOLE */}
-            {workflowTab === 'record' && (
-              <div className="flex-1 h-full min-h-0 overflow-hidden">
-                <AudioRecorder
-                  onRecordingComplete={(buf, defaultName, art, alb, markerTimes) => {
-                    loadAudio(buf, defaultName, art, alb, markerTimes);
-                  }}
-                  isRecordingActive={isRecordingActive}
-                  setIsRecordingActive={setIsRecordingActive}
-                  onClearRecording={handleClearRecording}
-                  hasLoadedAudio={!!audioBuffer}
-                  isStandbyMode={isStandbyMode}
-                  onWakeAudioEngine={wakeAudioEngine}
-                />
-              </div>
-            )}
+            <div style={{ display: workflowTab === 'record' ? undefined : 'none' }} className="flex-1 h-full min-h-0 overflow-hidden">
+              <AudioRecorder
+                active={workflowTab === 'record'}
+                onRecordingComplete={(buf, defaultName, art, alb, markerTimes) => {
+                  loadAudio(buf, defaultName, art, alb, markerTimes);
+                }}
+                isRecordingActive={isRecordingActive}
+                setIsRecordingActive={setIsRecordingActive}
+                onClearRecording={handleClearRecording}
+                hasLoadedAudio={!!audioBuffer}
+                isStandbyMode={isStandbyMode}
+                onWakeAudioEngine={wakeAudioEngine}
+              />
+            </div>
 
             {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
             {(workflowTab === 'edit' || waveformBusy || importStatus) && (
