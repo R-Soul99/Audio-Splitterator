@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { editSamples, resizeSamples, sampleSelection, sampleTimes, parseLoopTime, loopEditPosition } from './loopSelection';
+import { editSamples, resizeSamples, sampleSelection, sampleTimes, parseLoopTime, loopEditPosition, adjustmentSamples, adjustBeatSample } from './loopSelection';
 const region = { start: 100, end: 300 };
 test('halving/doubling with either boundary fixed, and rejected overflow', () => {
   assert.deepEqual(resizeSamples(region, .5, 'start', 1000), { start: 100, end: 200 });
@@ -36,4 +36,17 @@ test('sample rate conversion, reversed selection and time entry', () => {
 test('loop edits retain position inside, safely restart at either excluded edge', () => {
   assert.deepEqual(loopEditPosition(2, { start: 1, end: 3 }), { position: 2, restart: false });
   for (const position of [0, 3, 4]) assert.deepEqual(loopEditPosition(position, { start: 1, end: 3 }), { position: 1, restart: true });
+});
+
+test('coarse/fine steps align to each source rate and Start Beat excludes End', () => {
+  for (const rate of [44100, 48000, 96000]) {
+    assert.equal(adjustmentSamples(rate, false), Math.round(rate / 100));
+    assert.equal(adjustmentSamples(rate, true), Math.round(rate / 1000));
+    const delta = adjustmentSamples(rate, true);
+    assert.deepEqual(editSamples({ start: 0, end: rate }, 'start', delta, rate), { start: delta, end: rate });
+    assert.equal(editSamples({ start: 0, end: delta }, 'start', delta, rate), null);
+    assert.equal(adjustBeatSample(rate - delta, { start: 0, end: rate }, delta), null);
+    assert.equal(adjustBeatSample(delta, { start: 0, end: rate }, -delta), 0);
+    assert.equal(adjustBeatSample(0, { start: 0, end: rate }, -delta), null);
+  }
 });

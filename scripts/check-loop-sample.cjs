@@ -25,11 +25,25 @@ app.whenReady().then(async () => {
     wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(2, 22);
     wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 4, 28); wav.writeUInt16LE(4, 32); wav.writeUInt16LE(16, 34);
     wav.write('data', 36); wav.writeUInt32LE(frames * 4, 40);
-    for (let i = 0; i < frames; i++) for (let c = 0; c < 2; c++) wav.writeInt16LE(Math.round(10000 * Math.sin(i * (c ? 0.12 : 0.08))), 44 + i * 4 + c * 2);
-    const file = path.join(app.getPath('temp'), 'loop-sample-regression.wav'); fs.writeFileSync(file, wav);
+    for (let i = 0; i < frames; i++) for (let c = 0; c < 2; c++) wav.writeInt16LE(c ? (i % (rate / 4) < 80 ? 20000 : 0) : Math.round(2000 + i / frames * 20000), 44 + i * 4 + c * 2);
+    const file = path.join(__dirname, '../build/loop-sample-sync-transients.wav'); fs.writeFileSync(file, wav);
     await win.loadFile(path.join(__dirname, '../dist/index.html'));
     win.webContents.setAudioMuted(true);
-    await run(`window.sources = []; const create = AudioContext.prototype.createBufferSource; AudioContext.prototype.createBufferSource = function() { const node = create.call(this); const entry = {node, active:false}; sources.push(entry); const start = node.start.bind(node), stop = node.stop.bind(node); node.start = (...args) => { entry.active = true; return start(...args); }; node.stop = (...args) => { entry.active = false; return stop(...args); }; return node; }; void 0;`);
+    await run(`
+      window.sources=[]; window.blocks=[]; window.audioClock=null;
+      const create=AudioContext.prototype.createBufferSource;
+      AudioContext.prototype.createBufferSource=function(){
+        const node=create.call(this),ctx=this,entry={node,ctx,active:false};sources.push(entry);
+        const start=node.start.bind(node),stop=node.stop.bind(node),connect=node.connect.bind(node);
+        node.start=(...args)=>{entry.active=true;entry.when=args[0]||ctx.currentTime;entry.offset=args[1];entry.duration=args[2];return start(...args)};
+        node.stop=(...args)=>{entry.until=Math.min(entry.until??Infinity,args[0]||ctx.currentTime);return stop(...args)};
+        node.connect=(...args)=>{if(window.tap)connect(window.tap);return connect(...args)};
+        node.addEventListener('ended',()=>{entry.active=false});window.audioClock=ctx;return node;
+      };
+      const timestamp=AudioContext.prototype.getOutputTimestamp;
+      AudioContext.prototype.getOutputTimestamp=function(){const stamp=timestamp.call(this);window.lastHeard=Math.max(0,Math.min(this.currentTime,stamp.contextTime>0?stamp.contextTime+Math.max(0,performance.now()-stamp.performanceTime)/1000:this.currentTime-this.baseLatency-this.outputLatency));return stamp;};
+      void 0;
+    `);
     win.webContents.debugger.attach('1.3');
     const { root } = await win.webContents.debugger.sendCommand('DOM.getDocument');
     const { nodeId } = await win.webContents.debugger.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: 'input[type=file]' });
@@ -76,32 +90,62 @@ app.whenReady().then(async () => {
     await setRegion(1, 3);
     await click('Halve selection'); assert.deepEqual(await run('currentSelection()'), {start:1,end:2});
     await click('Double selection'); assert.deepEqual(await run('currentSelection()'), {start:1,end:3});
-    await select('Fixed selection edge', 'end'); await click('Halve selection'); assert.deepEqual(await run('currentSelection()'), {start:2,end:3});
-    await click('Double selection'); assert.deepEqual(await run('currentSelection()'), {start:1,end:3});
+    assert.equal(await run('component().memoizedProps.isLooping'),true,'Entering mode arms selection loop');
+    assert.equal(await run('sources.length'),0,'Default looping never starts playback');
+    await click('Selection loop');assert.equal(await run('component().memoizedProps.isLooping'),false);
+    await click('Loop / Sample');assert.equal(await run('component().memoizedProps.isLooping'),true);assert.equal(await run('sources.length'),0);
+    await run('component().memoizedProps.onStartBeatChange(72000)');await pause();
     await click('Next selection'); assert.deepEqual(await run('currentSelection()'), {start:3,end:5});
+    assert.equal(await run('component().memoizedProps.startBeat'),168000);
     await click('Previous selection'); assert.deepEqual(await run('currentSelection()'), {start:1,end:3});
-    await select('Nudge target', 'start'); await select('Nudge amount', '1'); await click('Nudge right');
-    assert.deepEqual(await run('currentSelection()'), {start:1.001,end:3});
-    await select('Nudge target', 'end'); await click('Nudge left'); assert.deepEqual(await run('currentSelection()'), {start:1.001,end:2.999});
-    await setRegion(0, 2); assert.equal(await run(`document.querySelector('[aria-label="Previous selection"]').disabled`), true);
-    await select('Nudge target', 'whole'); assert.equal(await run(`document.querySelector('[aria-label="Nudge left"]').disabled`), true);
-    await setRegion(1, 3);
-    await select('Nudge target', 'whole'); await select('Nudge amount', '100');
-    const knob = await run(`document.querySelector('[aria-label="Nudge"]').getBoundingClientRect().toJSON()`);
-    await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:knob.x+11,y:knob.y+11,button:'left',buttons:1,clickCount:1});
-    await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:knob.x+11,y:knob.y-5,button:'left',buttons:1});
-    await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',x:knob.x+11,y:knob.y-5,button:'left',buttons:0,clickCount:1}); await pause();
-    assert.deepEqual(await run('currentSelection()'),{start:1.2,end:3.2},'Two native knob steps');
+    await click('Increase Start');assert.deepEqual(await run('currentSelection()'),{start:1.01,end:3});
+    const fineClick=async label=>{
+      await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Shift',code:'ShiftLeft',windowsVirtualKeyCode:16,modifiers:8});await pause();
+      await run(`document.querySelector('[aria-label="${label}"]').dispatchEvent(new MouseEvent('click',{bubbles:true,shiftKey:true}))`);await pause();
+      await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyUp',key:'Shift',code:'ShiftLeft',windowsVirtualKeyCode:16});await pause();
+    };
+    await fineClick('Decrease End');assert.deepEqual(await run('currentSelection()'),{start:1.01,end:2.999});
+    await click('Increase Start Beat');assert.equal(await run('component().memoizedProps.startBeat'),72480);
+    await fineClick('Decrease Start Beat');assert.equal(await run('component().memoizedProps.startBeat'),72432);
+    await setRegion(0,2);assert.equal(await run(`document.querySelector('[aria-label="Previous selection"]').disabled`),true);
+    assert.equal(await run(`document.querySelector('[aria-label="Decrease Start"]').disabled`),true);
+    await setRegion(0,.005);assert.equal(await run(`document.querySelector('[aria-label="Increase Start"]').disabled`),true,'10ms cannot cross End');
+    await fineClick('Increase Start');assert.deepEqual(await run('currentSelection()'),{start:.001,end:.005});
+    await setRegion(1,3);
     await snapshot('stopped');
     await setRegion(1, 1 + 1/48000); assert.equal(await run(`document.querySelector('[aria-label="Halve selection"]').disabled`),true);
-    await click('Selection loop'); assert.equal(await run('sources.at(-1).node.loopEnd - sources.at(-1).node.loopStart > 0'),true);
+    await click('Loop and play the selected region'); assert.equal(await run('sources.at(-1).node.loopEnd - sources.at(-1).node.loopStart > 0'),true);
     await setRegion(1, 1.1);
+    // Observe actual rendered PCM, independently of the cursor formula.
+    await run(`(async()=>{
+      const code="class Tap extends AudioWorkletProcessor {process(inputs){if(inputs[0]?.[0])this.port.postMessage({clock:currentFrame/sampleRate,rate:sampleRate,data:Array.from(inputs[0][0])});return true}}registerProcessor('tap',Tap)";
+      const url=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));await audioClock.audioWorklet.addModule(url);URL.revokeObjectURL(url);
+      window.tap=new AudioWorkletNode(audioClock,'tap');tap.port.onmessage=e=>{blocks.push(e.data);if(blocks.length>1000)blocks.shift();};tap.connect(audioClock.destination);sources.at(-1).node.connect(tap);
+      window.alignment=()=>{const clock=lastHeard;const block=[...blocks].reverse().find(b=>b.clock<=clock&&b.clock+b.data.length/b.rate>clock);if(!block)return null;const sample=block.data[Math.floor((clock-block.clock)*block.rate)];if(sample===0)return null;const index=(sample*32768-2000)/20000*${frames};return {cursor:component().memoizedProps.currentTime,pcm:index/${rate},clock};};
+    })()`);
+    let observed=0,maxError=0;
     const repeats = async () => {
-      for (let i=0;i<8;i++) { await new Promise(r=>setTimeout(r,80)); const state=await run(`({playing:component().memoizedProps.isPlaying, looping:component().memoizedProps.isLooping, time:component().memoizedProps.currentTime, selection:currentSelection(), active:sources.filter(s=>s.active).length})`); assert.equal(state.playing,true); assert.equal(state.looping,true); assert.equal(state.active,1); assert.ok(state.time>=state.selection.start && state.time<state.selection.end, JSON.stringify(state)); }
+      for (let i=0;i<12;i++) { await new Promise(r=>setTimeout(r,80)); const state=await run(`new Promise(resolve=>setTimeout(()=>resolve({playing:component().memoizedProps.isPlaying, looping:component().memoizedProps.isLooping, time:component().memoizedProps.currentTime, selection:currentSelection(), active:sources.filter(s=>s.active&&s.when<=s.ctx.currentTime&&(!s.until||s.until>s.ctx.currentTime)).length,alignment:alignment()}),5))`); assert.equal(state.playing,true); assert.equal(state.looping,true); assert.equal(state.active,1);
+        if(state.alignment){const error=Math.abs(state.alignment.cursor-state.alignment.pcm);maxError=Math.max(maxError,error);observed++;assert.ok(error<.004,'Cursor vs actual PCM '+JSON.stringify(state.alignment));}
+      }
     };
     await repeats();
-    const count = await run('sources.length'); await setRegion(.9, 1.2); assert.equal(await run('sources.length'), count, 'Inside edit keeps native source');
-    await repeats(); await setRegion(2, 2.1); assert.equal(await run('sources.length'), count+1, 'Outside edit safely replaces source'); await repeats();
+
+    const count = await run('sources.length'); await setRegion(.9, 1.2); assert.equal(await run('sources.length'), count+1, 'Inside edit schedules one replacement');
+
+    await repeats(); await setRegion(2, 2.1); assert.equal(await run('sources.length'), count+2, 'Outside edit safely replaces source'); await repeats();
+    await click('Increase Start');await repeats();await click('Decrease End');await repeats();
+    const markerSource=await run('sources.length');await click('Increase Start Beat');assert.equal(await run('sources.length'),markerSource);await repeats();
+    await click('Next selection');await repeats();await click('Previous selection');await repeats();
+    await click('Halve selection');await repeats();await click('Double selection');await repeats();
+    await run('component().memoizedProps.onPlayPause()');await pause();assert.equal(await run('component().memoizedProps.isPlaying'),false);assert.equal(await run('component().memoizedProps.isLooping'),true);await snapshot('paused');
+    await run('component().memoizedProps.onPlayPause()');await pause();await repeats();
+    await click('Loop and play the selected region');await repeats();
+    await run(`component().memoizedProps.onSelectionChange({start:2,end:2.2});component().memoizedProps.onPlayPause();component().memoizedProps.onPlayPause();void 0`);await pause();await repeats();
+    await run('window.originalRAF=requestAnimationFrame;window.requestAnimationFrame=callback=>setTimeout(()=>callback(performance.now()),400);void 0');
+    await click('Loop and play the selected region');await new Promise(r=>setTimeout(r,200));await click('Decrease Start');await new Promise(r=>setTimeout(r,450));
+    const stalled=await run('alignment()');assert.ok(stalled&&Math.abs(stalled.cursor-stalled.pcm)<.004,JSON.stringify(stalled));
+    await run('window.requestAnimationFrame=originalRAF;void 0');
     for (const label of ['Auto-Split','Peak Tamer','Normalise','Loop / Sample']) { await click(label); assert.deepEqual(await run('wave().getBoundingClientRect().toJSON()'), rect); assert.equal(await run('component().memoizedProps.isLooping'),true); }
     await repeats();
     const geometry = await run(`(() => { const p=document.querySelector('[aria-label="Tools"]'), r=p.getBoundingClientRect(); return {panel:r.toJSON(), controls:[...document.querySelectorAll('.loop-sample-controls button, .loop-sample-controls input, .loop-sample-controls select, .loop-sample-controls output, .loop-hint')].filter(e=>e.getClientRects().length).map(e=>({label:e.getAttribute('aria-label')||e.textContent, rect:e.getBoundingClientRect().toJSON()})), bodyScroll:document.documentElement.scrollHeight>innerHeight}; })()`);
@@ -110,9 +154,15 @@ app.whenReady().then(async () => {
     assert.equal(geometry.bodyScroll,false);
     fs.writeFileSync(path.join(__dirname, '../build/loop-sample-review.png'), (await win.webContents.capturePage()).toPNG());
     await snapshot('playing');
+    const overlap=await run(`sources.some((a,i)=>sources.slice(i+1).some(b=>Math.max(a.when,b.when)<Math.min(a.until??(a.when+(a.duration??Infinity)),b.until??(b.when+(b.duration??Infinity)))-1e-8))`);assert.equal(overlap,false,'Source schedule intervals never overlap');
+    assert.ok(observed>60);console.log('PCM alignment checks',observed,'maximum error ms',maxError*1000);
     console.log('Fixed layout: 980x650; Tools controls contained; no document scrolling');
     await click('Selection loop'); assert.equal(await run('component().memoizedProps.isLooping'),false);
+    await new Promise(r=>setTimeout(r,1200));assert.equal(await run('component().memoizedProps.isPlaying'),false,'Non-loop playback completes');
+    await click('Loop and play the selected region');await run('component().memoizedProps.onPlayPause()');await pause();
+    await run('component().memoizedProps.onStop()');await pause();assert.equal(await run('component().memoizedProps.isPlaying'),false);assert.equal(await run('component().memoizedProps.isLooping'),false);
     await snapshot('loop-off');
+    await run('component().memoizedProps.onStop()');await pause();
     await run('clearSelection()'); await pause(); assert.equal(await run('component().memoizedProps.isLooping'),false);
     console.log('PASS: loop controls, sample nudges, boundary disabling, several real native repeats after inside/outside edits, one active source, tabs preserve loop, stable waveform and contained controls at 980x650');
     app.exit(0);

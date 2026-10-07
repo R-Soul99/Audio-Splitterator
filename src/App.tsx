@@ -5,7 +5,8 @@ import { SplitsManager } from './components/SplitsManager';
 import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
 import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
 import { adjustStartBeat, SelectionEdit } from './utils/startBeat';
-import { sampleSelection, loopEditPosition } from './utils/loopSelection';
+import { sampleSelection } from './utils/loopSelection';
+import { PlaybackSegment, playbackPosition, timelinePosition, outputClock } from './utils/playbackClock';
 import { mergeAutoSplitMarkers } from './utils/autoSplitPolicy';
 import {
   Mic,
@@ -168,9 +169,9 @@ export default function App() {
   // Audio Context & Playback nodes
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const playheadStartTimeRef = useRef<number>(0);
-  const contextStartTimeRef = useRef<number>(0);
-  const playbackWallStartTimeRef = useRef<number>(0);
+  const playbackSourcesRef = useRef(new Set<AudioBufferSourceNode>());
+  const playbackTimelineRef = useRef<PlaybackSegment[]>([]);
+  const loopModeRequestedRef = useRef(false);
   const animationFrameRef = useRef<number | null>(null);
   const isPlayingRef = useRef<boolean>(false);
 
@@ -235,13 +236,12 @@ export default function App() {
     if (!prev) return;
     setCanUndo(undoStackRef.current.length > 0);
 
-    if (sourceNodeRef.current) {
-      try {
-        sourceNodeRef.current.onended = null;
-        sourceNodeRef.current.stop();
-      } catch {}
-      sourceNodeRef.current = null;
+    for (const source of playbackSourcesRef.current) {
+      try { source.onended = null; source.stop(); source.disconnect(); } catch {}
     }
+    playbackSourcesRef.current.clear();
+    playbackTimelineRef.current = [];
+    sourceNodeRef.current = null;
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -289,26 +289,20 @@ export default function App() {
   }, []);
 
   // Stop active playback safely
-  const stopPlayback = useCallback(() => {
+  const stopPlayback = useCallback((preserveLoop = false, preserveTimeline = false) => {
     isPlayingRef.current = false;
-    if (sourceNodeRef.current) {
-      const node = sourceNodeRef.current;
-      sourceNodeRef.current = null;
-      try {
-        node.onended = null;
-        node.stop();
-      } catch {}
-      try {
-        node.disconnect();
-      } catch {}
+    sourceNodeRef.current = null;
+    for (const node of playbackSourcesRef.current) {
+      try { node.onended = null; node.stop(); node.disconnect(); } catch {}
     }
+    playbackSourcesRef.current.clear();
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
     setIsPlaying(false);
-    isLoopingRef.current = false;
-    setIsLooping(false);
+    if (!preserveLoop) { isLoopingRef.current = false; setIsLooping(false); }
+    if (!preserveTimeline) playbackTimelineRef.current = [];
   }, []);
 
   const wakeAudioEngine = useCallback(() => {
@@ -353,41 +347,21 @@ export default function App() {
         return;
       }
 
-      const sel = selectionRef.current;
-      const hasSelection = sel && sampleSelection(sel, buffer.sampleRate, buffer.length);
-      const effectiveStart = hasSelection ? hasSelection.start / buffer.sampleRate : cropStartRef.current;
-      const effectiveEnd = hasSelection
-        ? hasSelection.end / buffer.sampleRate
-        : (cropEndRef.current > 0 ? cropEndRef.current : buffer.duration);
-      const loopSpan = Math.max(1 / buffer.sampleRate, effectiveEnd - effectiveStart);
-
-      let elapsed = 0;
-      if (
-        audioCtxRef.current &&
-        audioCtxRef.current.state === 'running' &&
-        audioCtxRef.current.currentTime > contextStartTimeRef.current
-      ) {
-        elapsed = audioCtxRef.current.currentTime - contextStartTimeRef.current;
-      } else {
-        elapsed = (performance.now() - playbackWallStartTimeRef.current) / 1000;
-      }
-
-      if (isLoopingRef.current) {
-        const initialOffset = Math.max(0, playheadStartTimeRef.current - effectiveStart);
-        const loopPos = (initialOffset + elapsed) % loopSpan;
-        const currentT = effectiveStart + loopPos;
-        currentTimeRef.current = currentT;
-        setCurrentTime(currentT);
-      } else {
-        const newTime = playheadStartTimeRef.current + elapsed;
-        if (newTime >= effectiveEnd) {
-          stopPlayback();
-          currentTimeRef.current = effectiveEnd;
-          setCurrentTime(effectiveEnd);
-          return;
-        }
-        currentTimeRef.current = newTime;
-        setCurrentTime(newTime);
+      const ctx = audioCtxRef.current;
+      const segments = playbackTimelineRef.current;
+      if (!ctx || !segments.length) return;
+      const clock = outputClock(ctx, performance.now());
+      const position = timelinePosition(segments, clock)!;
+      // Retain the preceding source/bounds until their buffered audio has been heard.
+      while (segments.length > 1 && segments[1].when <= clock) segments.shift();
+      currentTimeRef.current = position;
+      setCurrentTime(position);
+      const active = segments[segments.length - 1];
+      if (!active.loop && clock >= active.when + active.end - active.offset) {
+        stopPlayback();
+        currentTimeRef.current = active.start;
+        setCurrentTime(active.start);
+        return;
       }
 
       animationFrameRef.current = requestAnimationFrame(tick);
@@ -402,28 +376,24 @@ export default function App() {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
-      if (sourceNodeRef.current) {
-        try {
-          sourceNodeRef.current.onended = null;
-          sourceNodeRef.current.stop();
-        } catch {}
+      for (const source of playbackSourcesRef.current) {
+        try { source.onended = null; source.stop(); source.disconnect(); } catch {}
       }
+      playbackSourcesRef.current.clear();
     };
   }, []);
 
   // Start playback from a given timestamp with seamless native loop support
   const startPlayback = useCallback(
-    (offsetTime: number, forceLoop?: boolean) => {
+    (offsetTime: number, forceLoop?: boolean, transition = false) => {
       const buffer = audioBufferRef.current;
       if (!buffer) return;
       const activeLoop = forceLoop !== undefined ? forceLoop : isLoopingRef.current;
-      stopPlayback();
-
+      const ctx = getAudioContext();
       if (isStandbyMode) {
         wakeAudioEngine();
       }
 
-      const ctx = getAudioContext();
       if (ctx.state === 'suspended') {
         ctx.resume();
       }
@@ -436,41 +406,35 @@ export default function App() {
         : (cropEndRef.current > 0 ? cropEndRef.current : buffer.duration);
 
       const loopSpan = Math.max(1 / buffer.sampleRate, effectiveEnd - effectiveStart);
-      const safeStart = Math.max(effectiveStart, Math.min(effectiveEnd, offsetTime));
-
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(ctx.destination);
-
-      const activeSource = source;
-
-      if (activeLoop && loopSpan >= 1 / buffer.sampleRate) {
-        source.loop = true;
-        source.loopStart = effectiveStart;
-        source.loopEnd = effectiveEnd;
-        source.start(0, safeStart);
-      } else {
-        source.loop = false;
-        const playDuration = Math.max(0, effectiveEnd - safeStart);
-        source.onended = () => {
-          if (sourceNodeRef.current === activeSource) {
-            stopPlayback();
-            currentTimeRef.current = effectiveStart;
-            setCurrentTime(effectiveStart);
-          }
-        };
-        source.start(0, safeStart, playDuration > 0 ? playDuration : undefined);
-      }
+      source.loop = activeLoop && loopSpan >= 1 / buffer.sampleRate;
+      if (source.loop) { source.loopStart = effectiveStart; source.loopEnd = effectiveEnd; }
+      // Read the clock after node preparation; schedule both sources at the same
+      // future render boundary, so a busy UI cannot make the start offset stale.
+      const when = ctx.currentTime + 256 / ctx.sampleRate;
+      const prior = playbackTimelineRef.current.at(-1);
+      const renderPosition = transition && prior ? playbackPosition(prior, when) : offsetTime;
+      const transitionOffset = transition && (renderPosition < effectiveStart || renderPosition >= effectiveEnd) ? effectiveStart : renderPosition;
+      const boundedOffset = Math.max(effectiveStart, Math.min(effectiveEnd, transitionOffset));
+      const safeStart = activeLoop && boundedOffset >= effectiveEnd ? effectiveStart : boundedOffset;
+      if (sourceNodeRef.current) sourceNodeRef.current.stop(when);
+      else stopPlayback(true, true);
+      playbackSourcesRef.current.add(source);
+      source.onended = () => { playbackSourcesRef.current.delete(source); source.disconnect(); };
+      // Visual completion follows the output clock after queued audio is heard.
+      if (source.loop) source.start(when, safeStart);
+      else source.start(when, safeStart, Math.max(0, effectiveEnd - safeStart));
 
       sourceNodeRef.current = source;
       isLoopingRef.current = source.loop;
       setIsLooping(source.loop);
-      playheadStartTimeRef.current = safeStart;
-      contextStartTimeRef.current = ctx.currentTime;
-      playbackWallStartTimeRef.current = performance.now();
+      playbackTimelineRef.current.push({ when, offset: safeStart, start: effectiveStart, end: effectiveEnd, loop: source.loop });
       isPlayingRef.current = true;
-      currentTimeRef.current = safeStart;
-      setCurrentTime(safeStart);
+      const heardPosition = timelinePosition(playbackTimelineRef.current, outputClock(ctx, performance.now())) ?? safeStart;
+      currentTimeRef.current = heardPosition;
+      setCurrentTime(heardPosition);
       setIsPlaying(true);
 
       startPlayheadLoop();
@@ -487,14 +451,18 @@ export default function App() {
     const buffer = audioBufferRef.current;
     if (!buffer) return;
     if (isPlayingRef.current) {
-      stopPlayback();
+      const ctx = audioCtxRef.current;
+      if (ctx) {
+        const position = timelinePosition(playbackTimelineRef.current, outputClock(ctx, performance.now()));
+        if (position !== null) { currentTimeRef.current = position; setCurrentTime(position); }
+      }
+      stopPlayback(true);
     } else {
       const endLimit = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
       const startLimit = cropStartRef.current;
       const cur = currentTimeRef.current;
       const resumeFrom = cur >= endLimit - 0.05 ? startLimit : cur;
-      // Regular playback never loops - looping is only for previewing a selection (handleLoopSelection)
-      startPlayback(resumeFrom, false);
+      startPlayback(resumeFrom);
     }
   }, [stopPlayback, startPlayback]);
 
@@ -560,19 +528,16 @@ export default function App() {
     selectionRef.current = nextSelection;
     setSelection(nextSelection);
 
+    if (nextSamples && loopModeRequestedRef.current && !isLoopingRef.current) {
+      isLoopingRef.current = true; setIsLooping(true);
+    }
     if (nextSelection && buffer && isLoopingRef.current && isPlayingRef.current) {
       const valid = sampleSelection(nextSelection, buffer.sampleRate, buffer.length);
       if (valid) {
         const bounds = { start: valid.start / buffer.sampleRate, end: valid.end / buffer.sampleRate };
-        const adjusted = loopEditPosition(currentTimeRef.current, bounds);
-        if (adjusted.restart) startPlayback(bounds.start, true);
-        else if (sourceNodeRef.current) {
-          sourceNodeRef.current.loopStart = bounds.start;
-          sourceNodeRef.current.loopEnd = bounds.end;
-          playheadStartTimeRef.current = adjusted.position;
-          contextStartTimeRef.current = audioCtxRef.current?.currentTime ?? 0;
-          playbackWallStartTimeRef.current = performance.now();
-        }
+        // Native mutable loop bounds can change phase independently of the displayed frame.
+        // Schedule one replacement at a known audio boundary instead, retaining queued history.
+        startPlayback(bounds.start, true, true);
       }
     }
     if (!nextSelection) {
@@ -1309,11 +1274,15 @@ export default function App() {
                         onStartBeatChange={setBeat}
                         onSelectionChange={handleSelectionChange}
                         onLoopChange={(enabled) => {
-                          if (enabled && selectionRef.current) handleLoopSelection(selectionRef.current.start, selectionRef.current.end);
-                          else {
-                            isLoopingRef.current = false;
-                            setIsLooping(false);
-                            if (isPlayingRef.current) startPlayback(currentTimeRef.current, false);
+                          loopModeRequestedRef.current = enabled;
+                          const buffer = audioBufferRef.current;
+                          const valid = buffer && sampleSelection(selectionRef.current, buffer.sampleRate, buffer.length);
+                          const loop = enabled && !!valid;
+                          const wasLooping = isLoopingRef.current;
+                          isLoopingRef.current = loop; setIsLooping(loop);
+                          if (isPlayingRef.current && wasLooping !== loop) {
+                            const ctx = audioCtxRef.current, active = playbackTimelineRef.current.at(-1);
+                            startPlayback(ctx && active ? playbackPosition(active, ctx.currentTime) : currentTimeRef.current, loop);
                           }
                         }}
                         onLoopSelection={handleLoopSelection}

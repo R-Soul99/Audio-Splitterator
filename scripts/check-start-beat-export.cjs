@@ -79,12 +79,17 @@ app.whenReady().then(async () => {
       assert.equal(result.scroll,false);assert.deepEqual(result.overflow,[]);
     };
     const shot=async name=>{await stable();await win.webContents.capturePage();await pause();fs.writeFileSync(path.join(__dirname,`../build/start-beat-${name}.png`),(await win.webContents.capturePage()).toPNG());};
+    const saved = async () => {
+      await wait(`document.querySelector('[aria-label="Show sample save"]').getClientRects().length>0 && document.querySelector('.loop-control-status').textContent.includes('Saved:')`);
+      await shot('returned-controls');
+      await click('Show sample save');
+    };
     await click('Loop / Sample');await region(1,3,'new');assert.equal(await run('component().memoizedProps.startBeat'),48000);
     await click('Set Start Beat');await shot('placement');await mouseClick(4);assert.deepEqual(await run('currentSelection()'),{start:1,end:3});assert.equal(await run('component().memoizedProps.placingStartBeat'),true);
     await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await pause();assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.deepEqual(await run('currentSelection()'),{start:1,end:3});
     await click('Set Start Beat');await click('Set Start Beat');assert.equal(await run('component().memoizedProps.placingStartBeat'),false);
     await click('Set Start Beat');await mouseClick(1.5);let beat=await run('component().memoizedProps.startBeat');assert.ok(Math.abs(beat-72000)<1500);assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.equal(await run('component().memoizedProps.isPlaying'),false);
-    await click('Selection loop');assert.equal(await run('sources.at(-1).offset'),beat/48000);
+    await click('Loop and play the selected region');assert.equal(await run('sources.at(-1).offset'),beat/48000);
     const count=await run('sources.length');await click('Set Start Beat');await mouseClick(2);assert.equal(await run('sources.length'),count,'Placement does not replace source');assert.equal(await run('component().memoizedProps.isPlaying'),true);assert.equal(await run('sources.filter(s=>s.active).length'),1);
     beat=await run('component().memoizedProps.startBeat');await region(2,4,'move');assert.equal(await run('component().memoizedProps.startBeat'),beat+48000);
     await region(2.1,4,'edge');assert.equal(await run('component().memoizedProps.startBeat'),beat+48000);
@@ -96,32 +101,32 @@ app.whenReady().then(async () => {
     await region(1,3,'new');await run('component().memoizedProps.onStartBeatChange(60000)');await pause();await click('Show sample save');
     await click('Browse sample folder');assert.equal(await run(`document.querySelector('[aria-label="Sample destination"]').value`),output);
     const savedBase='Sample Regression '+Date.now();await type('Sample filename',savedBase);
-    await select('Sample bit depth','24');await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Saved:')`);await shot('success');
+    await select('Sample bit depth','24');const beforeSave=await run('({selection:currentSelection(),beat:component().memoizedProps.startBeat,playing:component().memoizedProps.isPlaying,looping:component().memoizedProps.isLooping,count:sources.length})');await click('Save Sample');await saved();assert.deepEqual(await run('({selection:currentSelection(),beat:component().memoizedProps.startBeat,playing:component().memoizedProps.isPlaying,looping:component().memoizedProps.isLooping,count:sources.length})'),beforeSave);await shot('success');
     const wavPath=path.join(output,savedBase+'.wav'),savedWav=fs.readFileSync(wavPath);
     const verify=async (bytes,start=48000,end=144000,beat=60000,depth=24)=>run(`(async()=>{const bytes=Uint8Array.from(${JSON.stringify([...bytes])});const original=component().memoizedProps.audioBuffer;const decoded=await new OfflineAudioContext(2,1,original.sampleRate).decodeAudioData(bytes.buffer);if(decoded.length!==${end-start}||decoded.numberOfChannels!==2||decoded.sampleRate!==48000)throw Error('Decoded stream properties differ');for(let c=0;c<2;c++)for(let i=0;i<decoded.length;i++){const index=i<${end-beat}?${beat}+i:${start}+i-${end-beat};const sample=original.getChannelData(c)[index];const integer=${depth}===24?Math.floor(sample<0?sample*0x800000:sample*0x7fffff):Math.trunc(sample<0?sample*0x8000:sample*0x7fff);const scale=${depth}===24?0x800000:0x8000;const quantized=integer/(integer>=0?scale-1:scale);if(Math.round(decoded.getChannelData(c)[i]*(integer>=0?scale-1:scale))!==integer)throw Error('Decoded sample order differs at '+i+' channel '+c+' actual='+decoded.getChannelData(c)[i]+' expected='+quantized+' source='+sample);}return true;})()`);
     assert.equal(await verify(savedWav),true);
     await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Filename exists')`);await stable();
-    await run(`([...document.querySelectorAll('.sample-save-feedback button')].find(b=>b.textContent==='Numbered')).click()`);await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Saved:')`);assert.ok(fs.existsSync(path.join(output,savedBase+' (2).wav')));
-    await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Filename exists')`);await run(`([...document.querySelectorAll('.sample-save-feedback button')].find(b=>b.textContent==='Replace')).click()`);await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Saved:')`);
-    await select('Sample format','flac');await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Saved:')`);assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+'.flac'))),true);
+    await run(`([...document.querySelectorAll('.sample-save-feedback button')].find(b=>b.textContent==='Numbered')).click()`);await saved();assert.ok(fs.existsSync(path.join(output,savedBase+' (2).wav')));
+    await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Filename exists')`);await run(`([...document.querySelectorAll('.sample-save-feedback button')].find(b=>b.textContent==='Replace')).click()`);await saved();
+    await select('Sample format','flac');await click('Save Sample');await saved();assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+'.flac'))),true);
     // Default Start Beat and both supported bit depths.
     await run('component().memoizedProps.onStartBeatChange(48000)');await pause();await select('Sample bit depth','16');
-    for(const format of ['wav','flac']){await select('Sample format',format);await type('Sample filename',savedBase+' default');await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Saved:')`);assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+' default.'+format)),48000,144000,48000,16),true);}
+    for(const format of ['wav','flac']){await select('Sample format',format);await type('Sample filename',savedBase+' default');await click('Save Sample');await saved();assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+' default.'+format)),48000,144000,48000,16),true);}
     // The smallest possible selection exports one frame, including the final recording frame.
     const last=await run('component().memoizedProps.audioBuffer.length-1');await region(last/48000,(last+1)/48000,'new');await select('Sample bit depth','24');
-    for(const format of ['wav','flac']){await select('Sample format',format);await type('Sample filename',savedBase+' one');await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Saved:')`);assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+' one.'+format)),last,last+1,last),true);}
+    for(const format of ['wav','flac']){await select('Sample format',format);await type('Sample filename',savedBase+' one');await click('Save Sample');await saved();assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+' one.'+format)),last,last+1,last),true);}
     await region(1,3,'new');await run('component().memoizedProps.onStartBeatChange(60000)');await pause();
     // Encode a snapshot, then alter selection, marker and settings during the save.
     await select('Sample format','wav');await type('Sample filename',savedBase+' immutable');writeDelay=1500;
     await click('Save Sample');await region(4,5,'new');await select('Sample format','flac');await type('Sample filename','changed');await shot('saving');
-    assert.equal(await run(`document.querySelector('[aria-label="Save Sample"]').disabled`),true);await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Saved:')`);writeDelay=0;
+    assert.equal(await run(`document.querySelector('[aria-label="Save Sample"]').disabled`),true);await saved();writeDelay=0;
     assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+' immutable.wav'))),true);
     // Cancellation before publication must create no file and no success message.
     await select('Sample format','wav');await type('Sample filename',savedBase+' cancel');folderDelay=250;await click('Save Sample');
     await run(`document.querySelector('.sample-save-feedback button').click()`);await wait(`!document.querySelector('[aria-label="Save Sample"]').disabled`);folderDelay=0;
     assert.ok(await run(`document.querySelector('.sample-save-feedback').textContent.includes('cancelled')`));assert.equal(fs.existsSync(path.join(output,savedBase+' cancel.wav')),false);await stable();
     cancelChooser=true;await click('Browse sample folder');assert.equal(await run(`document.querySelector('[aria-label="Sample destination"]').value`),output);cancelChooser=false;
-    failSave=true;await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Error:')`);await shot('error');failSave=false;
+    failSave=true;await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Error:')`);assert.equal(await run(`document.querySelector('[aria-label="Save Sample"]').getClientRects().length>0`),true);await shot('error');failSave=false;
     await type('Sample filename','../invalid');await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('valid sample filename')`);await stable();
     await type('Sample filename','valid');await type('Sample destination','relative');await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('full sample destination')`);await stable();
     await click('Show loop controls');await click('Set Start Beat');assert.equal(await run('component().memoizedProps.placingStartBeat'),true);
@@ -132,7 +137,7 @@ app.whenReady().then(async () => {
     assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.equal(await run('component().memoizedProps.startBeat'),null);
     await win.reload();await wait(`!!document.querySelector('[aria-label="Edit waveform"]') || !!document.querySelector('main')`);
     await win.webContents.debugger.sendCommand('DOM.getDocument').then(async ({root})=>{const {nodeId}=await win.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:root.nodeId,selector:'input[type=file]'});await win.webContents.debugger.sendCommand('DOM.setFileInputFiles',{nodeId,files:[file]});});
-    await wait(`!!document.querySelector('[aria-label="Edit waveform"]') && !document.querySelector('main').inert`);await click('Loop / Sample');await click('Show sample save');await wait(`document.querySelector('[aria-label="Sample destination"]').value===${JSON.stringify(output)}`);
+    await wait(`!!document.querySelector('[aria-label="Edit waveform"]') && !document.querySelector('main').inert`);await click('Loop / Sample');await click('Show sample save');await wait(`document.querySelector('[aria-label="Sample destination"]').value===${JSON.stringify(output)}`);assert.equal(await run(`document.querySelector('[aria-label="Sample format"]').value`),'wav');assert.equal(await run(`document.querySelector('[aria-label="Sample bit depth"]').value`),'24');
     assert.equal(await store.getFolder(),output);
     console.log('PASS: placement consumes native clicks; outside/Escape/toggle/normal clear; marker move/reset; audition offset and repeated native loops; WAV/FLAC 16/24-bit default/rotated/one-frame decoded sample order/rate/channels/count; immutable snapshot; collision choices; invalid name/path; failure/cancellation; remembered destination; stable 980x650 layout and feedback');app.exit(0);
   }catch(error){console.error(error);app.exit(1);}

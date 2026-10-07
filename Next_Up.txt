@@ -51,14 +51,17 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     - Existing selection loop switch and illuminated indicator.
     - Editable Start / End (seconds or minutes:seconds), read-only Length in ms;
       Enter / blur commits, Escape cancels; boundaries use the source sample rate.
-    - Half / double length with Keep Start / Keep End; previous / next span moves.
-    - Whole / Start / End nudge target, bidirectional knob and single-step buttons;
-      selectable 1 / 10 / 100 ms steps, rounded to the nearest source sample.
+    - Half / double length keep Start fixed and adjust End; invalid spans disabled.
+    - Independent Start / End / Start Beat minus / plus buttons: 10 ms normally,
+      Shift-click 1 ms, rounded to the nearest source sample. Direct entry remains.
+      Redundant anchor / target selectors and nudge knob removed.
+    - Jump << / >> moves exactly one selection length and carries Start Beat.
     - Invalid boundary actions disabled; whole moves preserve sample length.
-      Active loop edits update native bounds, safely return an excluded playhead
+      Active loop edits schedule an exact, non-overlapping source handover, returning
+      an excluded playhead
       to the new start, and preserve looping through Tools tab changes.
     - Keep waveform position / size and the device dimensions unchanged.
-    Start Beat and sample export implemented, awaiting user review:
+    Start Beat, sample export and control / cursor refinements implemented, awaiting user review:
     - Set Start Beat enables one-shot placement inside the selection; outside
       clicks are consumed, Escape / a second press cancels, Reset restores Start.
       Clearing selection or loading another recording cancels placement.
@@ -77,6 +80,16 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
       Existing names require explicit Replace, Numbered or Cancel. Late name
       collisions cannot silently overwrite; complete-file publication and cleanup
       protect failed exports. Duplicate saves are disabled while busy.
+    - Successful exports return automatically to Controls, with brief feedback in
+      reserved inline space; selection, Start Beat and playback remain unchanged.
+      Failure / cancellation stays in Save. Destination, format and bit depth are
+      remembered for the next save, including reopening the app.
+    - Entering Loop / Sample arms looping, including a subsequently created region,
+      without starting stopped playback; other Tools tabs preserve active loops.
+    - Cursor uses active-source audio-clock segments and output-device timestamps,
+      retaining queued audio history across live edits. No wall-clock fallback or
+      rebasing from stale animation frames. Pause retains loop mode; audition still
+      starts at Start Beat without marker edits interrupting playback.
     - Reserved inline progress / success / error space; fixed 980 x 650 layout.
     Validation: TypeScript, 52 utility tests, sample-store collision / failure tests,
     stage-1 / waveform selection / track-export regressions, production Electron
@@ -90,3 +103,22 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     intended destination, overwrite choices and workflow / appearance approval.
     Pending later timing mode: Time / Beats, BPM and musical divisions.
     Start Beat is manually placed; no beat detection or BPM mode is included.
+
+    Control / cursor follow-up (7 October 2026), awaiting Leroy testing:
+    Reproduced a 531 ms cursor lag with delayed display frames and a live edge edit:
+    the old code rebased from a stale rendered position. Mutable native loop bounds
+    also produced a different phase from the estimated cursor after an expansion.
+    Replaced this with scheduled old-stop / new-start at the same render boundary,
+    using source-clock phase and preserving output-latency history. Start Beat
+    changes remain passive until explicit audition. No source overlap is intended.
+    Focused regressions cover coarse / fine sample boundaries, default looping
+    without autoplay, Jump / length changes, live edits, wraps, pause / resume,
+    restarted audition and delayed display frames against independently captured PCM.
+    Passed: TypeScript, 56 audio utility tests, sample-store tests, production build
+    and Electron loop / waveform / rotated-export regressions. Final PCM run: 149
+    observations, maximum cursor error 0.61 ms; no simultaneous active sources.
+    Review on the intended audio hardware remains necessary: listen to regular
+    transients through multiple wraps, live edits, pause / resume and re-audition.
+    A generated review fixture is build/loop-sample-sync-transients.wav (right
+    channel has quarter-second clicks; left channel identifies sample positions).
+    No merge or push; export and Beats-mode scope remain as recorded above.

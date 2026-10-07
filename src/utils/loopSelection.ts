@@ -3,6 +3,13 @@ import { TimeSelection } from '../types';
 export type LoopTarget = 'whole' | 'start' | 'end';
 export type LoopAnchor = 'start' | 'end';
 export interface SampleSelection { start: number; end: number }
+export function adjustmentSamples(rate: number, fine: boolean): number {
+  return Math.max(1, Math.round(rate * (fine ? 1 : 10) / 1000));
+}
+export function adjustBeatSample(beat: number, selection: SampleSelection, delta: number): number | null {
+  const next = beat + delta;
+  return Number.isInteger(next) && next >= selection.start && next < selection.end ? next : null;
+}
 // All operations use integer sample boundaries; no operation clamps a requested span.
 export function sampleSelection(selection: TimeSelection | null, rate: number, frames: number): SampleSelection | null {
   if (!selection || !Number.isFinite(rate) || rate <= 0 || Math.min(selection.start, selection.end) < 0 || Math.max(selection.start, selection.end) > frames / rate) return null;

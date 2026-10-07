@@ -264,9 +264,6 @@
 .loop-switch { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .loop-led { width: 6px; height: 6px; border-radius: 50%; background: #123b2e; box-shadow: inset 0 1px 2px #000; }
 .loop-led.lit { background: #34d399; box-shadow: 0 0 5px #34d399; }
-.loop-nudge-knob { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; border: 1px solid #475569; background: radial-gradient(circle at 35% 30%, #475569, #0f172a); cursor: ns-resize; touch-action: none; position: relative; }
-.loop-nudge-knob span { position: absolute; top: 2px; left: 10px; height: 7px; width: 2px; background: #7dd3fc; }
-.loop-nudge-knob[aria-disabled=true] { opacity: .4; cursor: not-allowed; }
 .loop-hint { font-size: 8px; line-height: 10px; height: 10px; }
 
 .tools-panel > div:first-child button { font-size: 9px; padding: 2px 4px; }
@@ -286,3 +283,8 @@
 .sample-save-feedback { display: flex; align-items: center; gap: 3px; height: 14px; font-size: 8px; min-width: 0; }
 .sample-save-feedback > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loop-sample-controls .sample-save-feedback button { height: 14px; font-size: 8px; padding: 0 3px; }
+
+.loop-length { flex-shrink: 0; font-size: 8px; white-space: nowrap; }
+.loop-length output { color: #7dd3fc; font-family: monospace; font-variant-numeric: tabular-nums; }
+.loop-control-status { flex: 1; min-width: 0; height: 14px; line-height: 14px; font-size: 8px; color: #6ee7b7; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.loop-sample-controls button[aria-disabled=true] { opacity: .55; }

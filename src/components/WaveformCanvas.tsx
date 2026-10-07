@@ -1545,15 +1545,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         onSelectionChange?.({ start: selStart, end: selEnd }, 'new');
 
         // Detection selections are measured directly from the buffer, without auditioning.
-        if (!processingOpen && onLoopSelection) {
+        if (!processingOpen && !showLoopSample && !isLooping && onLoopSelection) {
           onLoopSelection(selStart, selEnd);
-        } else if (!processingOpen && onPlaySelection) {
+        } else if (!processingOpen && !showLoopSample && !isLooping && onPlaySelection) {
           onPlaySelection(selStart, selEnd);
         }
       }
     } else if (
       (activeDrag?.type === 'selectionStart' || activeDrag?.type === 'selectionEnd' || activeDrag?.type === 'selectionMove') &&
-      selection && moved && !processingOpen
+      selection && moved && !processingOpen && !showLoopSample && !isLooping
     ) {
       if (Math.abs(selection.end - selection.start) > 0.05) {
         const s = Math.min(selection.start, selection.end);
@@ -2120,9 +2120,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             >
               Normalise
             </button>
-            <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); setProcessingOpen(false); setShowPeakTamerPopover(false); setShowNormalisePopover(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
+            <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); onLoopChange?.(true); setProcessingOpen(false); setShowPeakTamerPopover(false); setShowNormalisePopover(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
           </div>
-          <span className="ml-auto shrink-0 text-[8px] text-slate-500">Shift + Knob = Fine</span>
+          <span className="ml-auto shrink-0 text-[8px] text-slate-500">{showLoopSample ? 'Shift + Click = 1 ms' : 'Shift + Knob = Fine'}</span>
           </div>
 
           <div hidden={!showLoopSample}><LoopSampleControls audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onSelectionChange={onSelectionChange} onLoopChange={onLoopChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>

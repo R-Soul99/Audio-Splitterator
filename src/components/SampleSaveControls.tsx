@@ -4,11 +4,12 @@ import { sampleFilename, snapshotSample } from '../utils/sampleExport';
 import { encodeFlac, encodeWav } from '../utils/audioEncoder';
 import { getSampleExport, SampleSaveRequest } from '../utils/desktopExport';
 
-export function SampleSaveControls({ audioBuffer, selection, startBeat, onControls }: { audioBuffer: AudioBuffer | null; selection: SampleSelection | null; startBeat: number | null; onControls: () => void }) {
+export function SampleSaveControls({ audioBuffer, selection, startBeat, onControls, onSaved }: { audioBuffer: AudioBuffer | null; selection: SampleSelection | null; startBeat: number | null; onControls: () => void; onSaved: (path: string) => void }) {
   const api = getSampleExport();
   const [filename, setFilename] = useState('Loop Sample');
-  const [format, setFormat] = useState<'wav' | 'flac'>('wav');
-  const [depth, setDepth] = useState<16 | 24>(24);
+  const [format, setFormat] = useState<'wav' | 'flac'>(() => { try { return localStorage.getItem('audiophonic_sample_format') === 'flac' ? 'flac' : 'wav'; } catch { return 'wav'; } });
+  const [depth, setDepth] = useState<16 | 24>(() => { try { return localStorage.getItem('audiophonic_sample_depth') === '16' ? 16 : 24; } catch { return 24; } });
+  useEffect(() => { try { localStorage.setItem('audiophonic_sample_format', format); localStorage.setItem('audiophonic_sample_depth', String(depth)); } catch {} }, [format, depth]);
   const [folder, setFolder] = useState('');
   const [status, setStatus] = useState('');
   const [phase, setPhase] = useState<'idle' | 'encoding' | 'writing'>('idle');
@@ -34,7 +35,7 @@ export function SampleSaveControls({ audioBuffer, selection, startBeat, onContro
     setPhase('writing'); message('Writing sample...');
     const result = await api!.saveSample(request);
     if (result.status === 'exists') { setPending(request); message(`Filename exists: ${request.name}. Replace or Numbered?`); }
-    else { setPending(null); message(`Saved: ${result.path}`); }
+    else { setPending(null); message(`Saved: ${result.path}`); if (mounted.current) onSaved(result.path); }
   };
   const save = async (mode?: 'replace' | 'numbered') => {
     if (active.current || !api) return;
