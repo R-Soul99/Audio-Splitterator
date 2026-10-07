@@ -36,7 +36,7 @@ app.whenReady().then(async () => {
         document.querySelector('[aria-label="Wake audio engine"]').click();
       `);
       await wait('analysers>=2');
-      await wait(`document.querySelector('[aria-label="Start recording"]').getBoundingClientRect().width<96`);
+      await wait(`document.querySelector('[aria-label="Start recording"]').getBoundingClientRect().width<136`);
       await run(`
         window.geometry=()=>{
           const rect=element=>{const r=element.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};
@@ -46,6 +46,10 @@ app.whenReady().then(async () => {
           const transport=panel('Transport');
           return {waveform:rect(waveform),meters:rect(meters),transport:rect(transport),
             button:rect(transport.querySelector('button')),
+            stopGroup:rect(transport.querySelector('[aria-label="Stop recording"]').parentElement),
+            heading:rect(transport.querySelector('span')),
+            controls:rect(panel('Controls').parentElement),
+            preamp:rect(document.querySelector('[title="Preamp boost gain (drag up / down)"]')),
             vus:[...document.querySelectorAll('svg[aria-label$="level meter"]')].map(rect),
             overflow:[document.documentElement.scrollWidth>innerWidth,document.documentElement.scrollHeight>innerHeight],
             clipped:[...transport.querySelectorAll('button')].some(b=>b.getBoundingClientRect().bottom>transport.getBoundingClientRect().bottom)};
@@ -61,10 +65,18 @@ app.whenReady().then(async () => {
       const readyGeometry=await run('geometry()');
       await capture('ready');
       assert.equal(await run(`document.querySelector('[aria-label="Stop recording"]').disabled`),true);
-      assert.ok(Math.abs(readyGeometry.meters[0]-(readyGeometry.waveform[0]-17*(readyGeometry.button[2]/96)))<1,'meter panel aligned with waveform panel');
+      assert.ok(Math.abs(readyGeometry.meters[0]-(readyGeometry.waveform[0]-17*(readyGeometry.button[2]/136)))<1,'meter panel aligned with waveform panel');
       assert.ok(readyGeometry.transport[0]>readyGeometry.meters[0]);
       assert.deepEqual(readyGeometry.overflow,[false,false]);
       assert.equal(readyGeometry.clipped,false);
+      const scale=readyGeometry.button[2]/136;
+      assert.ok(Math.abs(readyGeometry.transport[2]-220*scale)<.01,'wider Transport panel');
+      assert.ok(readyGeometry.button[2]>readyGeometry.preamp[2],'primary button larger than Preamp');
+      const groupCentre=(readyGeometry.button[1]+readyGeometry.stopGroup[1]+readyGeometry.stopGroup[3])/2;
+      assert.ok(Math.abs(groupCentre-(readyGeometry.transport[1]+readyGeometry.transport[3]/2))<.01,'control group vertically centred');
+      assert.ok(readyGeometry.heading[1]+readyGeometry.heading[3]<readyGeometry.button[1],'heading remains above controls');
+      assert.ok(readyGeometry.stopGroup[1]>readyGeometry.button[1]+readyGeometry.button[3],'Stop below primary button');
+      assert.ok(readyGeometry.vus.every(vu=>Math.abs(vu[2]/vu[3]-440/246)<.001),'VU proportions preserved');
       await run(`document.querySelector('[aria-label="Start recording"]').click()`);
       await wait('processors.some(processor=>processor.size===4096)');
       await run(`

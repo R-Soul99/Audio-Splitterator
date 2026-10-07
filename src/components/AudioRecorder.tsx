@@ -1187,7 +1187,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* Bottom row */}
-          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_160px] gap-4">
+          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_220px] gap-4">
             {/* Level meters */}
             <div className="flex min-w-0 flex-col rounded-xl border border-slate-700/60 bg-slate-950/80 p-4">
               <div className="flex items-center gap-4">
@@ -1211,53 +1211,55 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </div>
             </div>
             {/* Transport */}
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
-              <span className="self-start text-xs font-bold uppercase tracking-wider text-slate-300">Transport</span>
-              <div className="flex flex-col items-center gap-1">
-                <button
-                  type="button"
-                  onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
-                  onClick={() => {
-                    if (isStandbyMode) {
-                      onWakeAudioEngine?.();
-                    } else if (isRecording) {
-                      togglePause();
-                    } else {
-                      startRecording();
-                    }
-                  }}
-                  className={`flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-all duration-300 ${
-                    isStandbyMode
-                      ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500 hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
-                      : isRecording
-                      ? isPaused
-                        ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500'
-                        : 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:bg-red-600'
-                      : 'bg-red-600 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:bg-red-500 hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
-                  }`}
-                  title={isStandbyMode ? 'Audio engine is sleeping in Standby. Click to wake and record.' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start Recording'}
-                  aria-label={isStandbyMode ? 'Wake audio engine' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start recording'}
-                >
-                  {isRecording ? (
-                    isPaused ? <Play aria-hidden="true" className="h-8 w-8 fill-current text-white/90" /> : <Pause aria-hidden="true" className="h-8 w-8 fill-current text-white/90" />
-                  ) : <span className="h-8 w-8 rounded-full bg-white/90" />}
-                </button>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : isRecording ? (isPaused ? 'RESUME' : 'PAUSE') : 'RECORD'}</span>
-              </div>
+            <div className="relative flex flex-col items-center rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
+              <span className="absolute left-3 top-3 text-xs font-bold uppercase tracking-wider text-slate-300">Transport</span>
+              <div className="flex h-full w-full flex-col items-center justify-center gap-5">
+                <div className="flex flex-col items-center gap-1">
+                  <button
+                    type="button"
+                    onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
+                    onClick={() => {
+                      if (isStandbyMode) {
+                        onWakeAudioEngine?.();
+                      } else if (isRecording) {
+                        togglePause();
+                      } else {
+                        startRecording();
+                      }
+                    }}
+                    className={`flex h-[136px] w-[136px] shrink-0 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-all duration-300 ${
+                      isStandbyMode
+                        ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500 hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
+                        : isRecording
+                        ? isPaused
+                          ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500'
+                          : 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:bg-red-600'
+                        : 'bg-red-600 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:bg-red-500 hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
+                    }`}
+                    title={isStandbyMode ? 'Audio engine is sleeping in Standby. Click to wake and record.' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start Recording'}
+                    aria-label={isStandbyMode ? 'Wake audio engine' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start recording'}
+                  >
+                    {isRecording ? (
+                      isPaused ? <Play aria-hidden="true" className="h-11 w-11 fill-current text-white/90" /> : <Pause aria-hidden="true" className="h-11 w-11 fill-current text-white/90" />
+                    ) : <span className="h-11 w-11 rounded-full bg-white/90" />}
+                  </button>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : isRecording ? (isPaused ? 'RESUME' : 'PAUSE') : 'RECORD'}</span>
+                </div>
 
-              <div className="flex flex-col items-center gap-1">
-                <button
-                  type="button"
-                  onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
-                  disabled={!isRecording}
-                  onClick={stopRecording}
-                  className="flex h-14 w-[76px] cursor-pointer items-center justify-center rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 shadow transition hover:bg-slate-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  title="Stop recording"
-                  aria-label="Stop recording"
-                >
-                  <Square className="h-6 w-6 fill-current" />
-                </button>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Stop</span>
+                <div className="flex flex-col items-center gap-1">
+                  <button
+                    type="button"
+                    onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
+                    disabled={!isRecording}
+                    onClick={stopRecording}
+                    className="flex h-14 w-[76px] cursor-pointer items-center justify-center rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 shadow transition hover:bg-slate-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Stop recording"
+                    aria-label="Stop recording"
+                  >
+                    <Square className="h-6 w-6 fill-current" />
+                  </button>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Stop</span>
+                </div>
               </div>
             </div>
           </div>
