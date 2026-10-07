@@ -79,9 +79,10 @@ app.whenReady().then(async () => {
       assert.ok(readyGeometry.led[0]>=readyGeometry.controls[0] && readyGeometry.led[0]+readyGeometry.led[2]<=readyGeometry.controls[0]+readyGeometry.controls[2],'REC LED fits within Controls');
       const checkVisualState=async(name)=>{
         const actual=await run(`(()=>{const group=document.querySelector('[aria-label="Recording controls"]'),button=group.querySelector('button'),led=group.querySelector('[role="img"]');return {label:button.nextElementSibling.textContent,colour:button.classList.contains('bg-amber-600')?'amber':'red',icon:button.querySelector('svg')?.classList.contains('lucide-pause')?'pause':'circle',led:led.getAttribute('aria-label'),glow:getComputedStyle(led.firstElementChild).boxShadow!=='none'};})()`);
-        assert.deepEqual(actual,{label:name==='Ready'?'RECORD':name==='Recording'?'PAUSE':'RESUME',colour:name==='Paused'?'amber':'red',icon:name==='Ready'?'circle':'pause',led:name==='Recording'?'Recording indicator on':'Recording indicator off',glow:name==='Recording'},name+' visual state');
+        assert.deepEqual(actual,{label:name==='Ready'?'RECORD':name==='Recording'?'PAUSE':'RESUME',colour:name==='Paused'?'amber':'red',icon:name==='Ready'?'circle':'pause',led:name==='Recording'?'Recording indicator on':name==='Paused'?'Recording indicator flashing: paused':'Recording indicator off',glow:name!=='Ready'},name+' visual state');
       };
       await checkVisualState('Ready');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-led')`),false,'Ready LED does not blink');
       const scale=readyGeometry.button[2]/136;
       assert.ok(readyGeometry.button[2]>readyGeometry.preamp[2],'primary button larger than Preamp');
       assert.ok(Math.abs(readyGeometry.transport[1]+readyGeometry.transport[3]-(readyGeometry.controls[1]+readyGeometry.controls[3]-13*scale))<1,'recording controls anchored at panel bottom');
@@ -118,6 +119,7 @@ app.whenReady().then(async () => {
       await wait(`!!document.querySelector('[aria-label="Pause recording"]')`);
       assert.deepEqual(await run('geometry()'),readyGeometry,'recording layout stable');
       await checkVisualState('Recording');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-led')`),false,'Recording LED remains steady');
       assert.equal(await run(`getComputedStyle(document.querySelector('[aria-label="Pause recording"]')).animationName`),'none','recording button stays steady');
       await capture('recording');
       await run(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyM',key:'m',bubbles:true}))`);
@@ -129,6 +131,8 @@ app.whenReady().then(async () => {
       assert.equal(await run(`document.querySelector('[aria-label="Resume recording"]').nextElementSibling.textContent`),'RESUME','Resume label stays visible');
       assert.equal(await run(`[...document.querySelector('[aria-label="Combined recording waveform"]').parentElement.nextElementSibling.querySelectorAll('span')].some(e=>e.textContent==='Paused')`),true,'Paused status readout stays visible');
       await checkVisualState('Paused');
+      const checkPausedLed=async()=>assert.deepEqual(await run(`(()=>{const led=document.querySelector('.recording-paused-led'),animation=led.getAnimations()[0];return {name:getComputedStyle(led).animationName,duration:animation?.effect.getTiming().duration,opacity:animation?.effect.getKeyframes().map(frame=>frame.opacity)};})()`),{name:'recording-led-blink',duration:1000,opacity:['1','0.15','1']},'Paused LED blinks once per second');
+      await checkPausedLed();
       assert.deepEqual(await run(`(()=>{const button=document.querySelector('[aria-label="Resume recording"]'),icon=button.querySelector('svg'),animations=button.getAnimations().filter(animation=>animation instanceof CSSAnimation);return {name:getComputedStyle(button).animationName,duration:animations[0]?.effect.getTiming().duration,icon:icon.getAnimations().length,label:button.nextElementSibling.getAnimations().length};})()`),
         {name:'recording-pause-blink',duration:1000,icon:0,label:0},'one-second animation applies to button with a steady Resume label');
       assert.deepEqual(await run(`(()=>{const animation=document.querySelector('.recording-paused-button').getAnimations().find(animation=>animation instanceof CSSAnimation);return animation.effect.getKeyframes().map(frame=>frame.opacity);})()`),['1','0.55','1'],'gentle button blink');
@@ -137,6 +141,15 @@ app.whenReady().then(async () => {
       await wait(`getComputedStyle(document.querySelector('.recording-paused-button')).animationName==='none'`);
       assert.equal(await run(`getComputedStyle(document.querySelector('.recording-paused-button')).opacity`),'1','reduced motion shows steady amber button');
       assert.deepEqual(await run('geometry()'),readyGeometry,'reduced motion preserves layout');
+      await checkPausedLed();
+      // Sample the actual running animation, rather than only its CSS definition.
+      const ledLevels=[];
+      for(let sample=0;sample<8;sample++){
+        await win.webContents.capturePage();
+        ledLevels.push(Number(await run(`getComputedStyle(document.querySelector('.recording-paused-led')).opacity`)));
+        await new Promise(resolve=>setTimeout(resolve,125));
+      }
+      assert.ok(Math.max(...ledLevels)-Math.min(...ledLevels)>.2,'LED visibly pulses even with reduced motion: '+ledLevels.join(', '));
       await capture('paused-reduced-motion');
       await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
 
@@ -153,6 +166,7 @@ app.whenReady().then(async () => {
       assert.deepEqual(await run('geometry()'),readyGeometry,'resumed layout stable');
       assert.equal(await run(`!!document.querySelector('.recording-paused-button')`),false,'resume removes blinking immediately');
       await checkVisualState('Recording');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-led')`),false,'Recording LED remains steady');
       assert.equal(await run(`getComputedStyle(document.querySelector('[aria-label="Pause recording"] svg')).animationName`),'none','recording icon is steady');
       await wait(`elapsed()!==${JSON.stringify(frozenTime)}`);
       await capture('resumed');
@@ -167,7 +181,7 @@ app.whenReady().then(async () => {
       await capture(stopWhilePaused?'stop-paused':'stop-recording');
       await run(`document.querySelector('[aria-label="Stop recording"]').click()`);
       await wait('finalBuffer!==null');
-      assert.equal(await run(`!!document.querySelector('.recording-paused-button')`),false,'Stop removes paused animation');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-button, .recording-paused-led')`),false,'Stop removes paused animations');
       assert.deepEqual(await run(`({channels:finalBuffer.numberOfChannels,rate:finalBuffer.sampleRate,
         length:finalBuffer.length,left:[finalBuffer.getChannelData(0)[0],finalBuffer.getChannelData(0)[4095],finalBuffer.getChannelData(0)[4096],finalBuffer.getChannelData(0)[8191]],right:[finalBuffer.getChannelData(1)[0],finalBuffer.getChannelData(1)[4095],finalBuffer.getChannelData(1)[4096],finalBuffer.getChannelData(1)[8191]]})`),
         { channels: 2, rate: 44100, length: 8192, left: [0.25,0.25,0.75,0.75], right: [-0.5,-0.5,0.5,0.5] }, 'captured stereo samples remain distinct and exact');
@@ -175,6 +189,7 @@ app.whenReady().then(async () => {
       await run(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='RECORD').click()`);
       await wait(`!!document.querySelector('[aria-label="Start recording"]') && document.querySelector('[aria-label="Start recording"]').getBoundingClientRect().width<136`);
       await checkVisualState('Ready');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-led')`),false,'Ready LED does not blink');
       assert.equal(await run(`document.querySelector('[aria-label="Stop recording"]').disabled`),true,'Stop disabled after finalisation');
       assert.deepEqual(await run('geometry()'),readyGeometry,'Ready layout restored after finalisation');
       await capture('stopped-ready');

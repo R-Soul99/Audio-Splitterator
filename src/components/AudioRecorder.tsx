@@ -1287,10 +1287,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <div className="absolute -right-7 top-3 flex w-6 flex-col items-center gap-1">
                   <span
                     role="img"
-                    aria-label={isRecording && !isPaused ? 'Recording indicator on' : 'Recording indicator off'}
+                    aria-label={isRecording ? (isPaused ? 'Recording indicator flashing: paused' : 'Recording indicator on') : 'Recording indicator off'}
                     className="flex h-4 w-4 items-center justify-center rounded-full border-2 border-slate-600 bg-slate-950 shadow-[inset_0_1px_3px_rgba(0,0,0,0.8)]"
                   >
-                    <span className={`h-2.5 w-2.5 rounded-full ${isRecording && !isPaused
+                    <span className={`h-2.5 w-2.5 rounded-full ${isRecording && isPaused ? 'recording-paused-led' : ''} ${isRecording
                       ? 'bg-[radial-gradient(circle_at_35%_30%,#fecaca,#ef4444_45%,#991b1b)] shadow-[0_0_9px_rgba(239,68,68,0.9)]'
                       : 'bg-[radial-gradient(circle_at_35%_30%,#7f1d1d,#450a0a_55%,#200606)]'}`} />
                   </span>
