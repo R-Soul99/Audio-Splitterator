@@ -1283,7 +1283,19 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </div>
             </div>
             <div role="group" aria-label="Recording controls" className="mt-auto flex shrink-0 flex-col items-center gap-2 border-t border-slate-700/60 pt-2">
-              <div className="flex flex-col items-center gap-1">
+              <div className="relative flex flex-col items-center gap-1">
+                <div className="absolute -right-7 top-3 flex w-6 flex-col items-center gap-1">
+                  <span
+                    role="img"
+                    aria-label={isRecording && !isPaused ? 'Recording indicator on' : 'Recording indicator off'}
+                    className="flex h-4 w-4 items-center justify-center rounded-full border-2 border-slate-600 bg-slate-950 shadow-[inset_0_1px_3px_rgba(0,0,0,0.8)]"
+                  >
+                    <span className={`h-2.5 w-2.5 rounded-full ${isRecording && !isPaused
+                      ? 'bg-[radial-gradient(circle_at_35%_30%,#fecaca,#ef4444_45%,#991b1b)] shadow-[0_0_9px_rgba(239,68,68,0.9)]'
+                      : 'bg-[radial-gradient(circle_at_35%_30%,#7f1d1d,#450a0a_55%,#200606)]'}`} />
+                  </span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">REC</span>
+                </div>
                 <button
                   type="button"
                   onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
@@ -1296,12 +1308,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                       startRecording();
                     }
                   }}
-                  className={`flex h-[136px] w-[136px] shrink-0 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-all duration-300 ${
+                  className={`flex h-[136px] w-[136px] shrink-0 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-shadow duration-300 ${
                     isStandbyMode
                       ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500 hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
                       : isRecording
                       ? isPaused
-                        ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500'
+                        ? 'recording-paused-button bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500'
                         : 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:bg-red-600'
                       : 'bg-red-600 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:bg-red-500 hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
                   }`}
@@ -1309,7 +1321,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   aria-label={isStandbyMode ? 'Wake audio engine' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start recording'}
                 >
                   {isRecording ? (
-                    <Pause aria-hidden="true" className={`h-11 w-11 fill-current text-white/90 ${isPaused ? 'recording-paused-icon' : ''}`} />
+                    <Pause aria-hidden="true" className="h-11 w-11 fill-current text-white/90" />
                   ) : <span className="h-11 w-11 rounded-full bg-white/90" />}
                 </button>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : isRecording ? (isPaused ? 'RESUME' : 'PAUSE') : 'RECORD'}</span>
