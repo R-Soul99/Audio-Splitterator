@@ -10,3 +10,9 @@ export function placementSample(time: number, rate: number, selection: SampleSel
   const sample = Math.round(time * rate);
   return selection && Number.isInteger(sample) && sample >= selection.start && sample < selection.end ? sample : null;
 }
+export function adjustStartBeatState(previous: SampleSelection | null, next: SampleSelection | null, beat: number | null, custom: boolean, edit: SelectionEdit): { sample: number | null; custom: boolean } {
+  if (!custom) return { sample: next?.start ?? null, custom: false };
+  const sample = adjustStartBeat(previous, next, beat, edit);
+  const candidate = beat !== null && previous && next ? beat + (edit === 'move' ? next.start - previous.start : 0) : null;
+  return { sample, custom: custom && edit !== 'new' && candidate !== null && candidate === sample };
+}

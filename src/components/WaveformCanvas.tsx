@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { selectionEndpoint } from '../utils/waveformSelection';
 import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
-import { LoopSampleControls } from './LoopSampleControls';
+import { LoopSampleControls, SelectionLoopSwitch } from './LoopSampleControls';
 import { placementSample, SelectionEdit } from '../utils/startBeat';
 import { sampleSelection } from '../utils/loopSelection';
 import { RotaryKnob } from './RotaryKnob';
@@ -71,6 +71,7 @@ interface WaveformCanvasProps {
   onSeek: (time: number) => void;
   onWaveformClick: (time: number) => void;
   startBeat?: number | null;
+  customStartBeat?: boolean;
   placingStartBeat?: boolean;
   onPlacementChange?: (active: boolean) => void;
   onStartBeatChange?: (sample: number | null) => void;
@@ -206,7 +207,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onSeek,
   onWaveformClick,
   onSelectionChange,
-  startBeat = null, placingStartBeat = false, onPlacementChange, onStartBeatChange,
+  startBeat = null, customStartBeat = false, placingStartBeat = false, onPlacementChange, onStartBeatChange,
   onLoopSelection,
   onLoopChange,
   onCropToSelection,
@@ -849,7 +850,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
 
     // A passive marker: no hit target, so selection edges/fade handles remain unchanged.
-    if (audioBuffer && startBeat !== null && selection) {
+    if (audioBuffer && customStartBeat && startBeat !== null && selection) {
       const x = timeToX(startBeat / audioBuffer.sampleRate, width);
       if (x >= 0 && x <= width) {
         ctx.save(); ctx.strokeStyle = '#e879f9'; ctx.fillStyle = '#e879f9'; ctx.lineWidth = 1.5;
@@ -1156,7 +1157,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, startBeat, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, startBeat, customStartBeat, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
 
   const drawOverlayRef = useRef(drawOverlay);
 
@@ -2124,10 +2125,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             </button>
             <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); onLoopChange?.(true); setProcessingOpen(false); setShowPeakTamerPopover(false); setShowNormalisePopover(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
           </div>
-          <span className="ml-auto shrink-0 text-[8px] text-slate-500">{showLoopSample ? 'Shift + Click = 1 ms' : 'Shift + Knob = Fine'}</span>
+          {showLoopSample && <SelectionLoopSwitch audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onLoopChange={onLoopChange} />}
           </div>
 
-          <div hidden={!showLoopSample}><LoopSampleControls active={showLoopSample} audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onSelectionChange={onSelectionChange} onLoopChange={onLoopChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
+          <div hidden={!showLoopSample}><LoopSampleControls active={showLoopSample} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">

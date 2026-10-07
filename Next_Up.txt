@@ -49,13 +49,18 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
 12. Stage 1 tested and approved by Leroy; retained unmerged for this follow-up.
     Permanent Loop / Sample tab in the existing fixed Tools panel; no pop-up or separate loop region.
     - Existing selection loop switch and illuminated indicator.
-    - Editable Start / End (seconds or minutes:seconds), read-only Length in ms;
-      Enter / blur commits, Escape cancels; boundaries use the source sample rate.
+    - Editable Start / End (seconds or minutes:seconds), read-only Length in seconds;
+      Enter / blur commits edits, Escape cancels; boundaries use the source sample rate.
+      Three-decimal displays never round stored samples on unedited focus / blur.
     - Half / double length keep Start fixed and adjust End; invalid spans disabled.
-    - Independent Start / End / Start Beat minus / plus buttons: 10 ms normally,
-      Shift-click 1 ms, rounded to the nearest source sample. Direct entry remains.
+    - Two compact rows: Start / End / Length / half / double above Start Beat /
+      Set / Clear / Slide / Jump / Save. Loop switch / LED beside Tools tabs.
+    - Outlined Start / End / Start Beat readouts contain left / editable value /
+      right compartments: 10 ms normally, Shift-click 1 ms, aligned to audio samples.
+      Independent entry and arrows remain; tooltips explain coarse / fine steps.
       Redundant anchor / target selectors and nudge knob removed.
-    - Jump << / >> moves exactly one selection length and carries Start Beat.
+    - Slide arrows move exactly 10 ms / Shift 1 ms without shortening; Jump double
+      arrows move exactly one selection length. Both preserve relative Start Beat.
     - Invalid boundary actions disabled; whole moves preserve sample length.
       Active loop edits schedule an exact, non-overlapping source handover, returning
       an excluded playhead
@@ -63,11 +68,13 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     - Keep waveform position / size and the device dimensions unchanged.
     Start Beat, sample export and control / cursor refinements implemented, awaiting user review:
     - Set Start Beat enables one-shot placement inside the selection; outside
-      clicks are consumed, Escape / a second press cancels, Reset restores Start.
+      clicks are consumed, Escape / a second press cancels. Clear removes the custom
+      marker, cancels placement and uses the selection start for audition / export.
       Clearing selection or loading another recording cancels placement.
     - Magenta labelled marker and sample-accurate readout. Whole moves preserve
       relative position; edge / length edits retain it if inside, otherwise reset.
-      New selections default to Start. Selection End remains exclusive.
+      New selections and cleared markers follow Start, with no custom marker shown.
+      Placement, typed entry or nudging shows a custom marker; End is exclusive.
     - Explicit loop audition starts at Start Beat, reaches End, then wraps to Start.
       Placing the marker during playback does not interrupt the active source.
     - Controls / Save sections remain within the fixed Loop / Sample panel.
@@ -122,3 +129,17 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     A generated review fixture is build/loop-sample-sync-transients.wav (right
     channel has quarter-second clicks; left channel identifies sample positions).
     No merge or push; export and Beats-mode scope remain as recorded above.
+
+    Compact Loop / Sample follow-up (7 October 2026), implemented for review:
+    Two fixed control rows, integrated arrow compartments and three-decimal times;
+    dirty-entry tracking preserves sub-millisecond samples on focus / Enter / blur.
+    Slide restored without a knob or target selector. Custom Start Beat visibility
+    is distinct from its default export / audition start; Clear follows Start.
+    Fine highlights reflect held Shift; pressed illumination ends on release;
+    keyboard focus remains a distinct dashed outline. Instructions use tooltips.
+    Existing ruler readout and audio-clock source handovers are preserved.
+    Passed: TypeScript, 57 utility tests, sample-store tests, production build and
+    three Electron regressions covering rounded precision, Slide, Clear, long values,
+    disabled states, highlights, fixed layout, cursor placement and rotated exports.
+    PCM comparison: 174 observations, maximum cursor error 0.69 ms; no source overlap.
+    No merge or push. Manual listening and final visual approval remain pending.

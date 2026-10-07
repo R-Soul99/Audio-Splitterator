@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { adjustStartBeat, placementSample } from './startBeat';
+import { adjustStartBeat, placementSample, adjustStartBeatState } from './startBeat';
 const previous = { start: 100, end: 300 };
 test('Start Beat moves with whole region, retains absolute position on edge edits, resets when excluded', () => {
   assert.equal(adjustStartBeat(previous, { start: 200, end: 400 }, 150, 'move'), 250);
@@ -17,4 +17,13 @@ test('placement snaps to source sample and selection end is exclusive', () => {
   assert.equal(placementSample(3, 100, previous), null);
   assert.equal(placementSample(.99, 100, previous), null);
   assert.equal(placementSample(2, 100, null), null);
+});
+
+test('Clear/default follows the selection start while custom markers survive Slide and Jump', () => {
+  const old = { start: 100, end: 300 };
+  assert.deepEqual(adjustStartBeatState(old, { start: 90, end: 300 }, 100, false, 'edge'), { sample: 90, custom: false });
+  assert.deepEqual(adjustStartBeatState(old, { start: 110, end: 310 }, 150, true, 'move'), { sample: 160, custom: true });
+  assert.deepEqual(adjustStartBeatState(old, { start: 300, end: 500 }, 150, true, 'move'), { sample: 350, custom: true });
+  assert.deepEqual(adjustStartBeatState(old, { start: 160, end: 300 }, 150, true, 'edge'), { sample: 160, custom: false });
+  assert.deepEqual(adjustStartBeatState(old, old, 150, true, 'new'), { sample: 100, custom: false });
 });

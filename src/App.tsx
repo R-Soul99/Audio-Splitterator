@@ -4,7 +4,7 @@ import { WaveformCanvas } from './components/WaveformCanvas';
 import { SplitsManager } from './components/SplitsManager';
 import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
 import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
-import { adjustStartBeat, SelectionEdit } from './utils/startBeat';
+import { adjustStartBeatState, SelectionEdit } from './utils/startBeat';
 import { sampleSelection } from './utils/loopSelection';
 import { PlaybackSegment, playbackPosition, timelinePosition, outputClock } from './utils/playbackClock';
 import { mergeAutoSplitMarkers } from './utils/autoSplitPolicy';
@@ -72,10 +72,12 @@ export default function App() {
 
   // Selection Brace range
   const [startBeat, setStartBeat] = useState<number | null>(null);
+  const [customStartBeat, setCustomStartBeat] = useState(false);
+  const customStartBeatRef = useRef(false);
   const startBeatRef = useRef<number | null>(null);
   const beatSelectionRef = useRef<ReturnType<typeof sampleSelection>>(null);
   const [placingStartBeat, setPlacingStartBeat] = useState(false);
-  const setBeat = useCallback((sample: number | null) => { startBeatRef.current = sample; setStartBeat(sample); }, []);
+  const setBeat = useCallback((sample: number | null, custom = false) => { startBeatRef.current = sample; setStartBeat(sample); customStartBeatRef.current = sample !== null && custom; setCustomStartBeat(sample !== null && custom); }, []);
   const [selection, setSelection] = useState<TimeSelection | null>(null);
 
   // Split markers
@@ -521,7 +523,8 @@ export default function App() {
     if (nextSelection && buffer && isLoopingRef.current && !sampleSelection(nextSelection, buffer.sampleRate, buffer.length)) return;
     const previousSamples = buffer ? sampleSelection(selectionRef.current, buffer.sampleRate, buffer.length) : null;
     const nextSamples = buffer ? sampleSelection(nextSelection, buffer.sampleRate, buffer.length) : null;
-    setBeat(adjustStartBeat(previousSamples, nextSamples, startBeatRef.current, edit));
+    const beat = adjustStartBeatState(previousSamples, nextSamples, startBeatRef.current, customStartBeatRef.current, edit);
+    setBeat(beat.sample, beat.custom);
     beatSelectionRef.current = nextSamples;
     if (!nextSamples) setPlacingStartBeat(false);
     const hadSelection = selectionRef.current !== null;
@@ -1269,9 +1272,16 @@ export default function App() {
                         onSeek={handleSeek}
                         onWaveformClick={handleWaveformClick}
                         startBeat={startBeat}
+                        customStartBeat={customStartBeat}
                         placingStartBeat={placingStartBeat}
                         onPlacementChange={setPlacingStartBeat}
-                        onStartBeatChange={setBeat}
+                        onStartBeatChange={sample => {
+                          const buffer = audioBufferRef.current;
+                          const valid = buffer && sampleSelection(selectionRef.current, buffer.sampleRate, buffer.length);
+                          if (!valid) return;
+                          if (sample === null) setBeat(valid.start);
+                          else if (Number.isInteger(sample) && sample >= valid.start && sample < valid.end) setBeat(sample, true);
+                        }}
                         onSelectionChange={handleSelectionChange}
                         onLoopChange={(enabled) => {
                           loopModeRequestedRef.current = enabled;
