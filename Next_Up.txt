@@ -30,8 +30,22 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
    readout. Keep the panel layout stable while adjusting.
 10. Implemented, awaiting user testing: press-and-hold preamp detector measures a
     loud passage and sets gain on release to reach the adjustable target peak.
-11. Discussion only: moving Recording Transport into Controls may no longer be
-    wanted. Discuss before implementing; this is not an approved change.
+11. Done, reviewed and merged into main (7 October 2026, a867c34): Record panel
+    recording controls moved to the bottom of the right-hand Controls panel.
+    Sections are Input, Sample Rate / Channel Mode, Preamp (Detect and Target),
+    then recording controls. The separate Transport panel is removed; Level Meters
+    span the space beneath the waveform and oscilloscope, preserving VU proportions,
+    peak readouts and the central Reset control.
+    Software monitoring controls and the input-to-speaker route are removed;
+    capture, waveform, VUs, oscilloscope and preamp detection remain available.
+    Keep the fixed 136px Record / Pause / Resume button and compact Stop beneath it.
+    Ready is red with a record circle; Recording is steady red with a pause icon;
+    Paused is amber with a pause icon and steady Resume label / PAUSED status.
+    The paused button gently pulses once per second unless reduced motion is enabled.
+    REC LED: dim/off in Ready, steady glowing red while recording, and flashing
+    once per second while paused, including when reduced motion is enabled.
+    Resume continues the same recording; Stop finalises from Recording or Paused.
+    Preserve shortcuts, markers, elapsed time and the fixed layout in every state.
 12. Wanted, planned as a separate development pass: loop/sample creator.
     Activating Selection's loop button opens a compact pop-up
     for auditioning, adjusting and saving the selected region. Preserve the fixed
