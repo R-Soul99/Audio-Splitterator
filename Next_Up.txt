@@ -161,7 +161,9 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
 
     Slide encoder / halving / export defaults follow-up, implemented for review:
     Compact encoder uses the established knob appearance and vertical dragging:
-    10 ms per pixel normally, 1 ms with Shift; repeated drags cover the recording.
+    Viewport-scaled movement: one visible waveform pixel per vertical drag pixel,
+    Shift ten times finer; repeated drags cover the recording. Slide arrows retain
+    exact 10 ms / Shift 1 ms steps independently of the viewport.
     Only recording bounds limit movement. Partial boundary steps are applied,
     overshoot discarded and reversing responds immediately. Release / cancel /
     blur / tab changes clear encoder illumination; no pop-up or waveform movement.
@@ -181,3 +183,29 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     scheduled sources never overlap. Compact / disabled / long-value states
     visually inspected. Renderer-only changes; native packaging not repeated.
     No merge or push; these refinements await user review. Playback is approved.
+
+    Edit waveform scaling / viewport-sensitive Slide, implemented for review:
+    Vertical zoom defaults / resets to 1.0x, with the existing 0.25x-64x range.
+    Corrected the obsolete amplitude-2 full-scale mapping: at unity, amplitudes
+    -1 to +1 now fill 96% of each channel, with 2% margins and identical stereo
+    scaling. Full-scale guides use the same mapping; offscreen guides are not
+    misleadingly labelled at channel edges. No source-peak normalisation.
+    Vertical zoom is not persisted and resets on audio import; no saved legacy
+    value can retain the old empty space. Audio / gain / levels / exports unchanged.
+    Slide sensitivity uses the current visible span and waveform width, captured
+    at pointer-down. Viewport changes during a drag cannot change its sensitivity.
+    Fractional sample movement accumulates within and between fine drags; emitted
+    selection boundaries remain exact samples. Boundary overshoot is discarded,
+    with immediate reversal and preserved length / relative Start Beat.
+    Fixed device, waveform, ruler, braces, marker and fade geometry retained.
+    Passed TypeScript, 62 utility tests, sample-store tests, production build and
+    four native Electron checks: measured stereo / guide pixels at default and
+    reduced zoom, reset / reimport, quiet / near-full-scale views, 1x / 60x encoder
+    sensitivity, mid-drag viewport changes, fractional accumulation across events
+    and releases, boundaries / reversal / highlights, ruler / selection interactions,
+    live loops and rotated WAV / FLAC exports. PCM: 191 comparisons, maximum cursor
+    error 0.58 ms; no overlapping source intervals. Layout visually inspected.
+    PCM startup comparison begins when the explicitly restarted source is audible;
+    continuous handover checks retain queued previous-source audio comparisons.
+    Renderer-only changes; native packaging not repeated.
+    Prior playback synchronisation approval stands. No merge or push.

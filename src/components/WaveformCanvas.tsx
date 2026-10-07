@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { waveformAmplitudeScale } from '../utils/waveformDisplay';
 import { selectionEndpoint } from '../utils/waveformSelection';
 import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
@@ -646,12 +647,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const startSample = Math.round(currentOffset * audioBuffer.sampleRate);
     const endSample = Math.round((currentOffset + visibleDuration) * audioBuffer.sampleRate);
     const sampleCount = endSample - startSample;
-    const displayMaxAmplitude = 2 / verticalZoom;
+    const displayMaxAmplitude = 1 / verticalZoom;
 
     for (let c = 0; c < channels; c++) {
       const channelHeight = height / channels;
       const centerY = channelHeight * c + channelHeight / 2;
-      const amplitudeScale = channelHeight * 0.45 / displayMaxAmplitude;
+      const amplitudeScale = waveformAmplitudeScale(channelHeight, verticalZoom);
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, c * channelHeight, width, channelHeight);
@@ -744,7 +745,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
             const minAmplitude = Math.max(-displayMaxAmplitude, Math.min(displayMaxAmplitude, minVal * fadeGain));
             const maxAmplitude = Math.max(-displayMaxAmplitude, Math.min(displayMaxAmplitude, maxVal * fadeGain));
-            const amplitudeScale = channelHeight * 0.45 / displayMaxAmplitude;
+            const amplitudeScale = waveformAmplitudeScale(channelHeight, verticalZoom);
             const yMin = centerY + minAmplitude * amplitudeScale;
             const yMax = centerY + maxAmplitude * amplitudeScale;
             const path = minVal <= -1 || maxVal >= 1 ? fullScalePath : waveformPath;
@@ -769,16 +770,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const channelHeight = height / channels;
         const centerY = channelHeight * c + channelHeight / 2;
         const channelTop = c * channelHeight;
-        const zeroDbY = Math.max(channelTop + 10, centerY - channelHeight * 0.45 / displayMaxAmplitude);
+        const zeroDbY = centerY - waveformAmplitudeScale(channelHeight, verticalZoom);
+        if (zeroDbY < channelTop || zeroDbY > channelTop + channelHeight) continue;
+        const labelY = Math.max(channelTop + 10, zeroDbY);
         const labelX = Math.floor(width * 0.6);
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, channelTop, width, channelHeight);
         ctx.clip();
         ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
-        ctx.fillRect(labelX, zeroDbY - 10, 42, 10);
+        ctx.fillRect(labelX, labelY - 10, 42, 10);
         ctx.fillStyle = '#fbbf24';
-        ctx.fillText('0 dBFS', labelX + 2, zeroDbY - 1);
+        ctx.fillText('0 dBFS', labelX + 2, labelY - 1);
         ctx.restore();
       }
     }
@@ -2147,7 +2150,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           {showLoopSample && <SelectionLoopSwitch audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onLoopChange={onLoopChange} />}
           </div>
 
-          <div hidden={!showLoopSample}><LoopSampleControls active={showLoopSample} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
+          <div hidden={!showLoopSample}><LoopSampleControls visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">
@@ -2585,6 +2588,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         <canvas
           ref={canvasRef}
           aria-label="Edit waveform"
+          data-vertical-zoom={verticalZoom}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}

@@ -1,18 +1,20 @@
 import React from 'react';
+import { slideSamplesPerPixel } from '../utils/waveformDisplay';
 import { useKnobDrag } from '../hooks/useKnobDrag';
 
 // An incremental encoder: its only limits are the actual recording boundaries.
 // Each new drag continues from the selection, with no spring-return or reset.
-export function SlideEncoder({ start, max, rate, disabled, onChange }: {
+export function SlideEncoder({ visibleDuration, waveformWidth, start, max, rate, disabled, onChange }: {
+  visibleDuration: number; waveformWidth: number;
   start: number; max: number; rate: number; disabled: boolean; onChange: (sample: number) => void;
 }) {
   const { dragging, fineAdjusting, ...handlers } = useKnobDrag({
-    value: start, min: 0, max, sensitivity: rate / 100, step: 1, fineStep: 1, disabled, onChange,
+    value: start, min: 0, max, sensitivity: slideSamplesPerPixel(visibleDuration, waveformWidth, rate), step: 1, fineStep: 1, preserveFractional: true, disabled, onChange,
   });
   return <div role="slider" tabIndex={disabled ? -1 : 0} aria-label="Slide encoder"
     aria-disabled={disabled} aria-valuemin={0} aria-valuemax={max} aria-valuenow={start}
     aria-valuetext={`${(start / rate).toFixed(3)} seconds`}
-    title="Slide selection: drag up/down for 10 ms per pixel; hold Shift for 1 ms per pixel. Preserve length and relative Start Beat. Stops at recording boundaries."
+    title="Slide selection: drag up/down to move by visible waveform pixels; Shift is ten times finer. Sensitivity stays fixed for each drag. Preserve length and relative Start Beat; stop at recording boundaries."
     {...handlers} data-dragging={dragging} data-fine={fineAdjusting}
     onKeyDown={event => {
       if (disabled || !['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft'].includes(event.key)) return;

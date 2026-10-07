@@ -100,28 +100,30 @@ app.whenReady().then(async () => {
     };
     await run(`window.encoderEvents=[];for(const type of ['pointerdown','pointermove','pointerup','gotpointercapture','lostpointercapture','pointercancel'])document.addEventListener(type,e=>encoderEvents.push({type,y:e.clientY,target:e.target.getAttribute('aria-label'),buttons:e.buttons}),true);void 0`);
     const encoderFrames=960001;
+    const sensitivity=(await run('audioDuration'))*48000/Math.floor(rect.width);
+    const expectedRegion=start=>({start:start/48000,end:(start+96000)/48000});
     await setRegion(0,2);await run('component().memoizedProps.onStartBeatChange(48000)');await pause();
-    for(let i=0;i<19;i++){await encoderDrag(100);console.log('Encoder upward drag',i+1);}
+    for(let i=0;i<6;i++){await encoderDrag(100);console.log('Encoder upward drag',i+1);}
     assert.deepEqual(await run('currentSelection()'),{start:(encoderFrames-96000)/48000,end:encoderFrames/48000},'Repeated drags reach exact recording end');
     assert.equal(await run('component().memoizedProps.startBeat'),encoderFrames-48000);
-    for(let i=0;i<46;i++){await encoderDrag(-40);if(i%10===0)console.log('Encoder downward drag',i+1);}
+    for(let i=0;i<14;i++){await encoderDrag(-40);if(i%10===0)console.log('Encoder downward drag',i+1);}
     assert.deepEqual(await run('currentSelection()'),{start:0,end:2},'Repeated drags reach sample zero');
     assert.equal(await run('component().memoizedProps.startBeat'),48000);
     await setRegion(.005,2.005);
     assert.deepEqual(await encoderDrag(-2,false,1),{start:0,end:2},'Partial drag remainder reaches boundary');
-    assert.deepEqual(await run('currentSelection()'),{start:.01,end:2.01},'Immediate reversal has no overshoot dead zone');
+    assert.deepEqual(await run('currentSelection()'),expectedRegion(Math.round(sensitivity)),'Immediate reversal has no overshoot dead zone');
     await setRegion((encoderFrames-96000-240)/48000,(encoderFrames-240)/48000);
     assert.deepEqual(await encoderDrag(2,false,-1),{start:(encoderFrames-96000)/48000,end:encoderFrames/48000});
-    assert.deepEqual(await run('currentSelection()'),{start:(encoderFrames-96000-480)/48000,end:(encoderFrames-480)/48000});
-    await setRegion(1,3);await encoderDrag(10,true);assert.deepEqual(await run('currentSelection()'),{start:1.01,end:3.01});
-    await encoderDrag(10);assert.deepEqual(await run('currentSelection()'),{start:1.11,end:3.11});
+    assert.deepEqual(await run('currentSelection()'),expectedRegion(Math.round(encoderFrames-96000-sensitivity)));
+    await setRegion(1,3);await encoderDrag(10,true);assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity)));
+    await encoderDrag(10);assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity*11)));
     const er=await encoder(), ex=er.x+er.width/2, ey=er.y+er.height/2;
     const encoderKey=async held=>{await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:held?'keyDown':'keyUp',key:'Shift',code:'ShiftLeft',windowsVirtualKeyCode:16,modifiers:held?8:0});await pause();};
     await encoderEvent('mousePressed',ex,ey);await encoderKey(true);await encoderEvent('mouseMoved',ex,ey-10,true);
-    assert.deepEqual(await run('currentSelection()'),{start:1.12,end:3.12});
+    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity*12)));
     assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.fine`),'true');await snapshot('encoder-fine');
     await encoderKey(false);assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.fine`),'false');
-    await encoderEvent('mouseMoved',ex,ey-20);assert.deepEqual(await run('currentSelection()'),{start:1.22,end:3.22});
+    await encoderEvent('mouseMoved',ex,ey-20);assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity*22)));
     await encoderEvent('mouseReleased',ex,ey-20);
     for(const reason of ['cancel','blur','tab']) {
       await encoderEvent('mousePressed',ex,ey,true);
@@ -131,6 +133,27 @@ app.whenReady().then(async () => {
       await pause();assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.dragging`),'false',JSON.stringify(await run('encoderEvents.slice(-8)')));assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.fine`),'false');
       await encoderEvent('mouseReleased',ex,ey,true);await encoderKey(false);
     }
+    // Equal drags move the same proportion of the viewport at 1x and 60x.
+    const wideMove=Math.round(sensitivity*10);
+    await setRegion(1,3);await encoderDrag(10);assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+wideMove));await snapshot('encoder-wide');
+    await run('component().memoizedProps.onZoomChange(60);component().memoizedProps.onViewOffsetChange(1);void 0');await pause();
+    await setRegion(1,3);await encoderDrag(10);const narrowMove=Math.round(sensitivity*10/60);
+    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+narrowMove));await snapshot('encoder-narrow');
+    assert.ok(Math.abs(wideMove/narrowMove-60)<.2);
+    // Freeze sensitivity at pointer-down even if the viewport changes mid-drag.
+    await run('component().memoizedProps.onZoomChange(1)');await pause();await setRegion(1,3);
+    await encoderEvent('mousePressed',ex,ey);await encoderEvent('mouseMoved',ex,ey-10);
+    await run('component().memoizedProps.onZoomChange(60)');await pause();
+    await encoderEvent('mouseMoved',ex,ey-20);await encoderEvent('mouseReleased',ex,ey-20);
+    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity*20)));
+    // Fractional fine deltas accumulate instead of being rounded per event.
+    await setRegion(1,3);await encoderEvent('mousePressed',ex,ey,true);
+    for(let i=1;i<=20;i++)await encoderEvent('mouseMoved',ex,ey-i*.25,true);
+    await encoderEvent('mouseReleased',ex,ey-5,true);
+    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity/60*.1*5)));
+    await setRegion(1,3);for(let i=0;i<4;i++)await encoderDrag(.1,true);
+    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity/60*.1*.4)),'Subsample fine drags retain their remainder across releases');
+    await run('component().memoizedProps.onZoomChange(1);component().memoizedProps.onViewOffsetChange(0);void 0');await pause();
     await setRegion(48001/48000,144003/48000);await run('component().memoizedProps.onStartBeatChange(72001)');await pause();
     const exact=await run('({selection:currentSelection(),beat:component().memoizedProps.startBeat})');
     for(const label of ['Loop Start','Loop End','Loop Start Beat']) {
@@ -247,7 +270,7 @@ app.whenReady().then(async () => {
       const code="class Tap extends AudioWorkletProcessor {process(inputs){if(inputs[0]?.[0])this.port.postMessage({clock:currentFrame/sampleRate,rate:sampleRate,data:Array.from(inputs[0][0])});return true}}registerProcessor('tap',Tap)";
       const url=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));await audioClock.audioWorklet.addModule(url);URL.revokeObjectURL(url);
       window.tap=new AudioWorkletNode(audioClock,'tap');tap.port.onmessage=e=>{blocks.push(e.data);if(blocks.length>1000)blocks.shift();};tap.connect(audioClock.destination);sources.at(-1).node.connect(tap);
-      window.alignment=()=>{const clock=lastHeard;const block=[...blocks].reverse().find(b=>b.clock<=clock&&b.clock+b.data.length/b.rate>clock);if(!block)return null;const sample=block.data[Math.floor((clock-block.clock)*block.rate)];if(sample===0)return null;const index=(sample*32768-2000)/20000*${frames};return {cursor:component().memoizedProps.currentTime,pcm:index/${rate},clock};};
+      window.alignment=()=>{const clock=lastHeard;const latest=sources.at(-1),prior=sources.at(-2);if(clock<latest.when&&(!prior||prior.until<latest.when-1e-8))return null;const block=[...blocks].reverse().find(b=>b.clock<=clock&&b.clock+b.data.length/b.rate>clock);if(!block)return null;const sample=block.data[Math.floor((clock-block.clock)*block.rate)];if(sample===0)return null;const index=(sample*32768-2000)/20000*${frames};return {cursor:component().memoizedProps.currentTime,pcm:index/${rate},clock};};
     })()`);
     let observed=0,maxError=0;
     const repeats = async () => {

@@ -30,7 +30,8 @@ export function SelectionLoopSwitch({ audioBuffer, selection, isLooping, onLoopC
   const valid = audioBuffer && sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
   return <button type="button" onKeyDown={e => e.stopPropagation()} role="switch" aria-label="Selection loop" title="Enable selection looping without starting stopped playback." aria-checked={isLooping} disabled={!valid} onClick={() => onLoopChange?.(!isLooping)} className="loop-switch"><span className={isLooping ? 'loop-led lit' : 'loop-led'} />Loop {isLooping ? 'On' : 'Off'}</button>;
 }
-export function LoopSampleControls({ active, audioBuffer, selection, startBeat, placingStartBeat, onPlacementChange, onStartBeatChange, onSelectionChange }: {
+export function LoopSampleControls({ visibleDuration, waveformWidth, active, audioBuffer, selection, startBeat, placingStartBeat, onPlacementChange, onStartBeatChange, onSelectionChange }: {
+  visibleDuration: number; waveformWidth: number;
   active: boolean; audioBuffer: AudioBuffer | null; selection: TimeSelection | null;
   startBeat: number | null; placingStartBeat: boolean;
   onPlacementChange?: (active: boolean) => void; onStartBeatChange?: (sample: number | null) => void;
@@ -83,7 +84,7 @@ export function LoopSampleControls({ active, audioBuffer, selection, startBeat, 
         }} />
         <button type="button" aria-label="Set Start Beat" title="Place Start Beat once inside the selection; Escape cancels." aria-pressed={placingStartBeat} disabled={!samples} onClick={() => onPlacementChange?.(!placingStartBeat)}>Set</button>
         <button type="button" aria-label="Clear Start Beat" title="Remove the custom Start Beat marker and use the selection's left boundary." disabled={!samples} onClick={() => { onPlacementChange?.(false); onStartBeatChange?.(null); }}>Clear</button>
-        <div className="loop-move-group"><span>Slide</span><SlideEncoder start={samples?.start ?? 0} max={samples ? frames - (samples.end - samples.start) : 0} rate={rate} disabled={!samples || !active || section !== 'controls'} onChange={start => { if (samples) apply({ start, end: start + samples.end - samples.start }, 'move'); }} />{adjust('whole', -1)}{adjust('whole', 1)}</div>
+        <div className="loop-move-group"><span>Slide</span><SlideEncoder visibleDuration={visibleDuration} waveformWidth={waveformWidth} start={samples?.start ?? 0} max={samples ? frames - (samples.end - samples.start) : 0} rate={rate} disabled={!samples || !active || section !== 'controls'} onChange={start => { if (samples) apply({ start, end: start + samples.end - samples.start }, 'move'); }} />{adjust('whole', -1)}{adjust('whole', 1)}</div>
         <div className="loop-move-group"><span>Jump</span>
           {action('Previous selection', samples && editSamples(samples, 'whole', -(samples.end - samples.start), frames), '\u25c0', 'move')}
           {action('Next selection', samples && editSamples(samples, 'whole', samples.end - samples.start, frames), '\u25b6', 'move')}
