@@ -3,7 +3,7 @@ const { app, BrowserWindow } = require('electron');
 const assert = require('node:assert/strict');
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 980, height: 650, webPreferences: { backgroundThrottling: false } });
-  const run = code => win.webContents.executeJavaScript(code);
+  const run = async code => { try{return await win.webContents.executeJavaScript(code);}catch(error){console.error('Failed renderer check:',code);throw error;} };
   const wait = async code => {
     const deadline = Date.now() + 15000;
     while (!await run(code)) {
@@ -14,20 +14,20 @@ app.whenReady().then(async () => {
   try {
     for (const stopWhilePaused of [false, true]) {
       await win.loadURL(process.argv[2] || 'http://localhost:3000/?standby=1');
-      await run(`localStorage.setItem('audiophonic_preview_standby','true')`);
+      await run(`localStorage.setItem('audiophonic_preview_standby','true'); localStorage.setItem('monitoringAudioOutput','true'); localStorage.setItem('monitorVolume','1')`);
       await new Promise(resolve=>{win.webContents.once('did-finish-load',resolve);win.reload();});
       await wait(`!!document.querySelector('[aria-label="Wake audio engine"]')`);
       await run(`
-        window.processors=[];window.analysers=0;window.traceCount=0;window.finalBuffer=null;
+        window.processors=[];window.analysers=0;window.traceCount=0;window.finalBuffer=null;window.audioNodes=[];
         navigator.mediaDevices.getUserMedia=async()=>({getTracks:()=>[{stop(){}}]});
         navigator.mediaDevices.enumerateDevices=async()=>[];
-        const node=()=>({connect(){},disconnect(){},gain:{value:1,setValueAtTime(){}}});
+        const node=(kind='other')=>{const value={kind,connections:[],connect(target){this.connections.push(target);},disconnect(){this.connections=[];},gain:{value:1,setValueAtTime(){}}};audioNodes.push(value);return value;};
         window.AudioContext=class {
-          constructor(options={}){this.sampleRate=options.sampleRate||48000;this.state='running';this.currentTime=0;this.destination=node();}
+          constructor(options={}){this.sampleRate=options.sampleRate||48000;this.state='running';this.currentTime=0;this.destination=node('destination');}
           resume(){return Promise.resolve();}close(){this.state='closed';return Promise.resolve();}
-          createMediaStreamSource(){return node();}createGain(){return node();}createChannelSplitter(){return node();}
+          createMediaStreamSource(){return node();}createGain(){return node('gain');}createChannelSplitter(){return node();}
           createAnalyser(){const value=analysers++%2===0?.25:-.5;return {...node(),fftSize:1024,getFloatTimeDomainData(array){array.fill(value);}};}
-          createScriptProcessor(size){const processor={...node(),size};processors.push(processor);return processor;}
+          createScriptProcessor(size){const processor={...node('processor'),size};processors.push(processor);return processor;}
           createBuffer(channels,length,sampleRate){finalBuffer=new AudioBuffer({numberOfChannels:channels,length,sampleRate});return finalBuffer;}
         };
         const fill=CanvasRenderingContext2D.prototype.fillRect,stroke=CanvasRenderingContext2D.prototype.stroke;
@@ -43,22 +43,25 @@ app.whenReady().then(async () => {
           const panel=title=>[...document.querySelectorAll('span')].find(e=>e.textContent===title).parentElement;
           const waveform=document.querySelector('[aria-label="Combined recording waveform"]');
           const meters=panel('Level Meters').parentElement;
-          const transport=panel('Transport');
+          const transport=document.querySelector('[aria-label="Recording controls"]');
+          const controls=panel('Controls');
+          const preamp=document.querySelector('[title="Preamp boost gain (drag up / down)"]');
           return {waveform:rect(waveform),meters:rect(meters),transport:rect(transport),
             button:rect(transport.querySelector('button')),
             stopGroup:rect(transport.querySelector('[aria-label="Stop recording"]').parentElement),
-            heading:rect(transport.querySelector('span')),
-            controls:rect(panel('Controls').parentElement),
-            preamp:rect(document.querySelector('[title="Preamp boost gain (drag up / down)"]')),
+            controls:rect(controls),
+            scope:rect(panel('Oscilloscope')),
+            preamp:rect(preamp),
+            preampSection:rect(preamp.parentElement.parentElement),
             vus:[...document.querySelectorAll('svg[aria-label$="level meter"]')].map(rect),
             overflow:[document.documentElement.scrollWidth>innerWidth,document.documentElement.scrollHeight>innerHeight],
-            clipped:[...transport.querySelectorAll('button')].some(b=>b.getBoundingClientRect().bottom>transport.getBoundingClientRect().bottom)};
+            clipped:[...controls.querySelectorAll('button,select,output')].some(b=>{const r=b.getBoundingClientRect(),c=controls.getBoundingClientRect();return r.bottom>c.bottom||r.top<c.top||r.left<c.left||r.right>c.right;})};
         };
         window.elapsed=()=>document.querySelector('[aria-label="Combined recording waveform"]').parentElement.nextElementSibling.children[0].children[1].textContent;
-        window.feed=(leftValue,rightValue)=>processors.find(processor=>processor.size===4096).onaudioprocess({
+        window.feed=(leftValue,rightValue)=>{ const output=[new Float32Array(4096).fill(1),new Float32Array(4096).fill(1)]; processors.find(processor=>processor.size===4096).onaudioprocess({
           inputBuffer:{numberOfChannels:2,getChannelData:channel=>new Float32Array(4096).fill(channel?rightValue:leftValue)},
-          outputBuffer:{numberOfChannels:2,getChannelData:()=>new Float32Array(4096)}
-        });
+          outputBuffer:{numberOfChannels:2,getChannelData:channel=>output[channel]}
+        }); if(output.some(channel=>channel.some(value=>value!==0))) throw Error('Recording output must be silent'); };
         void 0;
       `);
       const capture=async state=>{ await win.webContents.capturePage(); await new Promise(resolve=>setTimeout(resolve,80)); await win.webContents.capturePage().then(image=>require('fs').writeFileSync(require('path').join(app.getPath('temp'),`splitterator-transport-${state}.png`),image.toPNG())); };
@@ -70,22 +73,37 @@ app.whenReady().then(async () => {
       assert.deepEqual(readyGeometry.overflow,[false,false]);
       assert.equal(readyGeometry.clipped,false);
       const scale=readyGeometry.button[2]/136;
-      assert.ok(Math.abs(readyGeometry.transport[2]-220*scale)<.01,'wider Transport panel');
       assert.ok(readyGeometry.button[2]>readyGeometry.preamp[2],'primary button larger than Preamp');
-      const groupCentre=(readyGeometry.button[1]+readyGeometry.stopGroup[1]+readyGeometry.stopGroup[3])/2;
-      assert.ok(Math.abs(groupCentre-(readyGeometry.transport[1]+readyGeometry.transport[3]/2))<.01,'control group vertically centred');
-      assert.ok(readyGeometry.heading[1]+readyGeometry.heading[3]<readyGeometry.button[1],'heading remains above controls');
+      assert.ok(Math.abs(readyGeometry.transport[1]+readyGeometry.transport[3]-(readyGeometry.controls[1]+readyGeometry.controls[3]-13*scale))<1,'recording controls anchored at panel bottom');
+      assert.ok(readyGeometry.preampSection[1]+readyGeometry.preampSection[3]<=readyGeometry.transport[1],'Preamp does not overlap recording controls');
+      assert.ok(Math.abs(readyGeometry.meters[0]+readyGeometry.meters[2]-(readyGeometry.scope[0]+readyGeometry.scope[2]))<.01,'meters span beneath waveform and oscilloscope');
+      assert.equal(await run(`!!document.querySelector('[title="Toggle monitor output"], [title="Monitor volume"]') || [...document.querySelectorAll('span')].some(e=>e.textContent==='Transport')`),false,'Monitor and separate Transport removed');
+      const assertSilentOutput=async()=>assert.equal(await run(`audioNodes.filter(n=>n.connections.some(target=>target.kind==='destination')).every(n=>n.kind==='processor')`),true,'input/gain never route to speakers regardless of saved preferences');
+      await assertSilentOutput();
+      assert.equal(await run(`document.querySelector('[aria-label="Detect preamp level"]').disabled`),false,'Detect remains available');
+      await run(`
+        { const silent=new Float32Array(2048).fill(1);
+        processors.find(p=>p.size===2048).onaudioprocess({inputBuffer:{numberOfChannels:2,getChannelData:()=>new Float32Array(2048)},outputBuffer:{getChannelData:()=>silent}});
+        if(silent.some(value=>value!==0)) throw Error('Calibration output must be silent'); }
+      `);
+      // Detect must still analyse raw input with software monitoring removed.
+      await run(`document.querySelector('[aria-label="Detect preamp level"]').focus()`);
+      win.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});
+      await wait(`document.querySelector('[aria-label="Detect preamp level"]').getAttribute('aria-pressed')==='true'`);
+      await run(`
+        { const silent=new Float32Array(2048).fill(1);
+        processors.find(p=>p.size===2048).onaudioprocess({inputBuffer:{numberOfChannels:2,getChannelData:()=>new Float32Array(2048).fill(.5)},outputBuffer:{getChannelData:()=>silent}});
+        if(silent.some(value=>value!==0)) throw Error('Detect output must be silent'); }
+      `);
+      win.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
+      await wait(`document.querySelector('output[aria-live="polite"]').textContent.startsWith('SET')`);
+      assert.deepEqual(await run('geometry()'),readyGeometry,'Detect feedback does not shift layout');
       assert.ok(readyGeometry.stopGroup[1]>readyGeometry.button[1]+readyGeometry.button[3],'Stop below primary button');
       assert.ok(readyGeometry.vus.every(vu=>Math.abs(vu[2]/vu[3]-440/246)<.001),'VU proportions preserved');
       await run(`document.querySelector('[aria-label="Start recording"]').click()`);
       await wait('processors.some(processor=>processor.size===4096)');
-      await run(`
-        const left=new Float32Array(4096).fill(.25),right=new Float32Array(4096).fill(-.5);
-        processors.find(processor=>processor.size===4096).onaudioprocess({
-          inputBuffer:{numberOfChannels:2,getChannelData:channel=>channel?right:left},
-          outputBuffer:{numberOfChannels:2,getChannelData:()=>new Float32Array(4096)}
-        });
-      `);
+      await assertSilentOutput();
+      await run('feed(.25,-.5)');
       await wait('traceCount===1');
       await wait(`!!document.querySelector('[aria-label="Pause recording"]')`);
       assert.deepEqual(await run('geometry()'),readyGeometry,'recording layout stable');
@@ -123,7 +141,7 @@ app.whenReady().then(async () => {
       assert.deepEqual(await run(`({channels:finalBuffer.numberOfChannels,rate:finalBuffer.sampleRate,
         length:finalBuffer.length,left:[finalBuffer.getChannelData(0)[0],finalBuffer.getChannelData(0)[4095],finalBuffer.getChannelData(0)[4096],finalBuffer.getChannelData(0)[8191]],right:[finalBuffer.getChannelData(1)[0],finalBuffer.getChannelData(1)[4095],finalBuffer.getChannelData(1)[4096],finalBuffer.getChannelData(1)[8191]]})`),
         { channels: 2, rate: 44100, length: 8192, left: [0.25,0.25,0.75,0.75], right: [-0.5,-0.5,0.5,0.5] }, 'captured stereo samples remain distinct and exact');
-      console.log('PASS: stable transport/layout, Space resume, marker/pause behaviour, exact stereo continuity; stop while '+(stopWhilePaused?'paused':'recording'));
+      console.log('PASS: bottom-right controls, full-width meters, stable layout, silent output, Space resume, marker/pause behaviour, exact stereo continuity; stop while '+(stopWhilePaused?'paused':'recording'));
     }
     win.destroy();app.exit(0);
   } catch (error) { console.error(error);win.destroy();app.exit(1); }

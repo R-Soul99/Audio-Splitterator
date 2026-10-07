@@ -118,7 +118,7 @@ interface VerticalToggleProps {
 }
 
 const VerticalToggle: React.FC<VerticalToggleProps> = ({ topLabel, bottomLabel, isTop, onToggle, disabled, title }) => (
-  <div className="flex flex-col items-center gap-1.5">
+  <div className="flex flex-col items-center gap-1">
     <span className={`text-[11px] font-bold uppercase tracking-wider ${isTop ? 'text-slate-100' : 'text-slate-500'}`}>{topLabel}</span>
     <button
       type="button"
@@ -157,12 +157,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
   // Independent Live Monitoring State
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(false);
-  const [monitoringAudioOutput, setMonitoringAudioOutput] = useState<boolean>(false);
-  const [monitorVolume, setMonitorVolume] = useState<number>(0.7);
-  const monitoringAudioOutputRef = useRef(monitoringAudioOutput);
-  const monitorVolumeRef = useRef(monitorVolume);
-  monitoringAudioOutputRef.current = monitoringAudioOutput;
-  monitorVolumeRef.current = monitorVolume;
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const [showReplaceRecordingDialog, setShowReplaceRecordingDialog] = useState<boolean>(false);
 
@@ -188,7 +182,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const calibrationProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { dragging: gainDragging, fineAdjusting: gainFineAdjusting, ...gainDragHandlers } = useKnobDrag({ value: inputBoostDb, min: 0, max: 36, sensitivity: 0.28, step: 1, fineStep: 0.1, disabled: isRecording || isCalibrating, onChange: setInputBoostDb });
-  const { dragging: monitorDragging, fineAdjusting: monitorFineAdjusting, ...monitorDragHandlers } = useKnobDrag({ value: monitorVolume, min: 0, max: 1, sensitivity: 0.0078, step: 0.01, disabled: !monitoringAudioOutput, onChange: setMonitorVolume });
   const beginCalibration = () => {
     if (!isMonitoringActive || isRecording || !calibrationProcessorRef.current) return;
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
@@ -218,7 +211,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
-  const monitorGainNodeRef = useRef<GainNode | null>(null);
   const analyserNodeLeftRef = useRef<AnalyserNode | null>(null);
   const analyserNodeRightRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -349,13 +341,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       navigator.mediaDevices.removeEventListener('devicechange', loadDevices);
     };
   }, [loadDevices]);
-
-  // Handle monitoring gain changes
-  useEffect(() => {
-    if (monitorGainNodeRef.current) {
-      monitorGainNodeRef.current.gain.value = monitoringAudioOutput ? monitorVolume : 0;
-    }
-  }, [monitoringAudioOutput, monitorVolume]);
 
   // Handle live input preamp boost gain changes
   useEffect(() => {
@@ -791,11 +776,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         else splitter.connect(analyserR, 0);
         analyserNodeRightRef.current = analyserR;
 
-        const monitorGain = audioCtx.createGain();
-        monitorGain.gain.value = monitoringAudioOutputRef.current ? monitorVolumeRef.current : 0;
-        inputGain.connect(monitorGain);
-        monitorGain.connect(audioCtx.destination);
-        monitorGainNodeRef.current = monitorGain;
+        // Input audio is never routed to speakers. Only the silent capture and
+        // calibration processors connect to the destination; meters stay input-only.
 
         setIsMonitoringActive(true);
 
@@ -836,7 +818,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     analyserNodeRightRef.current = null;
     sourceNodeRef.current = null;
     inputGainNodeRef.current = null;
-    monitorGainNodeRef.current = null;
 
     setLeftPeakDb(-60);
     setRightPeakDb(-60);
@@ -1187,7 +1168,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
 
           {/* Bottom row */}
-          <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_220px] gap-4">
+          <div className="grid min-h-0 grid-cols-1">
             {/* Level meters */}
             <div className="flex min-w-0 flex-col rounded-xl border border-slate-700/60 bg-slate-950/80 p-4">
               <div className="flex items-center gap-4">
@@ -1210,113 +1191,31 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 <VuMeter label="R VU" peakDb={rightPeakDb} peakHoldDb={rightPeakHoldDb} onResetPeak={handleResetRightPeak} hidden={channelMode !== 'stereo'} />
               </div>
             </div>
-            {/* Transport */}
-            <div className="relative flex flex-col items-center rounded-xl border border-slate-700/60 bg-slate-950/80 p-3">
-              <span className="absolute left-3 top-3 text-xs font-bold uppercase tracking-wider text-slate-300">Transport</span>
-              <div className="flex h-full w-full flex-col items-center justify-center gap-5">
-                <div className="flex flex-col items-center gap-1">
-                  <button
-                    type="button"
-                    onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
-                    onClick={() => {
-                      if (isStandbyMode) {
-                        onWakeAudioEngine?.();
-                      } else if (isRecording) {
-                        togglePause();
-                      } else {
-                        startRecording();
-                      }
-                    }}
-                    className={`flex h-[136px] w-[136px] shrink-0 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-all duration-300 ${
-                      isStandbyMode
-                        ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500 hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
-                        : isRecording
-                        ? isPaused
-                          ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500'
-                          : 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:bg-red-600'
-                        : 'bg-red-600 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:bg-red-500 hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
-                    }`}
-                    title={isStandbyMode ? 'Audio engine is sleeping in Standby. Click to wake and record.' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start Recording'}
-                    aria-label={isStandbyMode ? 'Wake audio engine' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start recording'}
-                  >
-                    {isRecording ? (
-                      isPaused ? <Play aria-hidden="true" className="h-11 w-11 fill-current text-white/90" /> : <Pause aria-hidden="true" className="h-11 w-11 fill-current text-white/90" />
-                    ) : <span className="h-11 w-11 rounded-full bg-white/90" />}
-                  </button>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : isRecording ? (isPaused ? 'RESUME' : 'PAUSE') : 'RECORD'}</span>
-                </div>
 
-                <div className="flex flex-col items-center gap-1">
-                  <button
-                    type="button"
-                    onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
-                    disabled={!isRecording}
-                    onClick={stopRecording}
-                    className="flex h-14 w-[76px] cursor-pointer items-center justify-center rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 shadow transition hover:bg-slate-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
-                    title="Stop recording"
-                    aria-label="Stop recording"
-                  >
-                    <Square className="h-6 w-6 fill-current" />
-                  </button>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Stop</span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
         {/* RIGHT PANEL: controls */}
         <div className="h-full w-[270px] shrink-0 rounded-xl border border-slate-700/60 bg-slate-900/10 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04)]">
-          <div className="flex h-full flex-col rounded-xl border border-slate-700/60 bg-slate-950/80 px-4 py-4">
-            <span className="border-b border-slate-700/60 pb-3 text-sm font-bold uppercase tracking-wider text-slate-200">Controls</span>
+          <div className="flex h-full flex-col rounded-xl border border-slate-700/60 bg-slate-950/80 px-4 py-3">
+            <span className="border-b border-slate-700/60 shrink-0 pb-1 text-sm font-bold uppercase tracking-wider text-slate-200">Controls</span>
 
-            <div className="space-y-2 border-b border-slate-700/60 py-4">
+            <div className="shrink-0 space-y-1 border-b border-slate-700/60 py-1.5">
               <label htmlFor="input-device" className="block text-[11px] font-bold uppercase tracking-wider text-slate-300">Input</label>
               <select
                 id="input-device"
                 value={selectedDeviceId}
                 onChange={(e) => handleDeviceChange(e.target.value)}
                 disabled={isRecording}
-                className="w-full cursor-pointer rounded border border-slate-600 bg-slate-950 px-2 py-2 text-xs font-semibold text-slate-200 focus:border-emerald-500/50 focus:outline-none disabled:opacity-50"
+                className="w-full cursor-pointer rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-xs font-semibold text-slate-200 focus:border-emerald-500/50 focus:outline-none disabled:opacity-50"
               >
                 {devices.length === 0 && <option value="">Default Audio Input</option>}
                 {devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label}</option>)}
               </select>
             </div>
 
-            <div className="space-y-2 border-b border-slate-700/60 py-4">
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-300">Monitor</span>
-              <div className="flex items-center justify-center gap-10">
-                <VerticalToggle
-                  topLabel="On"
-                  bottomLabel="Off"
-                  isTop={monitoringAudioOutput}
-                  title="Toggle monitor output"
-                  onToggle={() => {
-                    if (isStandbyMode) {
-                      setMonitoringAudioOutput(true);
-                      onWakeAudioEngine?.();
-                      return;
-                    }
-                    setMonitoringAudioOutput((previous) => !previous);
-                    if (!isMonitoringActive) startMonitoringStream();
-                  }}
-                />
-                <div
-                  className={`relative h-[68px] w-[68px] touch-none rounded-full border border-slate-700 bg-slate-950 shadow-inner ${!monitoringAudioOutput ? 'opacity-40' : 'cursor-ns-resize'} ${monitorFineAdjusting ? 'ring-1 ring-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : ''}`}
-                  title="Monitor volume"
-                  {...monitorDragHandlers}
-                >
-                  <div className="absolute inset-1.5 rounded-full border-2 border-slate-700" style={{ background: `conic-gradient(from 225deg, #10b981 ${monitorVolume * 270}deg, #1e293b ${monitorVolume * 270}deg 270deg, transparent 270deg)` }}>
-                    <div className="absolute left-1/2 top-1/2 h-5 w-0.5 origin-bottom rounded-full bg-emerald-300" style={{ transform: `translate(-50%, -100%) rotate(${-135 + monitorVolume * 270}deg)` }} />
-                    <div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 border-b border-slate-700/60 py-4">
-              <div className="flex flex-col items-center gap-2 border-r border-slate-700/60 pr-2">
+            <div className="grid shrink-0 grid-cols-2 border-b border-slate-700/60 py-1.5">
+              <div className="flex flex-col items-center gap-1 border-r border-slate-700/60 pr-2">
                 <span className="text-center text-[10px] font-bold uppercase leading-tight tracking-wider text-slate-300">Sample rate (kHz)</span>
                 <VerticalToggle
                   topLabel="44.1"
@@ -1327,7 +1226,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   onToggle={() => handleSampleRateChange(recordingSampleRate === 44100 ? 48000 : 44100)}
                 />
               </div>
-              <div className="flex flex-col items-center gap-2 pl-2">
+              <div className="flex flex-col items-center gap-1 pl-2">
                 <span className="text-center text-[10px] font-bold uppercase leading-tight tracking-wider text-slate-300">Channel mode</span>
                 <VerticalToggle
                   topLabel="Stereo"
@@ -1340,9 +1239,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-1 flex-col pt-4">
+            <div className="flex shrink-0 flex-col py-1.5">
               <div className="flex items-center justify-between"><span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Preamp</span><span className="text-[8px] text-slate-500">Shift + Knob = Fine</span></div>
-              <div className="relative flex flex-1 flex-col items-center justify-center gap-1">
+              <div className="relative flex flex-col items-center justify-center gap-0.5">
                 <span className="text-[10px] text-slate-400">Gain</span>
                 <div
                   className={`relative h-[124px] w-[124px] touch-none ${isRecording || isCalibrating ? 'opacity-40' : 'cursor-ns-resize'} ${gainFineAdjusting ? 'rounded-full ring-1 ring-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : ''}`}
@@ -1382,6 +1281,54 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   </div>
                 </div>
                 <output aria-live="polite" className="h-3 font-mono text-[9px] text-amber-300">{calibrationFeedback}</output>
+              </div>
+            </div>
+            <div role="group" aria-label="Recording controls" className="mt-auto flex shrink-0 flex-col items-center gap-2 border-t border-slate-700/60 pt-2">
+              <div className="flex flex-col items-center gap-1">
+                <button
+                  type="button"
+                  onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
+                  onClick={() => {
+                    if (isStandbyMode) {
+                      onWakeAudioEngine?.();
+                    } else if (isRecording) {
+                      togglePause();
+                    } else {
+                      startRecording();
+                    }
+                  }}
+                  className={`flex h-[136px] w-[136px] shrink-0 cursor-pointer items-center justify-center rounded-full border-4 border-slate-950 transition-all duration-300 ${
+                    isStandbyMode
+                      ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500 hover:shadow-[0_0_30px_rgba(245,158,11,0.55)]'
+                      : isRecording
+                      ? isPaused
+                        ? 'bg-amber-600 shadow-[0_0_20px_rgba(245,158,11,0.35)] hover:bg-amber-500'
+                        : 'bg-red-700 shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:bg-red-600'
+                      : 'bg-red-600 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:bg-red-500 hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]'
+                  }`}
+                  title={isStandbyMode ? 'Audio engine is sleeping in Standby. Click to wake and record.' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start Recording'}
+                  aria-label={isStandbyMode ? 'Wake audio engine' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start recording'}
+                >
+                  {isRecording ? (
+                    isPaused ? <Play aria-hidden="true" className="h-11 w-11 fill-current text-white/90" /> : <Pause aria-hidden="true" className="h-11 w-11 fill-current text-white/90" />
+                  ) : <span className="h-11 w-11 rounded-full bg-white/90" />}
+                </button>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : isRecording ? (isPaused ? 'RESUME' : 'PAUSE') : 'RECORD'}</span>
+              </div>
+
+              <div className="flex flex-col items-center gap-1">
+                <button
+                  type="button"
+                  onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation(); }}
+                  disabled={!isRecording}
+                  onClick={stopRecording}
+                  className="flex h-10 w-[76px] cursor-pointer items-center justify-center rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 shadow transition hover:bg-slate-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Stop recording"
+                  aria-label="Stop recording"
+                >
+                  <Square className="h-6 w-6 fill-current" />
+                </button>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Stop</span>
               </div>
             </div>
           </div>
