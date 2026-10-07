@@ -10,7 +10,7 @@ export function adjustBeatSample(beat: number, selection: SampleSelection, delta
   const next = beat + delta;
   return Number.isInteger(next) && next >= selection.start && next < selection.end ? next : null;
 }
-// All operations use integer sample boundaries; no operation clamps a requested span.
+// Discrete actions preserve their requested spans; halving rounds odd counts down.
 export function sampleSelection(selection: TimeSelection | null, rate: number, frames: number): SampleSelection | null {
   if (!selection || !Number.isFinite(rate) || rate <= 0 || Math.min(selection.start, selection.end) < 0 || Math.max(selection.start, selection.end) > frames / rate) return null;
   const start = Math.round(Math.min(selection.start, selection.end) * rate);
@@ -23,7 +23,8 @@ export function editSamples(selection: SampleSelection, target: LoopTarget, delt
   return Number.isInteger(delta) && start >= 0 && end <= frames && end > start ? { start, end } : null;
 }
 export function resizeSamples(selection: SampleSelection, factor: number, anchor: LoopAnchor, frames: number): SampleSelection | null {
-  const length = (selection.end - selection.start) * factor;
+  const scaled = (selection.end - selection.start) * factor;
+  const length = factor === 0.5 ? Math.floor(scaled) : scaled;
   if (!Number.isInteger(length) || length < 1 || (factor < 1 && length >= selection.end - selection.start)) return null;
   return editSamples(selection, anchor === 'start' ? 'end' : 'start', anchor === 'start' ? length - (selection.end - selection.start) : (selection.end - selection.start) - length, frames);
 }

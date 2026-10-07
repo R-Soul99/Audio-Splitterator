@@ -34,6 +34,7 @@ app.whenReady().then(async () => {
     wav.write('data', 36); wav.writeUInt32LE(frames * 4, 40);
     for (let i = 0; i < frames; i++) for (let c = 0; c < 2; c++) wav.writeInt16LE(Math.round(10000 * Math.sin(i * (c ? 0.12 : 0.08))), 44 + i * 4 + c * 2);
     const file = path.join(app.getPath('temp'), 'loop-sample-regression.wav'); fs.writeFileSync(file, wav);
+    await win.webContents.session.clearStorageData({storages:['localstorage']});
     await win.loadFile(path.join(__dirname, '../dist/index.html'));
     win.webContents.setAudioMuted(true);
     await run(`window.sources = []; const create = AudioContext.prototype.createBufferSource; AudioContext.prototype.createBufferSource = function() { const node = create.call(this); const entry = {node, active:false}; sources.push(entry); const start = node.start.bind(node), stop = node.stop.bind(node); node.start = (...args) => { entry.active = true; entry.offset = args[1]; return start(...args); }; node.stop = (...args) => { entry.active = false; return stop(...args); }; return node; }; void 0;`);
@@ -84,7 +85,11 @@ app.whenReady().then(async () => {
       await shot('returned-controls');
       await click('Show sample save');
     };
-    await click('Loop / Sample');await region(1,3,'new');assert.equal(await run('component().memoizedProps.startBeat'),48000);
+    await click('Loop / Sample');await click('Show sample save');
+    assert.equal(await run(`document.querySelector('[aria-label="Sample format"]').value`),'flac');
+    assert.equal(await run(`document.querySelector('[aria-label="Sample bit depth"]').value`),'16');
+    await select('Sample format','wav');await select('Sample bit depth','24');await click('Show loop controls');
+    await region(1,3,'new');assert.equal(await run('component().memoizedProps.startBeat'),48000);
     await click('Set Start Beat');await shot('placement');await mouseClick(4);assert.deepEqual(await run('currentSelection()'),{start:1,end:3});assert.equal(await run('component().memoizedProps.placingStartBeat'),true);
     await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await pause();assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.deepEqual(await run('currentSelection()'),{start:1,end:3});
     await click('Set Start Beat');await click('Set Start Beat');assert.equal(await run('component().memoizedProps.placingStartBeat'),false);

@@ -19,7 +19,11 @@ export function useKnobDrag({ value, min, max, sensitivity, step, fineStep, disa
   useEffect(() => {
     if (!dragging) return;
     const updateModifier = (event: KeyboardEvent) => {
-      if (event.key === 'Shift') setFineAdjusting(event.type === 'keydown');
+      if (event.key === 'Shift') {
+        const fine = event.type === 'keydown';
+        if (drag.current) { drag.current.fine = fine; drag.current.raw = drag.current.output; }
+        setFineAdjusting(fine);
+      }
     };
     const cancel = () => {
       drag.current = null;
@@ -35,6 +39,9 @@ export function useKnobDrag({ value, min, max, sensitivity, step, fineStep, disa
       window.removeEventListener('blur', cancel);
     };
   }, [dragging]);
+  useEffect(() => {
+    if (disabled) { drag.current = null; setDragging(false); setFineAdjusting(false); }
+  }, [disabled]);
   const finish = (event: PointerEvent<HTMLElement>) => {
     drag.current = null;
     setDragging(false);
@@ -59,8 +66,7 @@ export function useKnobDrag({ value, min, max, sensitivity, step, fineStep, disa
         // Rebase at the last emitted value; toggling Shift alone never changes it.
         state.fine = event.shiftKey;
         state.raw = state.output;
-        state.y = event.clientY;
-        return;
+
       }
       const delta = state.y - event.clientY;
       state.y = event.clientY;

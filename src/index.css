@@ -275,10 +275,15 @@
 .tools-panel > div:first-child { gap: 4px; }
 .tools-panel > div:first-child button { font-size: 9px; padding: 2px 4px; }
 .tools-panel > div:first-child > div { overflow: visible; gap: 3px; }
-.loop-adjust-row { justify-content: space-between; }
+.loop-adjust-row { justify-content: space-between; gap: 2px; }
 .loop-adjust-row > .loop-readout { flex: 0 0 auto; }
 .loop-adjust-row .loop-readout-frame { width: 92px; flex: 0 0 92px; }
 .loop-move-group { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.slide-encoder { flex: 0 0 20px; width: 20px; height: 20px; border-color: #334155; outline: none; }
+.slide-encoder[data-dragging=true] { border-color: #38bdf8; }
+.slide-encoder[data-fine=true] { border-color: #fbbf24; box-shadow: 0 0 5px #fbbf2466; }
+.slide-encoder:focus-visible { outline: 1px dashed #94a3b8; outline-offset: 2px; }
+.slide-encoder[aria-disabled=true] { opacity: .4; cursor: not-allowed; }
 .loop-move-group button { padding: 0 2px; font-size: 8px; }
 .loop-adjust-row > button[aria-pressed=true] { background: #701a75; border-color: #e879f9; color: #fae8ff; }
 .loop-length { flex: .85; }

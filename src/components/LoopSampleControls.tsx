@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { SlideEncoder } from './SlideEncoder';
 import { SampleSaveControls } from './SampleSaveControls';
 import { SelectionEdit } from '../utils/startBeat';
 import { TimeSelection } from '../types';
@@ -64,12 +65,12 @@ export function LoopSampleControls({ active, audioBuffer, selection, startBeat, 
     }}>{direction < 0 ? '\u25c0' : '\u25b6'}</button>;
   };
   const timeCommit = (target: 'start' | 'end', seconds: number) => !!samples && seconds >= 0 && seconds <= frames / rate && apply(editSamples(samples, target, Math.round(seconds * rate) - samples[target], frames));
-  return <div className="loop-sample-controls" aria-label="Loop / Sample controls" onKeyDown={e => e.stopPropagation()}>
+  return <div className="loop-sample-controls" aria-label="Loop / Sample controls" onKeyDown={e => e.stopPropagation()} onPointerUpCapture={() => setFine(false)} onPointerCancelCapture={() => setFine(false)}>
     <div hidden={section !== 'controls'} className="loop-controls-rows">
       <div className="loop-time-row">
         <TimeReadout label="Start" disabled={!samples} value={samples ? samples.start / rate : null} commit={seconds => timeCommit('start', seconds)} arrows={direction => adjust('start', direction)} />
         <TimeReadout label="End" disabled={!samples} value={samples ? samples.end / rate : null} commit={seconds => timeCommit('end', seconds)} arrows={direction => adjust('end', direction)} />
-        <div className="loop-readout loop-length">Length<output aria-label="Loop length" title="Selection length in seconds">{samples ? ((samples.end - samples.start) / rate).toFixed(3) : '--'}</output></div>
+        <div className="loop-readout loop-length">Length (s)<output aria-label="Loop length" title="Selection length in seconds (s)">{samples ? ((samples.end - samples.start) / rate).toFixed(3) : '--'}</output></div>
         {action('Halve selection', samples && resizeSamples(samples, 0.5, 'start', frames), '\u00bd')}
         {action('Double selection', samples && resizeSamples(samples, 2, 'start', frames), '\u00d72')}
       </div>
@@ -82,10 +83,10 @@ export function LoopSampleControls({ active, audioBuffer, selection, startBeat, 
         }} />
         <button type="button" aria-label="Set Start Beat" title="Place Start Beat once inside the selection; Escape cancels." aria-pressed={placingStartBeat} disabled={!samples} onClick={() => onPlacementChange?.(!placingStartBeat)}>Set</button>
         <button type="button" aria-label="Clear Start Beat" title="Remove the custom Start Beat marker and use the selection's left boundary." disabled={!samples} onClick={() => { onPlacementChange?.(false); onStartBeatChange?.(null); }}>Clear</button>
-        <div className="loop-move-group"><span>Slide</span>{adjust('whole', -1)}{adjust('whole', 1)}</div>
+        <div className="loop-move-group"><span>Slide</span><SlideEncoder start={samples?.start ?? 0} max={samples ? frames - (samples.end - samples.start) : 0} rate={rate} disabled={!samples || !active || section !== 'controls'} onChange={start => { if (samples) apply({ start, end: start + samples.end - samples.start }, 'move'); }} />{adjust('whole', -1)}{adjust('whole', 1)}</div>
         <div className="loop-move-group"><span>Jump</span>
-          {action('Previous selection', samples && editSamples(samples, 'whole', -(samples.end - samples.start), frames), '\u25c0\u25c0', 'move')}
-          {action('Next selection', samples && editSamples(samples, 'whole', samples.end - samples.start, frames), '\u25b6\u25b6', 'move')}
+          {action('Previous selection', samples && editSamples(samples, 'whole', -(samples.end - samples.start), frames), '\u25c0', 'move')}
+          {action('Next selection', samples && editSamples(samples, 'whole', samples.end - samples.start, frames), '\u25b6', 'move')}
         </div>
         <button type="button" aria-label="Show sample save" onClick={() => setSection('save')}>Save</button>
       </div>

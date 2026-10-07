@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { samplePreferences } from '../utils/samplePreferences';
 import { SampleSelection } from '../utils/loopSelection';
 import { sampleFilename, snapshotSample } from '../utils/sampleExport';
 import { encodeFlac, encodeWav } from '../utils/audioEncoder';
@@ -7,8 +8,8 @@ import { getSampleExport, SampleSaveRequest } from '../utils/desktopExport';
 export function SampleSaveControls({ audioBuffer, selection, startBeat, onControls, onSaved }: { audioBuffer: AudioBuffer | null; selection: SampleSelection | null; startBeat: number | null; onControls: () => void; onSaved: (path: string) => void }) {
   const api = getSampleExport();
   const [filename, setFilename] = useState('Loop Sample');
-  const [format, setFormat] = useState<'wav' | 'flac'>(() => { try { return localStorage.getItem('audiophonic_sample_format') === 'flac' ? 'flac' : 'wav'; } catch { return 'wav'; } });
-  const [depth, setDepth] = useState<16 | 24>(() => { try { return localStorage.getItem('audiophonic_sample_depth') === '16' ? 16 : 24; } catch { return 24; } });
+  const [format, setFormat] = useState<'wav' | 'flac'>(() => { try { return samplePreferences(localStorage.getItem('audiophonic_sample_format'), null).format; } catch { return 'flac'; } });
+  const [depth, setDepth] = useState<16 | 24>(() => { try { return samplePreferences(null, localStorage.getItem('audiophonic_sample_depth')).depth; } catch { return 16; } });
   useEffect(() => { try { localStorage.setItem('audiophonic_sample_format', format); localStorage.setItem('audiophonic_sample_depth', String(depth)); } catch {} }, [format, depth]);
   const [folder, setFolder] = useState('');
   const [status, setStatus] = useState('');
