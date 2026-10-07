@@ -143,3 +143,12 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     disabled states, highlights, fixed layout, cursor placement and rotated exports.
     PCM comparison: 174 observations, maximum cursor error 0.69 ms; no source overlap.
     No merge or push. Manual listening and final visual approval remain pending.
+
+    Start Beat drag follow-up (7 October 2026), implemented for review:
+    Drag the magenta lower handle or Start Beat label to move its sample-aligned
+    position within the selection, including its last included sample. Selection
+    boundaries and current playback stay unchanged; next audition / export uses
+    the new position. Existing compact readouts and fixed layout are preserved.
+    Passed TypeScript, 57 utility tests, production build and native Electron
+    dragging / boundary / uninterrupted-source / rotated-export regressions.
+    Manual listening review remains pending. No merge or push.

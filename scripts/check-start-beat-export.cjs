@@ -91,6 +91,19 @@ app.whenReady().then(async () => {
     await click('Set Start Beat');await mouseClick(1.5);let beat=await run('component().memoizedProps.startBeat');assert.ok(Math.abs(beat-72000)<1500);assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.equal(await run('component().memoizedProps.isPlaying'),false);
     await click('Loop and play the selected region');assert.equal(await run('sources.at(-1).offset'),beat/48000);
     const count=await run('sources.length');await click('Set Start Beat');await mouseClick(2);assert.equal(await run('sources.length'),count,'Placement does not replace source');assert.equal(await run('component().memoizedProps.isPlaying'),true);assert.equal(await run('sources.filter(s=>s.active).length'),1);
+    const dragBeat = async target => {
+      const r=await run('wave().getBoundingClientRect().toJSON()'), d=await run('audioDuration'), sample=await run('component().memoizedProps.startBeat');
+      const y=r.bottom-26, from=r.left+r.width*(sample/48000)/d, to=r.left+r.width*target/d;
+      for (const [type,x] of [['mouseMoved',from],['mousePressed',from],['mouseMoved',to],['mouseReleased',to]]) {
+        await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x,y,button:type==='mouseMoved'?'none':'left',buttons:type==='mouseReleased'?0:1,clickCount:1}); await pause();
+      }
+    };
+    const dragSources=await run('sources.length');
+    await dragBeat(2.5);assert.equal(await run('component().memoizedProps.startBeat'),120000);
+    assert.deepEqual(await run('currentSelection()'),{start:1,end:3});assert.equal(await run('sources.length'),dragSources,'Dragging beat leaves current source uninterrupted');
+    await dragBeat(4);assert.equal(await run('component().memoizedProps.startBeat'),143999,'Clamp before exclusive end');
+    await dragBeat(.5);assert.equal(await run('component().memoizedProps.startBeat'),48000,'Clamp to selection start');
+    await dragBeat(2.5);await shot('dragged');
     beat=await run('component().memoizedProps.startBeat');await region(2,4,'move');assert.equal(await run('component().memoizedProps.startBeat'),beat+48000);
     await region(2.1,4,'edge');assert.equal(await run('component().memoizedProps.startBeat'),beat+48000);
     await region(3.9,4,'edge');assert.equal(await run('component().memoizedProps.startBeat'),187200);

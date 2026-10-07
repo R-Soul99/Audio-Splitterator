@@ -293,7 +293,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Dragging States
   const [activeDrag, setActiveDrag] = useState<{
-    type: 'chop' | 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
+    type: 'startBeat' | 'chop' | 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
     id?: string;
     startX?: number;
     startTime?: number;
@@ -311,7 +311,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
-  const [hoveredElement, setHoveredElement] = useState<'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
+  const [hoveredElement, setHoveredElement] = useState<'startBeat' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
 
 
@@ -849,12 +849,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.fillRect(selXEnd, height / 2 - 12, 2, 24);
     }
 
-    // A passive marker: no hit target, so selection edges/fade handles remain unchanged.
+    // Start Beat has a lower drag handle, separate from selection braces and fades.
     if (audioBuffer && customStartBeat && startBeat !== null && selection) {
       const x = timeToX(startBeat / audioBuffer.sampleRate, width);
       if (x >= 0 && x <= width) {
         ctx.save(); ctx.strokeStyle = '#e879f9'; ctx.fillStyle = '#e879f9'; ctx.lineWidth = 1.5;
         ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(x, height - 26, 4, 0, Math.PI * 2); ctx.fill();
         ctx.font = 'bold 10px monospace';
         const labelX = Math.max(3, Math.min(width - 66, x + 5));
         ctx.fillStyle = '#020617'; ctx.fillRect(labelX - 2, height - 19, 66, 16);
@@ -1328,6 +1329,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     return () => cancelAnimationFrame(frame);
   }, [audioBuffer, analyzedSamples, analysisBusy, silenceBusy, importStatus, onAnalysisBusyChange]);
 
+  const hitStartBeat = (x: number, y: number) => {
+    if (!audioBuffer || !customStartBeat || startBeat === null || !selection) return false;
+    const markerX = timeToX(startBeat / audioBuffer.sampleRate, canvasDimensions.width);
+    if (markerX < 0 || markerX > canvasDimensions.width) return false;
+    const labelX = Math.max(3, Math.min(canvasDimensions.width - 66, markerX + 5));
+    return (Math.abs(x - markerX) <= 7 && y >= canvasDimensions.height - 34) ||
+      (x >= labelX - 2 && x <= labelX + 64 && y >= canvasDimensions.height - 19);
+  };
+
   // Pointer move handler (computes hover hit tests)
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1357,7 +1367,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Dragging active element logic
     if (placementPointerRef.current) return;
     if (activeDrag) {
-      if (activeDrag.type === 'playhead') {
+      if (activeDrag.type === 'startBeat' && audioBuffer) {
+        const samples = sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
+        if (samples) onStartBeatChange?.(Math.max(samples.start, Math.min(samples.end - 1, Math.round(selectionTime * audioBuffer.sampleRate))));
+      } else if (activeDrag.type === 'playhead') {
         const nextTime = Math.max(cropStart, Math.min(cropEnd, selectionTime));
         onSeek(nextTime);
       } else if (activeDrag.type === 'marker' && activeDrag.id) {
@@ -1423,6 +1436,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setHoveredElement(null);
     setHoveredMarkerId(null);
 
+    if (hitStartBeat(x, y)) { setHoveredElement('startBeat'); return; }
+
     const fadeTarget = hitTestFadeControls(x, y, fadeControls);
     if (fadeTarget) { setHoveredElement(fadeTarget); return; }
 
@@ -1482,6 +1497,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const time = xToTime(x, canvasDimensions.width);
 
     pointerDownPositionRef.current = { x, y };
+
+    if (hitStartBeat(x, y)) { e.preventDefault(); setActiveDrag({ type: 'startBeat' }); return; }
 
     const fadeTarget = hitTestFadeControls(x, y, fadeControls);
     if (fadeTarget) { setActiveDrag({ type: fadeTarget }); return; }
@@ -1781,6 +1798,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const cursorStyle = activeDrag
     ? 'cursor-grabbing'
+    : hoveredElement === 'startBeat'
+    ? 'cursor-grab'
     : hoveredElement === 'marker'
     ? 'cursor-ew-resize'
     : hoveredElement === 'fadeIn' || hoveredElement === 'fadeOut'
