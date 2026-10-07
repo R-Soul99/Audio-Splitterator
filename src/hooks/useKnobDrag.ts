@@ -8,33 +8,43 @@ interface KnobDragOptions {
   sensitivity: number;
   step?: number;
   fineStep?: number;
+  preserveFractional?: boolean;
   disabled?: boolean;
   onChange: (value: number) => void;
 }
 
-export function useKnobDrag({ value, min, max, sensitivity, step, fineStep, disabled, onChange }: KnobDragOptions) {
+export function useKnobDrag({ value, min, max, sensitivity, step, fineStep, preserveFractional = false, disabled, onChange }: KnobDragOptions) {
   const [dragging, setDragging] = useState(false);
   const [fineAdjusting, setFineAdjusting] = useState(false);
-  const drag = useRef<{ y: number; raw: number; output: number; fine: boolean } | null>(null);
+  const fractional = useRef<{ output: number; remainder: number } | null>(null);
+  const drag = useRef<{ y: number; raw: number; output: number; fine: boolean; sensitivity: number; preserveFractional: boolean } | null>(null);
   useEffect(() => {
     if (!dragging) return;
     const updateModifier = (event: KeyboardEvent) => {
-      if (event.key === 'Shift') setFineAdjusting(event.type === 'keydown');
+      if (event.key === 'Shift') {
+        const fine = event.type === 'keydown';
+        if (drag.current) { drag.current.fine = fine; if (!drag.current.preserveFractional) drag.current.raw = drag.current.output; }
+        setFineAdjusting(fine);
+      }
     };
     const cancel = () => {
       drag.current = null;
+      fractional.current = null;
       setDragging(false);
       setFineAdjusting(false);
     };
-    window.addEventListener('keydown', updateModifier);
-    window.addEventListener('keyup', updateModifier);
+    window.addEventListener('keydown', updateModifier, true);
+    window.addEventListener('keyup', updateModifier, true);
     window.addEventListener('blur', cancel);
     return () => {
-      window.removeEventListener('keydown', updateModifier);
-      window.removeEventListener('keyup', updateModifier);
+      window.removeEventListener('keydown', updateModifier, true);
+      window.removeEventListener('keyup', updateModifier, true);
       window.removeEventListener('blur', cancel);
     };
   }, [dragging]);
+  useEffect(() => {
+    if (disabled) { drag.current = null; fractional.current = null; setDragging(false); setFineAdjusting(false); }
+  }, [disabled]);
   const finish = (event: PointerEvent<HTMLElement>) => {
     drag.current = null;
     setDragging(false);
@@ -47,7 +57,8 @@ export function useKnobDrag({ value, min, max, sensitivity, step, fineStep, disa
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       if (disabled || event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
-      drag.current = { y: event.clientY, raw: value, output: value, fine: event.shiftKey };
+      const remainder = preserveFractional && fractional.current?.output === value ? fractional.current.remainder : 0;
+      drag.current = { y: event.clientY, raw: Math.max(min, Math.min(max, value + remainder)), output: value, fine: event.shiftKey, sensitivity, preserveFractional };
       setDragging(true);
       setFineAdjusting(event.shiftKey);
     },
@@ -58,16 +69,15 @@ export function useKnobDrag({ value, min, max, sensitivity, step, fineStep, disa
       if (state.fine !== event.shiftKey) {
         // Rebase at the last emitted value; toggling Shift alone never changes it.
         state.fine = event.shiftKey;
-        state.raw = state.output;
-        state.y = event.clientY;
-        return;
+        if (!state.preserveFractional) state.raw = state.output;
       }
       const delta = state.y - event.clientY;
       state.y = event.clientY;
       if (delta === 0) return;
-      state.raw = Math.max(min, Math.min(max, state.raw + delta * sensitivity * (state.fine ? 0.1 : 1)));
+      state.raw = Math.max(min, Math.min(max, state.raw + delta * state.sensitivity * (state.fine ? 0.1 : 1)));
       const increment = state.fine ? fineStep : step;
       const next = Math.max(min, Math.min(max, increment ? min + Math.round((state.raw - min) / increment) * increment : state.raw));
+      if (state.preserveFractional) fractional.current = { output: next, remainder: state.raw - next };
       if (next !== state.output) {
         state.output = next;
         onChange(next);

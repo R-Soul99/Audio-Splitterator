@@ -450,34 +450,14 @@ export async function encodeFlac(
   // Interleaved 32-bit samples for libflac
   const totalSamples = numSamples * numChannels;
   const bufferI32 = new Int32Array(totalSamples);
-  const ch0 = audioBuffer.getChannelData(0);
-  const ch1 = numChannels > 1 ? audioBuffer.getChannelData(1) : null;
-
-  if (bps === 24) {
-    for (let i = 0; i < numSamples; i++) {
-      const s0 = Math.max(-1, Math.min(1, ch0[i]));
-      const val0 = Math.floor(s0 < 0 ? s0 * 0x800000 : s0 * 0x7fffff);
-      if (ch1) {
-        const s1 = Math.max(-1, Math.min(1, ch1[i]));
-        const val1 = Math.floor(s1 < 0 ? s1 * 0x800000 : s1 * 0x7fffff);
-        bufferI32[i * 2] = val0;
-        bufferI32[i * 2 + 1] = val1;
-      } else {
-        bufferI32[i] = val0;
-      }
-    }
-  } else {
-    for (let i = 0; i < numSamples; i++) {
-      const s0 = Math.max(-1, Math.min(1, ch0[i]));
-      const val0 = s0 < 0 ? s0 * 0x8000 : s0 * 0x7fff;
-      if (ch1) {
-        const s1 = Math.max(-1, Math.min(1, ch1[i]));
-        const val1 = s1 < 0 ? s1 * 0x8000 : s1 * 0x7fff;
-        bufferI32[i * 2] = val0;
-        bufferI32[i * 2 + 1] = val1;
-      } else {
-        bufferI32[i] = val0;
-      }
+  const channels = Array.from({ length: numChannels }, (_, channel) => audioBuffer.getChannelData(channel));
+  for (let i = 0; i < numSamples; i++) {
+    for (let channel = 0; channel < numChannels; channel++) {
+      const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+      const value = bps === 24
+        ? Math.floor(sample < 0 ? sample * 0x800000 : sample * 0x7fffff)
+        : sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      bufferI32[i * numChannels + channel] = value;
     }
   }
 

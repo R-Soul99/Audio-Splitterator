@@ -53,6 +53,17 @@ ipcMain.handle('export:save-file', async (_event, { name, data, segments }) => {
   throw new Error('Too many files with the same name.');
 });
 
+const sampleStore = require('./sample-export.cjs').createSampleExportStore(path.join(app.getPath('userData'), 'sample-export-settings.json'));
+ipcMain.handle('sample:get-folder', () => sampleStore.getFolder());
+ipcMain.handle('sample:set-folder', (_event, folder) => sampleStore.setFolder(folder));
+ipcMain.handle('sample:choose-folder', async () => {
+  const previous = await sampleStore.getFolder();
+  const result = await dialog.showOpenDialog(mainWindow, { title: 'Choose sample export folder', defaultPath: previous || app.getPath('music'), properties: ['openDirectory', 'createDirectory'] });
+  if (result.canceled) return null;
+  return sampleStore.setFolder(result.filePaths[0]);
+});
+ipcMain.handle('sample:save', (_event, request) => sampleStore.save(request));
+
 let mainWindow = null;
 
 function createWindow() {

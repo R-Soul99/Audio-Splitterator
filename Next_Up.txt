@@ -38,23 +38,200 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     peak readouts and the central Reset control.
     Software monitoring controls and the input-to-speaker route are removed;
     capture, waveform, VUs, oscilloscope and preamp detection remain available.
-    Keep the fixed 136px Record / Pause / Resume button and compact Stop beneath it.
-    Ready is red with a record circle; Recording is steady red with a pause icon;
-    Paused is amber with a pause icon and steady Resume label / PAUSED status.
-    The paused button gently pulses once per second unless reduced motion is enabled.
-    REC LED: dim/off in Ready, steady glowing red while recording, and flashing
-    once per second while paused, including when reduced motion is enabled.
-    Resume continues the same recording; Stop finalises from Recording or Paused.
-    Preserve shortcuts, markers, elapsed time and the fixed layout in every state.
-12. Wanted, planned as a separate development pass: loop/sample creator.
-    Activating Selection's loop button opens a compact pop-up
-    for auditioning, adjusting and saving the selected region. Preserve the fixed
-    device layout; the controls must not resize or move the waveform.
-    - Halve/double the selection length, with a choice of which edge stays fixed.
-    - Jump left/right by one selection length (e.g. to the previous/next 4-bar span).
-    - Slide the entire selection left/right while it continues looping.
-    - Fine-tune start/end independently with precise readouts and small nudges.
-    - Export exactly one cycle of the selected region as an individual WAV or FLAC.
-    - Choose and remember a default destination folder for subsequent saves, with
-      a way to change it. Provide editable filenames and avoid accidental overwrites.
-    Build in reviewable stages: loop controls first, then region export and saved folder.
+    Recording transport / preservation refinement approved by Leroy for merging
+    (8 October 2026); this supersedes the original merged transport behaviour:
+    The fixed 136px main button is Record / circle when idle and Stop / square
+    while recording or paused. The compact button underneath is Pause / Resume,
+    disabled when idle or finalising. Its pause icon gently flashes once per
+    second while paused (steady with reduced motion); Resume label stays steady.
+    REC LED remains dim/off when idle, steady recording, blinking paused, and off
+    while finalising. PAUSED remains explicit. Busy controls disable without movement.
+    Successful Stop loads the entire take into Edit and switches panels; synchronous
+    guards prevent duplicate starts / finalisation. Allocation or loading failure
+    retains the take paused, displays an inline error, and permits Resume or retry.
+    Reproduced loss: switching panels unmounted AudioRecorder, closed its capture
+    resources and dropped component-owned buffers. Recorder now stays mounted;
+    navigation preserves PCM, elapsed time, markers, waveform and recording state.
+    Only idle hidden input resources stop. Successful finalisation releases capture
+    after Edit accepts the buffer. Original replacement safeguard and focused Space
+    / recording-marker M shortcuts retained; hidden recorder does not intercept M.
+    Verified TypeScript, 65 utility tests, production build, sample-store test and
+    native Electron recording / loop / waveform / Start Beat-export checks.
+    Recording checks cover capture during navigation, paused navigation / Stop,
+    Resume, exact stereo frames without pause silence, repeated Stop, visible busy
+    state, allocation / loading failures, retry / Resume, icons / reduced motion,
+    resource release and fixed geometry. Async loading rejection tested separately.
+    Ready / Recording / Paused screenshots visually inspected; no clipping / scroll.
+    Existing rotated WAV / FLAC exports and approved playback sync remain intact.
+    Leroy approved the recording refinements after interactive review.
+    Automated checks used controlled input; physical-input / long-take capture was
+    not exercised by the agent. Renderer-only change; native packaging not repeated.
+12. Stage 1 tested and approved by Leroy; retained unmerged for this follow-up.
+    Permanent Loop / Sample tab in the existing fixed Tools panel; no pop-up or separate loop region.
+    - Existing selection loop switch and illuminated indicator.
+    - Editable Start / End (seconds or minutes:seconds), read-only Length in seconds;
+      Enter / blur commits edits, Escape cancels; boundaries use the source sample rate.
+      Three-decimal displays never round stored samples on unedited focus / blur.
+    - Half / double keep Start fixed; half rounds odd sample counts down to one
+      sample minimum. Start Beat resets if excluded; it never blocks halving.
+    - Two compact rows: Start / End / Length / half / double above Start Beat /
+      Set / Clear / Slide / Jump / Save. Loop switch / LED beside Tools tabs.
+    - Outlined Start / End / Start Beat readouts contain left / editable value /
+      right compartments: 10 ms normally, Shift-click 1 ms, aligned to audio samples.
+      Independent entry and arrows remain; tooltips explain coarse / fine steps.
+      Redundant anchor / target selectors removed; compact Slide encoder restored.
+    - Slide encoder drags incrementally, coarse / Shift fine; recording boundaries
+      clamp precisely with immediate reversal and no overshoot accumulation.
+      Slide arrows move 10 ms / Shift 1 ms; Jump single arrows move one full length.
+      Both preserve exact sample length and relative Start Beat.
+    - Invalid boundary actions disabled; whole moves preserve sample length.
+      Active loop edits schedule an exact, non-overlapping source handover, returning
+      an excluded playhead
+      to the new start, and preserve looping through Tools tab changes.
+    - Keep waveform position / size and the device dimensions unchanged.
+    Start Beat, sample export and control / cursor refinements implemented, awaiting user review:
+    - Set Start Beat enables one-shot placement inside the selection; outside
+      clicks are consumed, Escape / a second press cancels. Clear removes the custom
+      marker, cancels placement and uses the selection start for audition / export.
+      Clearing selection or loading another recording cancels placement.
+    - Magenta labelled marker and sample-accurate readout. Whole moves preserve
+      relative position; edge / length edits retain it if inside, otherwise reset.
+      New selections and cleared markers follow Start, with no custom marker shown.
+      Placement, typed entry or nudging shows a custom marker; End is exclusive.
+    - Explicit loop audition starts at Start Beat, reaches End, then wraps to Start.
+      Placing the marker during playback does not interrupt the active source.
+    - Controls / Save sections remain within the fixed Loop / Sample panel.
+      Save Sample exports one raw cycle: [Beat, End) followed by [Start, Beat).
+      No fades, zero-crossing adjustment, silence, normalisation or crossfades.
+    - WAV / FLAC at 16 / 24 bits reuse existing encoders. Sample rate, channels,
+      channel alignment and exact selection sample count are preserved.
+    - Editable filename and separate remembered sample destination; native folder
+      chooser. Save captures samples / marker / settings before encoding.
+      Existing names require explicit Replace, Numbered or Cancel. Late name
+      collisions cannot silently overwrite; complete-file publication and cleanup
+      protect failed exports. Duplicate saves are disabled while busy.
+    - Successful exports return automatically to Controls, with brief feedback in
+      reserved inline space; selection, Start Beat and playback remain unchanged.
+      Failure / cancellation stays in Save. Destination, format and bit depth are
+      remembered for the next save, including reopening the app. New defaults are
+      FLAC / 16-bit only when no explicitly chosen setting exists.
+    - Entering Loop / Sample arms looping, including a subsequently created region,
+      without starting stopped playback; other Tools tabs preserve active loops.
+    - Cursor uses active-source audio-clock segments and output-device timestamps,
+      retaining queued audio history across live edits. No wall-clock fallback or
+      rebasing from stale animation frames. Pause retains loop mode; audition still
+      starts at Start Beat without marker edits interrupting playback.
+    - Reserved inline progress / success / error space; fixed 980 x 650 layout.
+    Validation: TypeScript, 52 utility tests, sample-store collision / failure tests,
+    stage-1 / waveform selection / track-export regressions, production Electron
+    placement / export checks all passed. Final Windows unpacked packaging passed
+    in a fresh temporary output outside OneDrive; the OneDrive rebuild encountered
+    a Windows EPERM directory-rename error.
+    WAV / FLAC 16 / 24-bit decoded and compared against expected quantized samples
+    for default, rotated and final one-frame regions; cancellation, immutable
+    snapshot, destination reload and stable placement / saving / feedback checked.
+    Playback synchronisation approved by Leroy after extensive loop manipulation
+    and listening: cursor stays aligned with audio. No further listening gate.
+    New control refinements still await workflow / appearance review.
+    Pending later timing mode: Time / Beats, BPM and musical divisions.
+    Start Beat is manually placed; no beat detection or BPM mode is included.
+
+    Control / cursor follow-up (7 October 2026), playback approved by Leroy:
+    Reproduced a 531 ms cursor lag with delayed display frames and a live edge edit:
+    the old code rebased from a stale rendered position. Mutable native loop bounds
+    also produced a different phase from the estimated cursor after an expansion.
+    Replaced this with scheduled old-stop / new-start at the same render boundary,
+    using source-clock phase and preserving output-latency history. Start Beat
+    changes remain passive until explicit audition. No source overlap is intended.
+    Focused regressions cover coarse / fine sample boundaries, default looping
+    without autoplay, Jump / length changes, live edits, wraps, pause / resume,
+    restarted audition and delayed display frames against independently captured PCM.
+    Passed: TypeScript, 56 audio utility tests, sample-store tests, production build
+    and Electron loop / waveform / rotated-export regressions. Final PCM run: 149
+    observations, maximum cursor error 0.61 ms; no simultaneous active sources.
+    Leroy has extensively tested live loop manipulation; playback synchronisation
+    is approved. Further listening review is not required for integration.
+    A generated review fixture is build/loop-sample-sync-transients.wav (right
+    channel has quarter-second clicks; left channel identifies sample positions).
+    No merge or push; export and Beats-mode scope remain as recorded above.
+
+    Compact Loop / Sample follow-up (7 October 2026), implemented for review:
+    Two fixed control rows, integrated arrow compartments and three-decimal times;
+    dirty-entry tracking preserves sub-millisecond samples on focus / Enter / blur.
+    Slide arrows restored; the later encoder refinement below adds the knob.
+    Custom Start Beat visibility
+    is distinct from its default export / audition start; Clear follows Start.
+    Fine highlights reflect held Shift; pressed illumination ends on release;
+    keyboard focus remains a distinct dashed outline. Instructions use tooltips.
+    Existing ruler readout and audio-clock source handovers are preserved.
+    Passed: TypeScript, 57 utility tests, sample-store tests, production build and
+    three Electron regressions covering rounded precision, Slide, Clear, long values,
+    disabled states, highlights, fixed layout, cursor placement and rotated exports.
+    PCM comparison: 174 observations, maximum cursor error 0.69 ms; no source overlap.
+    No merge or push. Playback is approved; final review of new controls remains.
+
+    Start Beat drag follow-up (7 October 2026), implemented for review:
+    Drag the magenta lower handle or Start Beat label to move its sample-aligned
+    position within the selection, including its last included sample. Selection
+    boundaries and current playback stay unchanged; next audition / export uses
+    the new position. Existing compact readouts and fixed layout are preserved.
+    Passed TypeScript, 57 utility tests, production build and native Electron
+    dragging / boundary / uninterrupted-source / rotated-export regressions.
+    Playback synchronisation is approved by Leroy. No merge or push.
+
+    Slide encoder / halving / export defaults follow-up, implemented for review:
+    Compact encoder uses the established knob appearance and vertical dragging:
+    Viewport-scaled movement: one visible waveform pixel per vertical drag pixel,
+    Shift ten times finer; repeated drags cover the recording. Slide arrows retain
+    exact 10 ms / Shift 1 ms steps independently of the viewport.
+    Only recording bounds limit movement. Partial boundary steps are applied,
+    overshoot discarded and reversing responds immediately. Release / cancel /
+    blur / tab changes clear encoder illumination; no pop-up or waveform movement.
+    Reproduced disabled halving at 0.495 s and 2.659 s with odd sample counts:
+    the prior exact-integer check rejected fractional halves. It was not a
+    minimum-duration or Start Beat restriction. Halving now floors odd counts
+    and remains available down to one audio sample (1 / sample rate seconds).
+    Excluded Start Beat resets to Start and its custom marker is removed.
+    Length explicitly shows seconds; all time displays retain three decimals.
+    Jump uses single left / right arrows; distance and boundary checks unchanged.
+    FLAC / 16-bit defaults preserve explicit WAV / FLAC and 16 / 24-bit choices.
+    Passed TypeScript, 60 utility tests, sample-store tests, production build and
+    three Electron regressions: repeated encoder drags, exact clamping / reversal,
+    modifier release, repeated halving / Start Beat reset, single-arrow Jump,
+    defaults / remembered settings, rotated exports and fixed layout / ruler.
+    Live encoder / loop PCM comparison: 200 observations, max cursor error 0.65 ms;
+    scheduled sources never overlap. Compact / disabled / long-value states
+    visually inspected. Renderer-only changes; native packaging not repeated.
+    No merge or push; these refinements await user review. Playback is approved.
+
+    Edit waveform scaling / viewport-sensitive Slide, implemented for review:
+    Vertical zoom defaults / resets to 1.0x, with the existing 0.25x-64x range.
+    Corrected the obsolete amplitude-2 full-scale mapping: at unity, amplitudes
+    -1 to +1 now fill 96% of each channel, with 2% margins and identical stereo
+    scaling. Full-scale guides use the same mapping; offscreen guides are not
+    misleadingly labelled at channel edges. No source-peak normalisation.
+    Vertical zoom is not persisted and resets on audio import; no saved legacy
+    value can retain the old empty space. Audio / gain / levels / exports unchanged.
+    Slide sensitivity uses the current visible span and waveform width, captured
+    at pointer-down. Viewport changes during a drag cannot change its sensitivity.
+    Fractional sample movement accumulates within and between fine drags; emitted
+    selection boundaries remain exact samples. Boundary overshoot is discarded,
+    with immediate reversal and preserved length / relative Start Beat.
+    Fixed device, waveform, ruler, braces, marker and fade geometry retained.
+    Passed TypeScript, 62 utility tests, sample-store tests, production build and
+    four native Electron checks: measured stereo / guide pixels at default and
+    reduced zoom, reset / reimport, quiet / near-full-scale views, 1x / 60x encoder
+    sensitivity, mid-drag viewport changes, fractional accumulation across events
+    and releases, boundaries / reversal / highlights, ruler / selection interactions,
+    live loops and rotated WAV / FLAC exports. PCM: 191 comparisons, maximum cursor
+    error 0.58 ms; no overlapping source intervals. Layout visually inspected.
+    PCM startup comparison begins when the explicitly restarted source is audible;
+    continuous handover checks retain queued previous-source audio comparisons.
+    Renderer-only changes; native packaging not repeated.
+    Prior playback synchronisation approval stands. No merge or push.
+
+    Integration status (8 October 2026): Leroy approved merging the current
+    feat/record-stop-pause-preservation branch into main, including its preserved
+    Loop / Sample, Start Beat, export, waveform / Slide and playback timing work.
+    Earlier per-pass review / no-merge notes above describe development history.
+    Other feature branches and unrelated local files are outside this merge.

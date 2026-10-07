@@ -1,7 +1,11 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { waveformAmplitudeScale } from '../utils/waveformDisplay';
 import { selectionEndpoint } from '../utils/waveformSelection';
 import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
+import { LoopSampleControls, SelectionLoopSwitch } from './LoopSampleControls';
+import { placementSample, SelectionEdit } from '../utils/startBeat';
+import { sampleSelection } from '../utils/loopSelection';
 import { RotaryKnob } from './RotaryKnob';
 import { analyzeSilenceLevels, analyzeSilenceLevelsChunked } from '../utils/silenceAnalysis';
 import { buildQuietRuns, quietCandidatePolicy, acquireQuietTarget, QuietRadarAcquisition, QuietTarget } from '../utils/quietRadar';
@@ -67,7 +71,13 @@ interface WaveformCanvasProps {
   onStop?: () => void;
   onSeek: (time: number) => void;
   onWaveformClick: (time: number) => void;
-  onSelectionChange?: (selection: TimeSelection | null) => void;
+  startBeat?: number | null;
+  customStartBeat?: boolean;
+  placingStartBeat?: boolean;
+  onPlacementChange?: (active: boolean) => void;
+  onStartBeatChange?: (sample: number | null) => void;
+  onSelectionChange?: (selection: TimeSelection | null, edit?: SelectionEdit) => void;
+  onLoopChange?: (enabled: boolean) => void;
   onLoopSelection?: (start: number, end: number) => void;
   onCropToSelection?: (start: number, end: number) => void;
   onCutSelection?: (start: number, end: number) => void;
@@ -198,7 +208,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onSeek,
   onWaveformClick,
   onSelectionChange,
+  startBeat = null, customStartBeat = false, placingStartBeat = false, onPlacementChange, onStartBeatChange,
   onLoopSelection,
+  onLoopChange,
   onCropToSelection,
   onCutSelection,
   onPlaySelection,
@@ -225,6 +237,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rulerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
+  const placementPointerRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   // Radar-style "ping" when the cursor crosses onto a detected noise-floor snap point
@@ -235,6 +248,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const markerMoveStartedRef = useRef(false);
   const [verticalZoom, setVerticalZoom] = useState(1);
   const verticalZoomRef = useRef(1);
+
+  const [showLoopSample, setShowLoopSample] = useState(false);
 
   // Popover States
   const [processingOpen, setProcessingOpen] = useState(false);
@@ -279,7 +294,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Dragging States
   const [activeDrag, setActiveDrag] = useState<{
-    type: 'chop' | 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
+    type: 'startBeat' | 'chop' | 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
     id?: string;
     startX?: number;
     startTime?: number;
@@ -297,7 +312,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
-  const [hoveredElement, setHoveredElement] = useState<'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
+  const [hoveredElement, setHoveredElement] = useState<'startBeat' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
 
 
@@ -632,12 +647,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const startSample = Math.round(currentOffset * audioBuffer.sampleRate);
     const endSample = Math.round((currentOffset + visibleDuration) * audioBuffer.sampleRate);
     const sampleCount = endSample - startSample;
-    const displayMaxAmplitude = 2 / verticalZoom;
+    const displayMaxAmplitude = 1 / verticalZoom;
 
     for (let c = 0; c < channels; c++) {
       const channelHeight = height / channels;
       const centerY = channelHeight * c + channelHeight / 2;
-      const amplitudeScale = channelHeight * 0.45 / displayMaxAmplitude;
+      const amplitudeScale = waveformAmplitudeScale(channelHeight, verticalZoom);
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, c * channelHeight, width, channelHeight);
@@ -730,7 +745,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
             const minAmplitude = Math.max(-displayMaxAmplitude, Math.min(displayMaxAmplitude, minVal * fadeGain));
             const maxAmplitude = Math.max(-displayMaxAmplitude, Math.min(displayMaxAmplitude, maxVal * fadeGain));
-            const amplitudeScale = channelHeight * 0.45 / displayMaxAmplitude;
+            const amplitudeScale = waveformAmplitudeScale(channelHeight, verticalZoom);
             const yMin = centerY + minAmplitude * amplitudeScale;
             const yMax = centerY + maxAmplitude * amplitudeScale;
             const path = minVal <= -1 || maxVal >= 1 ? fullScalePath : waveformPath;
@@ -755,16 +770,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const channelHeight = height / channels;
         const centerY = channelHeight * c + channelHeight / 2;
         const channelTop = c * channelHeight;
-        const zeroDbY = Math.max(channelTop + 10, centerY - channelHeight * 0.45 / displayMaxAmplitude);
+        const zeroDbY = centerY - waveformAmplitudeScale(channelHeight, verticalZoom);
+        if (zeroDbY < channelTop || zeroDbY > channelTop + channelHeight) continue;
+        const labelY = Math.max(channelTop + 10, zeroDbY);
         const labelX = Math.floor(width * 0.6);
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, channelTop, width, channelHeight);
         ctx.clip();
         ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
-        ctx.fillRect(labelX, zeroDbY - 10, 42, 10);
+        ctx.fillRect(labelX, labelY - 10, 42, 10);
         ctx.fillStyle = '#fbbf24';
-        ctx.fillText('0 dBFS', labelX + 2, zeroDbY - 1);
+        ctx.fillText('0 dBFS', labelX + 2, labelY - 1);
         ctx.restore();
       }
     }
@@ -833,6 +850,20 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(selXStart - 2, height / 2 - 12, 2, 24);
       ctx.fillRect(selXEnd, height / 2 - 12, 2, 24);
+    }
+
+    // Start Beat has a lower drag handle, separate from selection braces and fades.
+    if (audioBuffer && customStartBeat && startBeat !== null && selection) {
+      const x = timeToX(startBeat / audioBuffer.sampleRate, width);
+      if (x >= 0 && x <= width) {
+        ctx.save(); ctx.strokeStyle = '#e879f9'; ctx.fillStyle = '#e879f9'; ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(x, height - 26, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.font = 'bold 10px monospace';
+        const labelX = Math.max(3, Math.min(width - 66, x + 5));
+        ctx.fillStyle = '#020617'; ctx.fillRect(labelX - 2, height - 19, 66, 16);
+        ctx.fillStyle = '#e879f9'; ctx.fillText('Start Beat', labelX, height - 7); ctx.restore();
+      }
     }
 
     // 3. Draggable Volume Fade Envelopes (Visual overlays)
@@ -1130,7 +1161,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, startBeat, customStartBeat, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
 
   const drawOverlayRef = useRef(drawOverlay);
 
@@ -1301,6 +1332,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     return () => cancelAnimationFrame(frame);
   }, [audioBuffer, analyzedSamples, analysisBusy, silenceBusy, importStatus, onAnalysisBusyChange]);
 
+  const hitStartBeat = (x: number, y: number) => {
+    if (!audioBuffer || !customStartBeat || startBeat === null || !selection) return false;
+    const markerX = timeToX(startBeat / audioBuffer.sampleRate, canvasDimensions.width);
+    if (markerX < 0 || markerX > canvasDimensions.width) return false;
+    const labelX = Math.max(3, Math.min(canvasDimensions.width - 66, markerX + 5));
+    return (Math.abs(x - markerX) <= 7 && y >= canvasDimensions.height - 34) ||
+      (x >= labelX - 2 && x <= labelX + 64 && y >= canvasDimensions.height - 19);
+  };
+
   // Pointer move handler (computes hover hit tests)
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1328,8 +1368,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const selectionTime = xToTime(x, rect.width);
 
     // Dragging active element logic
+    if (placementPointerRef.current) return;
     if (activeDrag) {
-      if (activeDrag.type === 'playhead') {
+      if (activeDrag.type === 'startBeat' && audioBuffer) {
+        const samples = sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
+        if (samples) onStartBeatChange?.(Math.max(samples.start, Math.min(samples.end - 1, Math.round(selectionTime * audioBuffer.sampleRate))));
+      } else if (activeDrag.type === 'playhead') {
         const nextTime = Math.max(cropStart, Math.min(cropEnd, selectionTime));
         onSeek(nextTime);
       } else if (activeDrag.type === 'marker' && activeDrag.id) {
@@ -1378,14 +1422,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           nextE = duration; nextS = duration - span;
         }
 
-        onSelectionChange({ start: nextS, end: nextE });
+        onSelectionChange({ start: nextS, end: nextE }, 'move');
       } else if (activeDrag.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
         if (activeDrag.startX !== undefined && Math.abs(x - activeDrag.startX) > 4) {
           showRadarGuidance(time);
           const endTime = selectionEndpoint(selectionTime, duration);
           const s = Math.min(activeDrag.startTime, endTime);
           const e = Math.max(activeDrag.startTime, endTime);
-          onSelectionChange?.({ start: s, end: e });
+          onSelectionChange?.({ start: s, end: e }, 'new');
         }
       }
       return;
@@ -1394,6 +1438,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Hover detection when dragging is NOT active
     setHoveredElement(null);
     setHoveredMarkerId(null);
+
+    if (hitStartBeat(x, y)) { setHoveredElement('startBeat'); return; }
 
     const fadeTarget = hitTestFadeControls(x, y, fadeControls);
     if (fadeTarget) { setHoveredElement(fadeTarget); return; }
@@ -1435,6 +1481,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    if (placingStartBeat) {
+      e.preventDefault();
+      placementPointerRef.current = true;
+      canvas.setPointerCapture(e.pointerId);
+      const rect = canvas.getBoundingClientRect();
+      const samples = audioBuffer ? sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) : null;
+      const sample = audioBuffer ? placementSample(xToTime(e.clientX - rect.left, rect.width), audioBuffer.sampleRate, samples) : null;
+      if (sample !== null) { onStartBeatChange?.(sample); onPlacementChange?.(false); }
+      return;
+    }
     markerMoveStartedRef.current = false;
     canvas.setPointerCapture(e.pointerId);
 
@@ -1444,6 +1500,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const time = xToTime(x, canvasDimensions.width);
 
     pointerDownPositionRef.current = { x, y };
+
+    if (hitStartBeat(x, y)) { e.preventDefault(); setActiveDrag({ type: 'startBeat' }); return; }
 
     const fadeTarget = hitTestFadeControls(x, y, fadeControls);
     if (fadeTarget) { setActiveDrag({ type: fadeTarget }); return; }
@@ -1473,6 +1531,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       } catch {}
     }
 
+    if (placementPointerRef.current) { placementPointerRef.current = false; setActiveDrag(null); return; }
     const rect = canvas?.getBoundingClientRect();
     const downPosition = pointerDownPositionRef.current;
     pointerDownPositionRef.current = null;
@@ -1504,18 +1563,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         // Drag selection complete!
         const selStart = Math.min(activeDrag.startTime, endTime);
         const selEnd = Math.max(activeDrag.startTime, endTime);
-        onSelectionChange?.({ start: selStart, end: selEnd });
+        onSelectionChange?.({ start: selStart, end: selEnd }, 'new');
 
         // Detection selections are measured directly from the buffer, without auditioning.
-        if (!processingOpen && onLoopSelection) {
+        if (!processingOpen && !showLoopSample && !isLooping && onLoopSelection) {
           onLoopSelection(selStart, selEnd);
-        } else if (!processingOpen && onPlaySelection) {
+        } else if (!processingOpen && !showLoopSample && !isLooping && onPlaySelection) {
           onPlaySelection(selStart, selEnd);
         }
       }
     } else if (
       (activeDrag?.type === 'selectionStart' || activeDrag?.type === 'selectionEnd' || activeDrag?.type === 'selectionMove') &&
-      selection && moved && !processingOpen
+      selection && moved && !processingOpen && !showLoopSample && !isLooping
     ) {
       if (Math.abs(selection.end - selection.start) > 0.05) {
         const s = Math.min(selection.start, selection.end);
@@ -1742,6 +1801,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const cursorStyle = activeDrag
     ? 'cursor-grabbing'
+    : hoveredElement === 'startBeat'
+    ? 'cursor-grab'
     : hoveredElement === 'marker'
     ? 'cursor-ew-resize'
     : hoveredElement === 'fadeIn' || hoveredElement === 'fadeOut'
@@ -1764,7 +1825,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ? 'cursor-grab'
     : 'cursor-pointer';
 
-  const hasSelection = Boolean(selection && Math.abs(selection.end - selection.start) > 0.02);
+  const hasSelection = Boolean(audioBuffer && sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length));
   const selS = selection ? Math.min(selection.start, selection.end) : 0;
   const selE = selection ? Math.max(selection.start, selection.end) : 0;
 
@@ -1934,6 +1995,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     };
   }, [showPeakTamerPopover, audioBuffer, peakThresholdDb, peakScope, selection?.start, selection?.end]);
 
+  const cursorReadoutContext = hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? 'Bracket' : hoveredElement === 'selectionBar' ? 'Selection' : hoveredElement === 'marker' ? 'Marker' : '';
+  const cursorReadoutWidth = Math.max(64, formatTime(hoverTime ?? 0, true).length * 6 + 12) + (cursorReadoutContext ? cursorReadoutContext.length * 5 + 10 : 0);
   return (
     <div className="gap-2 select-none flex flex-col h-full min-w-0 min-h-0 overflow-hidden" ref={containerRef}>
       {/* Editing controls and compact timing readouts share the toolbar. */}
@@ -2028,7 +2091,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {processingPanelContainer && createPortal(
-        <div aria-label="Tools" className="tools-panel absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1.5">
+        <div aria-label="Tools" className="tools-panel absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1">
           <div className="flex shrink-0 items-center gap-2">
           <span className="shrink-0 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto custom-scrollbar">
@@ -2041,6 +2104,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               type="button"
               onClick={() => {
                 setProcessingOpen((open) => !open);
+                setShowLoopSample(false);
                 setShowPeakTamerPopover(false);
                 setShowNormalisePopover(false);
               }}
@@ -2052,6 +2116,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             <button
               type="button"
               onClick={() => {
+                setShowLoopSample(false);
                 const nextState = !showPeakTamerPopover;
                 setShowPeakTamerPopover(nextState);
                 if (nextState) {
@@ -2067,6 +2132,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             <button
               type="button"
               onClick={() => {
+                setShowLoopSample(false);
                 const nextState = !showNormalisePopover;
                 setShowNormalisePopover(nextState);
                 if (nextState) {
@@ -2079,10 +2145,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             >
               Normalise
             </button>
+            <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); onLoopChange?.(true); setProcessingOpen(false); setShowPeakTamerPopover(false); setShowNormalisePopover(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
           </div>
-          <span className="ml-auto shrink-0 text-[8px] text-slate-500">Shift + Knob = Fine</span>
+          {showLoopSample && <SelectionLoopSwitch audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onLoopChange={onLoopChange} />}
           </div>
 
+          <div hidden={!showLoopSample}><LoopSampleControls visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">
@@ -2470,12 +2538,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           </div>
         </div>
         {/* Fixed-height time ruler; never resizes with panel toggles so the waveform stays put. */}
-        <div className="mr-9 shrink-0 border-b border-slate-800/70" style={{ height: `${RULER_HEIGHT}px` }}>
+        <div aria-label="Waveform time ruler" className="relative mr-9 shrink-0 overflow-hidden border-b border-slate-800/70" style={{ height: `${RULER_HEIGHT}px` }}>
           <canvas
             ref={rulerCanvasRef}
             className="block w-full h-full select-none pointer-events-none"
             style={{ height: `${RULER_HEIGHT}px` }}
           />
+          {hoverTime !== null && hoverPosition && (
+            <div aria-label="Cursor time readout" className="ruler-cursor-readout" style={{ width: `${cursorReadoutWidth}px`, left: `${Math.max(0, Math.min(hoverPosition.x - cursorReadoutWidth / 2, canvasDimensions.width - cursorReadoutWidth))}px` }}>
+              {formatTime(hoverTime, true)}
+              {cursorReadoutContext && <span className="ruler-cursor-context">{cursorReadoutContext}</span>}
+            </div>
+          )}
         </div>
         <div className="flex flex-1 min-h-0">
         <div className="relative flex-1 min-w-0 min-h-0" ref={canvasContainerRef}>
@@ -2514,6 +2588,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         <canvas
           ref={canvasRef}
           aria-label="Edit waveform"
+          data-vertical-zoom={verticalZoom}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -2531,24 +2606,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           style={{ height: `${canvasDimensions.height}px` }}
         />
 
-        {/* Hover Time Tooltip (Sleek HUD Style, only shows timestamp by default to avoid clutter) */}
-        {hoverTime !== null && hoverPosition && !activeDrag?.type.startsWith('fade') && !hoveredElement?.startsWith('fade') &&
-          !fadeControls.some(control => control.enabled && Math.abs(hoverPosition.x - control.lengthX) <= 24) && (
-          <div
-            className="absolute pointer-events-none top-1/2 -translate-y-1/2 bg-slate-900 text-slate-200 border border-slate-800 px-2.5 py-0.5 rounded-md text-[10px] font-mono shadow-xl transform -translate-x-1/2 z-10 flex items-center gap-1.5"
-            aria-label="Cursor time readout"
-            style={{ left: `${hoverPosition.x}px` }}
-          >
-            <span className="text-emerald-400 font-bold">{formatTime(hoverTime, true)}</span>
-            {hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? (
-              <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Bracket</span>
-            ) : hoveredElement === 'selectionBar' ? (
-              <span className="text-sky-400 text-[9px] font-sans px-1 bg-sky-500/10 rounded border border-sky-500/20">Selection</span>
-            ) : hoveredElement === 'marker' ? (
-              <span className="text-purple-400 text-[9px] font-sans px-1 bg-purple-500/10 rounded border border-purple-500/20">Marker</span>
-            ) : null}
-          </div>
-        )}
 
         </div>
         {/* Dedicated gutter: zoom controls never cover selectable audio. */}
