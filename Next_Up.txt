@@ -46,15 +46,20 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     once per second while paused, including when reduced motion is enabled.
     Resume continues the same recording; Stop finalises from Recording or Paused.
     Preserve shortcuts, markers, elapsed time and the fixed layout in every state.
-12. Wanted, planned as a separate development pass: loop/sample creator.
-    Activating Selection's loop button opens a compact pop-up
-    for auditioning, adjusting and saving the selected region. Preserve the fixed
-    device layout; the controls must not resize or move the waveform.
-    - Halve/double the selection length, with a choice of which edge stays fixed.
-    - Jump left/right by one selection length (e.g. to the previous/next 4-bar span).
-    - Slide the entire selection left/right while it continues looping.
-    - Fine-tune start/end independently with precise readouts and small nudges.
-    - Export exactly one cycle of the selected region as an individual WAV or FLAC.
-    - Choose and remember a default destination folder for subsequent saves, with
-      a way to change it. Provide editable filenames and avoid accidental overwrites.
-    Build in reviewable stages: loop controls first, then region export and saved folder.
+12. Stage 1 implemented, awaiting user testing: permanent Loop / Sample tab in
+    the existing fixed Tools panel; no pop-up or separate loop region.
+    - Existing selection loop switch and illuminated indicator.
+    - Editable Start / End (seconds or minutes:seconds), read-only Length in ms;
+      Enter / blur commits, Escape cancels; boundaries use the source sample rate.
+    - Half / double length with Keep Start / Keep End; previous / next span moves.
+    - Whole / Start / End nudge target, bidirectional knob and single-step buttons;
+      selectable 1 / 10 / 100 ms steps, rounded to the nearest source sample.
+    - Invalid boundary actions disabled; whole moves preserve sample length.
+      Active loop edits update native bounds, safely return an excluded playhead
+      to the new start, and preserve looping through Tools tab changes.
+    - Keep waveform position / size and the device dimensions unchanged.
+    Pending stage 2 after review: export one cycle as WAV / FLAC, editable filenames,
+    remembered destination and overwrite handling.
+    Pending later timing mode: Time / Beats, BPM and musical divisions.
+    No sample export, filenames, saved destinations, Beats controls or BPM detection
+    are included in stage 1. Stop for user testing before extending this feature.

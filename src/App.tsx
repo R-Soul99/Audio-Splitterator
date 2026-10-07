@@ -4,6 +4,7 @@ import { WaveformCanvas } from './components/WaveformCanvas';
 import { SplitsManager } from './components/SplitsManager';
 import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
 import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
+import { sampleSelection, loopEditPosition } from './utils/loopSelection';
 import { mergeAutoSplitMarkers } from './utils/autoSplitPolicy';
 import {
   Mic,
@@ -347,12 +348,12 @@ export default function App() {
       }
 
       const sel = selectionRef.current;
-      const hasSelection = sel && Math.abs(sel.end - sel.start) > 0.02;
-      const effectiveStart = hasSelection ? Math.min(sel.start, sel.end) : cropStartRef.current;
+      const hasSelection = sel && sampleSelection(sel, buffer.sampleRate, buffer.length);
+      const effectiveStart = hasSelection ? hasSelection.start / buffer.sampleRate : cropStartRef.current;
       const effectiveEnd = hasSelection
-        ? Math.max(sel.start, sel.end)
+        ? hasSelection.end / buffer.sampleRate
         : (cropEndRef.current > 0 ? cropEndRef.current : buffer.duration);
-      const loopSpan = Math.max(0.01, effectiveEnd - effectiveStart);
+      const loopSpan = Math.max(1 / buffer.sampleRate, effectiveEnd - effectiveStart);
 
       let elapsed = 0;
       if (
@@ -422,13 +423,13 @@ export default function App() {
       }
 
       const sel = selectionRef.current;
-      const hasSelection = sel && Math.abs(sel.end - sel.start) > 0.02;
-      const effectiveStart = hasSelection ? Math.min(sel.start, sel.end) : cropStartRef.current;
+      const hasSelection = sel && sampleSelection(sel, buffer.sampleRate, buffer.length);
+      const effectiveStart = hasSelection ? hasSelection.start / buffer.sampleRate : cropStartRef.current;
       const effectiveEnd = hasSelection
-        ? Math.max(sel.start, sel.end)
+        ? hasSelection.end / buffer.sampleRate
         : (cropEndRef.current > 0 ? cropEndRef.current : buffer.duration);
 
-      const loopSpan = Math.max(0.01, effectiveEnd - effectiveStart);
+      const loopSpan = Math.max(1 / buffer.sampleRate, effectiveEnd - effectiveStart);
       const safeStart = Math.max(effectiveStart, Math.min(effectiveEnd, offsetTime));
 
       const source = ctx.createBufferSource();
@@ -437,7 +438,7 @@ export default function App() {
 
       const activeSource = source;
 
-      if (activeLoop && loopSpan > 0.02) {
+      if (activeLoop && loopSpan >= 1 / buffer.sampleRate) {
         source.loop = true;
         source.loopStart = effectiveStart;
         source.loopEnd = effectiveEnd;
@@ -539,12 +540,30 @@ export default function App() {
     [startPlayback, autoPreviewOnClick]
   );
 
-  // Keep playback bounds in sync immediately when the waveform clears its selection.
+  // Keep native loop bounds and the playhead clock in sync with selection edits.
   const handleSelectionChange = useCallback((nextSelection: TimeSelection | null) => {
+    const buffer = audioBufferRef.current;
+    // A transient collapsed waveform drag must not replace an active valid loop.
+    if (nextSelection && buffer && isLoopingRef.current && !sampleSelection(nextSelection, buffer.sampleRate, buffer.length)) return;
     const hadSelection = selectionRef.current !== null;
     selectionRef.current = nextSelection;
     setSelection(nextSelection);
 
+    if (nextSelection && buffer && isLoopingRef.current && isPlayingRef.current) {
+      const valid = sampleSelection(nextSelection, buffer.sampleRate, buffer.length);
+      if (valid) {
+        const bounds = { start: valid.start / buffer.sampleRate, end: valid.end / buffer.sampleRate };
+        const adjusted = loopEditPosition(currentTimeRef.current, bounds);
+        if (adjusted.restart) startPlayback(bounds.start, true);
+        else if (sourceNodeRef.current) {
+          sourceNodeRef.current.loopStart = bounds.start;
+          sourceNodeRef.current.loopEnd = bounds.end;
+          playheadStartTimeRef.current = adjusted.position;
+          contextStartTimeRef.current = audioCtxRef.current?.currentTime ?? 0;
+          playbackWallStartTimeRef.current = performance.now();
+        }
+      }
+    }
     if (!nextSelection) {
       isLoopingRef.current = false;
       setIsLooping(false);
@@ -780,7 +799,7 @@ export default function App() {
       if (!buffer) return;
       const s = Math.max(0, Math.min(startSec, endSec));
       const e = Math.min(buffer.duration, Math.max(startSec, endSec));
-      if (e - s <= 0.02) return;
+      if (!sampleSelection({ start: s, end: e }, buffer.sampleRate, buffer.length)) return;
 
       setSelection({ start: s, end: e });
       selectionRef.current = { start: s, end: e };
@@ -1247,6 +1266,14 @@ export default function App() {
                         onSeek={handleSeek}
                         onWaveformClick={handleWaveformClick}
                         onSelectionChange={handleSelectionChange}
+                        onLoopChange={(enabled) => {
+                          if (enabled && selectionRef.current) handleLoopSelection(selectionRef.current.start, selectionRef.current.end);
+                          else {
+                            isLoopingRef.current = false;
+                            setIsLooping(false);
+                            if (isPlayingRef.current) startPlayback(currentTimeRef.current, false);
+                          }
+                        }}
                         onLoopSelection={handleLoopSelection}
                         onCropToSelection={handleCropToSelection}
                         onCutSelection={handleCutSelection}

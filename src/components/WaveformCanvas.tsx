@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { selectionEndpoint } from '../utils/waveformSelection';
 import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
+import { LoopSampleControls } from './LoopSampleControls';
+import { sampleSelection } from '../utils/loopSelection';
 import { RotaryKnob } from './RotaryKnob';
 import { analyzeSilenceLevels, analyzeSilenceLevelsChunked } from '../utils/silenceAnalysis';
 import { buildQuietRuns, quietCandidatePolicy, acquireQuietTarget, QuietRadarAcquisition, QuietTarget } from '../utils/quietRadar';
@@ -68,6 +70,7 @@ interface WaveformCanvasProps {
   onSeek: (time: number) => void;
   onWaveformClick: (time: number) => void;
   onSelectionChange?: (selection: TimeSelection | null) => void;
+  onLoopChange?: (enabled: boolean) => void;
   onLoopSelection?: (start: number, end: number) => void;
   onCropToSelection?: (start: number, end: number) => void;
   onCutSelection?: (start: number, end: number) => void;
@@ -199,6 +202,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onWaveformClick,
   onSelectionChange,
   onLoopSelection,
+  onLoopChange,
   onCropToSelection,
   onCutSelection,
   onPlaySelection,
@@ -235,6 +239,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const markerMoveStartedRef = useRef(false);
   const [verticalZoom, setVerticalZoom] = useState(1);
   const verticalZoomRef = useRef(1);
+
+  const [showLoopSample, setShowLoopSample] = useState(false);
 
   // Popover States
   const [processingOpen, setProcessingOpen] = useState(false);
@@ -1764,7 +1770,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ? 'cursor-grab'
     : 'cursor-pointer';
 
-  const hasSelection = Boolean(selection && Math.abs(selection.end - selection.start) > 0.02);
+  const hasSelection = Boolean(audioBuffer && sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length));
   const selS = selection ? Math.min(selection.start, selection.end) : 0;
   const selE = selection ? Math.max(selection.start, selection.end) : 0;
 
@@ -2028,7 +2034,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {processingPanelContainer && createPortal(
-        <div aria-label="Tools" className="tools-panel absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1.5">
+        <div aria-label="Tools" className="tools-panel absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1">
           <div className="flex shrink-0 items-center gap-2">
           <span className="shrink-0 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto custom-scrollbar">
@@ -2041,6 +2047,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               type="button"
               onClick={() => {
                 setProcessingOpen((open) => !open);
+                setShowLoopSample(false);
                 setShowPeakTamerPopover(false);
                 setShowNormalisePopover(false);
               }}
@@ -2052,6 +2059,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             <button
               type="button"
               onClick={() => {
+                setShowLoopSample(false);
                 const nextState = !showPeakTamerPopover;
                 setShowPeakTamerPopover(nextState);
                 if (nextState) {
@@ -2067,6 +2075,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             <button
               type="button"
               onClick={() => {
+                setShowLoopSample(false);
                 const nextState = !showNormalisePopover;
                 setShowNormalisePopover(nextState);
                 if (nextState) {
@@ -2079,10 +2088,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             >
               Normalise
             </button>
+            <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); setProcessingOpen(false); setShowPeakTamerPopover(false); setShowNormalisePopover(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
           </div>
           <span className="ml-auto shrink-0 text-[8px] text-slate-500">Shift + Knob = Fine</span>
           </div>
 
+          <div hidden={!showLoopSample}><LoopSampleControls audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onSelectionChange={onSelectionChange} onLoopChange={onLoopChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">
