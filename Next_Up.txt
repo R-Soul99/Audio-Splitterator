@@ -46,8 +46,8 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     once per second while paused, including when reduced motion is enabled.
     Resume continues the same recording; Stop finalises from Recording or Paused.
     Preserve shortcuts, markers, elapsed time and the fixed layout in every state.
-12. Stage 1 implemented, awaiting user testing: permanent Loop / Sample tab in
-    the existing fixed Tools panel; no pop-up or separate loop region.
+12. Stage 1 tested and approved by Leroy; retained unmerged for this follow-up.
+    Permanent Loop / Sample tab in the existing fixed Tools panel; no pop-up or separate loop region.
     - Existing selection loop switch and illuminated indicator.
     - Editable Start / End (seconds or minutes:seconds), read-only Length in ms;
       Enter / blur commits, Escape cancels; boundaries use the source sample rate.
@@ -58,8 +58,35 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
       Active loop edits update native bounds, safely return an excluded playhead
       to the new start, and preserve looping through Tools tab changes.
     - Keep waveform position / size and the device dimensions unchanged.
-    Pending stage 2 after review: export one cycle as WAV / FLAC, editable filenames,
-    remembered destination and overwrite handling.
+    Start Beat and sample export implemented, awaiting user review:
+    - Set Start Beat enables one-shot placement inside the selection; outside
+      clicks are consumed, Escape / a second press cancels, Reset restores Start.
+      Clearing selection or loading another recording cancels placement.
+    - Magenta labelled marker and sample-accurate readout. Whole moves preserve
+      relative position; edge / length edits retain it if inside, otherwise reset.
+      New selections default to Start. Selection End remains exclusive.
+    - Explicit loop audition starts at Start Beat, reaches End, then wraps to Start.
+      Placing the marker during playback does not interrupt the active source.
+    - Controls / Save sections remain within the fixed Loop / Sample panel.
+      Save Sample exports one raw cycle: [Beat, End) followed by [Start, Beat).
+      No fades, zero-crossing adjustment, silence, normalisation or crossfades.
+    - WAV / FLAC at 16 / 24 bits reuse existing encoders. Sample rate, channels,
+      channel alignment and exact selection sample count are preserved.
+    - Editable filename and separate remembered sample destination; native folder
+      chooser. Save captures samples / marker / settings before encoding.
+      Existing names require explicit Replace, Numbered or Cancel. Late name
+      collisions cannot silently overwrite; complete-file publication and cleanup
+      protect failed exports. Duplicate saves are disabled while busy.
+    - Reserved inline progress / success / error space; fixed 980 x 650 layout.
+    Validation: TypeScript, 52 utility tests, sample-store collision / failure tests,
+    stage-1 / waveform selection / track-export regressions, production Electron
+    placement / export checks all passed. Final Windows unpacked packaging passed
+    in a fresh temporary output outside OneDrive; the OneDrive rebuild encountered
+    a Windows EPERM directory-rename error.
+    WAV / FLAC 16 / 24-bit decoded and compared against expected quantized samples
+    for default, rotated and final one-frame regions; cancellation, immutable
+    snapshot, destination reload and stable placement / saving / feedback checked.
+    Manual review remains: real audio listening, native folder chooser on the
+    intended destination, overwrite choices and workflow / appearance approval.
     Pending later timing mode: Time / Beats, BPM and musical divisions.
-    No sample export, filenames, saved destinations, Beats controls or BPM detection
-    are included in stage 1. Stop for user testing before extending this feature.
+    Start Beat is manually placed; no beat detection or BPM mode is included.

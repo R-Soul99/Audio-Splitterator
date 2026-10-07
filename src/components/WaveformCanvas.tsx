@@ -3,6 +3,7 @@ import { selectionEndpoint } from '../utils/waveformSelection';
 import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
 import { LoopSampleControls } from './LoopSampleControls';
+import { placementSample, SelectionEdit } from '../utils/startBeat';
 import { sampleSelection } from '../utils/loopSelection';
 import { RotaryKnob } from './RotaryKnob';
 import { analyzeSilenceLevels, analyzeSilenceLevelsChunked } from '../utils/silenceAnalysis';
@@ -69,7 +70,11 @@ interface WaveformCanvasProps {
   onStop?: () => void;
   onSeek: (time: number) => void;
   onWaveformClick: (time: number) => void;
-  onSelectionChange?: (selection: TimeSelection | null) => void;
+  startBeat?: number | null;
+  placingStartBeat?: boolean;
+  onPlacementChange?: (active: boolean) => void;
+  onStartBeatChange?: (sample: number | null) => void;
+  onSelectionChange?: (selection: TimeSelection | null, edit?: SelectionEdit) => void;
   onLoopChange?: (enabled: boolean) => void;
   onLoopSelection?: (start: number, end: number) => void;
   onCropToSelection?: (start: number, end: number) => void;
@@ -201,6 +206,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onSeek,
   onWaveformClick,
   onSelectionChange,
+  startBeat = null, placingStartBeat = false, onPlacementChange, onStartBeatChange,
   onLoopSelection,
   onLoopChange,
   onCropToSelection,
@@ -229,6 +235,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rulerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
+  const placementPointerRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   // Radar-style "ping" when the cursor crosses onto a detected noise-floor snap point
@@ -841,6 +848,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.fillRect(selXEnd, height / 2 - 12, 2, 24);
     }
 
+    // A passive marker: no hit target, so selection edges/fade handles remain unchanged.
+    if (audioBuffer && startBeat !== null && selection) {
+      const x = timeToX(startBeat / audioBuffer.sampleRate, width);
+      if (x >= 0 && x <= width) {
+        ctx.save(); ctx.strokeStyle = '#e879f9'; ctx.fillStyle = '#e879f9'; ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); ctx.setLineDash([]);
+        ctx.font = 'bold 10px monospace';
+        const labelX = Math.max(3, Math.min(width - 66, x + 5));
+        ctx.fillStyle = '#020617'; ctx.fillRect(labelX - 2, height - 19, 66, 16);
+        ctx.fillStyle = '#e879f9'; ctx.fillText('Start Beat', labelX, height - 7); ctx.restore();
+      }
+    }
+
     // 3. Draggable Volume Fade Envelopes (Visual overlays)
     if (fadeSettings.fadeInEnabled && cropXStart <= width && timeToX(cropStart + fadeSettings.fadeInMs / 1000, width) >= 0) {
       const fadeMs = fadeSettings.fadeInMs;
@@ -1136,7 +1156,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
+  }, [canvasDimensions, cropStart, cropEnd, selection, startBeat, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
 
   const drawOverlayRef = useRef(drawOverlay);
 
@@ -1334,6 +1354,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const selectionTime = xToTime(x, rect.width);
 
     // Dragging active element logic
+    if (placementPointerRef.current) return;
     if (activeDrag) {
       if (activeDrag.type === 'playhead') {
         const nextTime = Math.max(cropStart, Math.min(cropEnd, selectionTime));
@@ -1384,14 +1405,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           nextE = duration; nextS = duration - span;
         }
 
-        onSelectionChange({ start: nextS, end: nextE });
+        onSelectionChange({ start: nextS, end: nextE }, 'move');
       } else if (activeDrag.type === 'selectionCreate' && activeDrag.startTime !== undefined) {
         if (activeDrag.startX !== undefined && Math.abs(x - activeDrag.startX) > 4) {
           showRadarGuidance(time);
           const endTime = selectionEndpoint(selectionTime, duration);
           const s = Math.min(activeDrag.startTime, endTime);
           const e = Math.max(activeDrag.startTime, endTime);
-          onSelectionChange?.({ start: s, end: e });
+          onSelectionChange?.({ start: s, end: e }, 'new');
         }
       }
       return;
@@ -1441,6 +1462,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    if (placingStartBeat) {
+      e.preventDefault();
+      placementPointerRef.current = true;
+      canvas.setPointerCapture(e.pointerId);
+      const rect = canvas.getBoundingClientRect();
+      const samples = audioBuffer ? sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) : null;
+      const sample = audioBuffer ? placementSample(xToTime(e.clientX - rect.left, rect.width), audioBuffer.sampleRate, samples) : null;
+      if (sample !== null) { onStartBeatChange?.(sample); onPlacementChange?.(false); }
+      return;
+    }
     markerMoveStartedRef.current = false;
     canvas.setPointerCapture(e.pointerId);
 
@@ -1479,6 +1510,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       } catch {}
     }
 
+    if (placementPointerRef.current) { placementPointerRef.current = false; setActiveDrag(null); return; }
     const rect = canvas?.getBoundingClientRect();
     const downPosition = pointerDownPositionRef.current;
     pointerDownPositionRef.current = null;
@@ -1510,7 +1542,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         // Drag selection complete!
         const selStart = Math.min(activeDrag.startTime, endTime);
         const selEnd = Math.max(activeDrag.startTime, endTime);
-        onSelectionChange?.({ start: selStart, end: selEnd });
+        onSelectionChange?.({ start: selStart, end: selEnd }, 'new');
 
         // Detection selections are measured directly from the buffer, without auditioning.
         if (!processingOpen && onLoopSelection) {
@@ -2093,7 +2125,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <span className="ml-auto shrink-0 text-[8px] text-slate-500">Shift + Knob = Fine</span>
           </div>
 
-          <div hidden={!showLoopSample}><LoopSampleControls audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onSelectionChange={onSelectionChange} onLoopChange={onLoopChange} /></div>
+          <div hidden={!showLoopSample}><LoopSampleControls audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onSelectionChange={onSelectionChange} onLoopChange={onLoopChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">

@@ -4,6 +4,7 @@ import { WaveformCanvas } from './components/WaveformCanvas';
 import { SplitsManager } from './components/SplitsManager';
 import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
 import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
+import { adjustStartBeat, SelectionEdit } from './utils/startBeat';
 import { sampleSelection, loopEditPosition } from './utils/loopSelection';
 import { mergeAutoSplitMarkers } from './utils/autoSplitPolicy';
 import {
@@ -69,6 +70,11 @@ export default function App() {
   const [cropEnd, setCropEnd] = useState<number>(0);
 
   // Selection Brace range
+  const [startBeat, setStartBeat] = useState<number | null>(null);
+  const startBeatRef = useRef<number | null>(null);
+  const beatSelectionRef = useRef<ReturnType<typeof sampleSelection>>(null);
+  const [placingStartBeat, setPlacingStartBeat] = useState(false);
+  const setBeat = useCallback((sample: number | null) => { startBeatRef.current = sample; setStartBeat(sample); }, []);
   const [selection, setSelection] = useState<TimeSelection | null>(null);
 
   // Split markers
@@ -541,10 +547,15 @@ export default function App() {
   );
 
   // Keep native loop bounds and the playhead clock in sync with selection edits.
-  const handleSelectionChange = useCallback((nextSelection: TimeSelection | null) => {
+  const handleSelectionChange = useCallback((nextSelection: TimeSelection | null, edit: SelectionEdit = 'edge') => {
     const buffer = audioBufferRef.current;
     // A transient collapsed waveform drag must not replace an active valid loop.
     if (nextSelection && buffer && isLoopingRef.current && !sampleSelection(nextSelection, buffer.sampleRate, buffer.length)) return;
+    const previousSamples = buffer ? sampleSelection(selectionRef.current, buffer.sampleRate, buffer.length) : null;
+    const nextSamples = buffer ? sampleSelection(nextSelection, buffer.sampleRate, buffer.length) : null;
+    setBeat(adjustStartBeat(previousSamples, nextSamples, startBeatRef.current, edit));
+    beatSelectionRef.current = nextSamples;
+    if (!nextSamples) setPlacingStartBeat(false);
     const hadSelection = selectionRef.current !== null;
     selectionRef.current = nextSelection;
     setSelection(nextSelection);
@@ -571,11 +582,32 @@ export default function App() {
         startPlayback(currentTimeRef.current, false);
       }
     }
-  }, [startPlayback]);
+  }, [startPlayback, setBeat]);
+
+  // Cover selection changes from import, undo and other established edit paths.
+  useEffect(() => {
+    const next = audioBuffer ? sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) : null;
+    const previous = beatSelectionRef.current;
+    if (previous?.start !== next?.start || previous?.end !== next?.end) {
+      setBeat(next?.start ?? null);
+      beatSelectionRef.current = next;
+    }
+    if (!next) setPlacingStartBeat(false);
+  }, [selection, audioBuffer, setBeat]);
+  useEffect(() => { setPlacingStartBeat(false); }, [loadedAudioId]);
+  useEffect(() => {
+    if (!placingStartBeat) return;
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); setPlacingStartBeat(false); }
+    };
+    window.addEventListener('keydown', cancel, true);
+    return () => window.removeEventListener('keydown', cancel, true);
+  }, [placingStartBeat]);
 
   // Load new audio buffer (recording finished or imported file)
   const loadAudio = (buffer: AudioBuffer, fileName: string, artist?: string, album?: string, markerTimes: number[] = []) => {
     stopPlayback();
+    setBeat(null); beatSelectionRef.current = null; setPlacingStartBeat(false);
     audioBufferRef.current = buffer;
     undoStackRef.current = [];
     setCanUndo(false);
@@ -804,7 +836,13 @@ export default function App() {
       setSelection({ start: s, end: e });
       selectionRef.current = { start: s, end: e };
 
-      startPlayback(s, true);
+      const samples = sampleSelection({ start: s, end: e }, buffer.sampleRate, buffer.length)!;
+      const previous = beatSelectionRef.current;
+      if (previous?.start !== samples.start || previous?.end !== samples.end) {
+        setBeat(samples.start); beatSelectionRef.current = samples;
+      }
+      const beat = startBeatRef.current;
+      startPlayback((beat !== null && beat >= samples.start && beat < samples.end ? beat : samples.start) / buffer.sampleRate, true);
     },
     [startPlayback]
   );
@@ -1265,6 +1303,10 @@ export default function App() {
                         onStop={handleStop}
                         onSeek={handleSeek}
                         onWaveformClick={handleWaveformClick}
+                        startBeat={startBeat}
+                        placingStartBeat={placingStartBeat}
+                        onPlacementChange={setPlacingStartBeat}
+                        onStartBeatChange={setBeat}
                         onSelectionChange={handleSelectionChange}
                         onLoopChange={(enabled) => {
                           if (enabled && selectionRef.current) handleLoopSelection(selectionRef.current.start, selectionRef.current.end);

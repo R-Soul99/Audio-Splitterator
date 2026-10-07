@@ -104,7 +104,7 @@ app.whenReady().then(async () => {
     await repeats(); await setRegion(2, 2.1); assert.equal(await run('sources.length'), count+1, 'Outside edit safely replaces source'); await repeats();
     for (const label of ['Auto-Split','Peak Tamer','Normalise','Loop / Sample']) { await click(label); assert.deepEqual(await run('wave().getBoundingClientRect().toJSON()'), rect); assert.equal(await run('component().memoizedProps.isLooping'),true); }
     await repeats();
-    const geometry = await run(`(() => { const p=document.querySelector('[aria-label="Tools"]'), r=p.getBoundingClientRect(); return {panel:r.toJSON(), controls:[...document.querySelectorAll('.loop-sample-controls button, .loop-sample-controls input, .loop-sample-controls select, .loop-sample-controls output, .loop-hint')].map(e=>({label:e.getAttribute('aria-label')||e.textContent, rect:e.getBoundingClientRect().toJSON()})), bodyScroll:document.documentElement.scrollHeight>innerHeight}; })()`);
+    const geometry = await run(`(() => { const p=document.querySelector('[aria-label="Tools"]'), r=p.getBoundingClientRect(); return {panel:r.toJSON(), controls:[...document.querySelectorAll('.loop-sample-controls button, .loop-sample-controls input, .loop-sample-controls select, .loop-sample-controls output, .loop-hint')].filter(e=>e.getClientRects().length).map(e=>({label:e.getAttribute('aria-label')||e.textContent, rect:e.getBoundingClientRect().toJSON()})), bodyScroll:document.documentElement.scrollHeight>innerHeight}; })()`);
 
     for (const control of geometry.controls) { assert.ok(control.rect.right <= geometry.panel.right+1 && control.rect.bottom <= geometry.panel.bottom+1 && control.rect.left >= geometry.panel.left-1, JSON.stringify(control)); }
     assert.equal(geometry.bodyScroll,false);
