@@ -12,6 +12,7 @@ app.whenReady().then(async () => {
     }
   };
   try {
+    win.webContents.debugger.attach('1.3');
     for (const stopWhilePaused of [false, true]) {
       await win.loadURL(process.argv[2] || 'http://localhost:3000/?standby=1');
       await run(`localStorage.setItem('audiophonic_preview_standby','true'); localStorage.setItem('monitoringAudioOutput','true'); localStorage.setItem('monitorVolume','1')`);
@@ -35,6 +36,7 @@ app.whenReady().then(async () => {
         CanvasRenderingContext2D.prototype.stroke=function(...args){if(this.canvas.getAttribute('aria-label')==='Combined recording waveform'&&this.lineWidth===2)traceCount++;return stroke.apply(this,args);};
         document.querySelector('[aria-label="Wake audio engine"]').click();
       `);
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
       await wait('analysers>=2');
       await wait(`document.querySelector('[aria-label="Start recording"]').getBoundingClientRect().width<136`);
       await run(`
@@ -67,6 +69,7 @@ app.whenReady().then(async () => {
       const capture=async state=>{ await win.webContents.capturePage(); await new Promise(resolve=>setTimeout(resolve,80)); await win.webContents.capturePage().then(image=>require('fs').writeFileSync(require('path').join(app.getPath('temp'),`splitterator-transport-${state}.png`),image.toPNG())); };
       const readyGeometry=await run('geometry()');
       await capture('ready');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-icon')`),false,'Ready has no paused animation');
       assert.equal(await run(`document.querySelector('[aria-label="Stop recording"]').disabled`),true);
       assert.ok(Math.abs(readyGeometry.meters[0]-(readyGeometry.waveform[0]-17*(readyGeometry.button[2]/136)))<1,'meter panel aligned with waveform panel');
       assert.ok(readyGeometry.transport[0]>readyGeometry.meters[0]);
@@ -113,7 +116,20 @@ app.whenReady().then(async () => {
       await run(`document.querySelector('[aria-label="Pause recording"]').click()`);
       await wait(`!!document.querySelector('[aria-label="Resume recording"]')`);
       assert.deepEqual(await run('geometry()'),readyGeometry,'paused layout stable');
+      assert.equal(await run(`document.querySelector('[aria-label="Resume recording"] svg').classList.contains('lucide-pause')`),true,'Paused shows pause icon with Resume action');
+      assert.equal(await run(`document.querySelector('[aria-label="Resume recording"]').nextElementSibling.textContent`),'RESUME','Resume label stays visible');
+      assert.equal(await run(`[...document.querySelector('[aria-label="Combined recording waveform"]').parentElement.nextElementSibling.querySelectorAll('span')].some(e=>e.textContent==='Paused')`),true,'Paused status readout stays visible');
+      assert.deepEqual(await run(`(()=>{const button=document.querySelector('[aria-label="Resume recording"]'),icon=button.querySelector('svg'),animations=icon.getAnimations();return {name:getComputedStyle(icon).animationName,duration:animations[0]?.effect.getTiming().duration,button:button.getAnimations().filter(animation=>animation instanceof CSSAnimation).length,label:button.nextElementSibling.getAnimations().length};})()`),
+        {name:'recording-pause-blink',duration:1000,button:0,label:0},'one-second animation applies only to icon');
+      assert.deepEqual(await run(`(()=>{const animation=document.querySelector('.recording-paused-icon').getAnimations()[0];return animation.effect.getKeyframes().map(frame=>frame.opacity);})()`),['1','0.3','1'],'gentle opacity blink preserves icon visibility');
       await capture('paused');
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+      await wait(`getComputedStyle(document.querySelector('.recording-paused-icon')).animationName==='none'`);
+      assert.equal(await run(`getComputedStyle(document.querySelector('.recording-paused-icon')).opacity`),'1','reduced motion shows steady pause icon');
+      assert.deepEqual(await run('geometry()'),readyGeometry,'reduced motion preserves layout');
+      await capture('paused-reduced-motion');
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+
       const frozenTime=await run('elapsed()');
       await run(`feed(1,1);window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyM',key:'m',bubbles:true}))`);
       await new Promise(resolve=>setTimeout(resolve,250));
@@ -125,6 +141,8 @@ app.whenReady().then(async () => {
       win.webContents.sendInputEvent({type:'keyUp',keyCode:'Space'});
       await wait(`!!document.querySelector('[aria-label="Pause recording"]')`);
       assert.deepEqual(await run('geometry()'),readyGeometry,'resumed layout stable');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-icon')`),false,'resume removes blinking immediately');
+      assert.equal(await run(`getComputedStyle(document.querySelector('[aria-label="Pause recording"] svg')).animationName`),'none','recording icon is steady');
       await wait(`elapsed()!==${JSON.stringify(frozenTime)}`);
       await capture('resumed');
       await run('feed(.75,.5)');
@@ -138,6 +156,7 @@ app.whenReady().then(async () => {
       await capture(stopWhilePaused?'stop-paused':'stop-recording');
       await run(`document.querySelector('[aria-label="Stop recording"]').click()`);
       await wait('finalBuffer!==null');
+      assert.equal(await run(`!!document.querySelector('.recording-paused-icon')`),false,'Stop removes paused animation');
       assert.deepEqual(await run(`({channels:finalBuffer.numberOfChannels,rate:finalBuffer.sampleRate,
         length:finalBuffer.length,left:[finalBuffer.getChannelData(0)[0],finalBuffer.getChannelData(0)[4095],finalBuffer.getChannelData(0)[4096],finalBuffer.getChannelData(0)[8191]],right:[finalBuffer.getChannelData(1)[0],finalBuffer.getChannelData(1)[4095],finalBuffer.getChannelData(1)[4096],finalBuffer.getChannelData(1)[8191]]})`),
         { channels: 2, rate: 44100, length: 8192, left: [0.25,0.25,0.75,0.75], right: [-0.5,-0.5,0.5,0.5] }, 'captured stereo samples remain distinct and exact');

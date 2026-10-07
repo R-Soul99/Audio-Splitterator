@@ -230,3 +230,15 @@
 .dark-scroll::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+/* Only the paused icon blinks; the control and Resume label stay steady. */
+@keyframes recording-pause-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .recording-paused-icon {
+    animation: recording-pause-blink 1s ease-in-out infinite;
+  }
+}

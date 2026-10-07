@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Square,
   Pause,
-  Play,
   MicOff,
   Radio,
   BookmarkPlus,
@@ -1310,7 +1309,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   aria-label={isStandbyMode ? 'Wake audio engine' : isRecording ? (isPaused ? 'Resume recording' : 'Pause recording') : 'Start recording'}
                 >
                   {isRecording ? (
-                    isPaused ? <Play aria-hidden="true" className="h-11 w-11 fill-current text-white/90" /> : <Pause aria-hidden="true" className="h-11 w-11 fill-current text-white/90" />
+                    <Pause aria-hidden="true" className={`h-11 w-11 fill-current text-white/90 ${isPaused ? 'recording-paused-icon' : ''}`} />
                   ) : <span className="h-11 w-11 rounded-full bg-white/90" />}
                 </button>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-red-500">{isStandbyMode ? 'WAKE' : isRecording ? (isPaused ? 'RESUME' : 'PAUSE') : 'RECORD'}</span>
