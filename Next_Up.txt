@@ -277,3 +277,43 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     Future pass: Immediate / At Loop End switching. At Loop End will queue and
     flash a slot, then recall it when the current cycle completes at its 1st Beat.
     Queuing / flashing and at-cycle-end scheduling are not implemented here.
+
+
+    Spring-centred Slide / wider Loop Tools pass (8 October 2026):
+    Fresh feat/spring-slide-control worktree from fetched main 910009d, retaining
+    the unmerged memory / grouped Controls and Boundaries alignment prerequisites.
+    Replaced Slide's rotary encoder with a captured horizontal spring control:
+    8% centre dead zone, proportional speed up to one quarter of the visible
+    waveform span per second, and Shift ten times finer without position jumps.
+    Hold Left / Right keys to move; key release stops. Elapsed-time integration
+    retains fractional samples and emits sample-aligned whole-selection moves.
+    Exact length and custom 1st Beat offset survive; clamps discard overshoot for
+    immediate reversal. Pointer release / cancel / lost capture, window blur,
+    Controls exit and unmount stop callbacks and restore the neutral display.
+    Focus outline is distinct from blue movement / amber fine styling; tooltip
+    explains operation. External edits / recall / source replacement end a hold.
+    Memory now reaches the existing right margin; spare width goes to Loop Tools.
+    Slide fills its bottom row with Save beside it. Keypad sizes / arrangement,
+    aligned Boundaries readouts, outer panels and waveform geometry are preserved.
+    Existing selection / safe audio handover pipeline is retained; source audio,
+    playback speed, 1st Beat editing / placement / audition and rotated export
+    are unchanged. Separate 1st Beat discussion remains pending after review.
+    Renderer-only pass; native packaging not repeated. Leroy's interactive review
+    of movement feel at different zoom levels, Shift, keyboard and live looping
+    remains required. No merge or push; primary checkout stays on main.
+    Validation passed: TypeScript, all 74 utility tests, production build,
+    git diff --check and four native Electron regressions (spring Slide, existing
+    loop controls, preset memory, and 1st Beat / rotated export). Actual component
+    RAF checked at 1 / 30 / 60 / 120 frames per second; sub-sample accumulation,
+    mid-hold Shift, viewport scaling, precise clamps / immediate reversal,
+    pointer and keyboard cleanup / view changes / unmount were exercised.
+    Synthetic cancel / lost-capture / blur events exercise those handlers;
+    native pointer capture, dragging and release run through Chromium input.
+    Spring dragging during live loops: 54 PCM comparisons, max cursor error
+    0.62 ms; playback rate remained 1 and scheduled source intervals never overlap.
+    Retained loop regression: 199 PCM comparisons, max 0.59 ms; memory recall:
+    117 comparisons, max 0.64 ms. Rotated WAV / FLAC 16 / 24-bit decoded sample
+    order, count, sample rate and channels passed. Baseline geometry comparisons
+    confirm unchanged Boundaries / waveform / outer Tools and keypad sizes.
+    Neutral, disabled, fine movement and separate keyboard focus screenshots
+    visually inspected at the fixed workspace size.

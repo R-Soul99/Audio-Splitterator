@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { SlideEncoder } from './SlideEncoder';
+import { SlideControl } from './SlideControl';
 import { SampleSaveControls } from './SampleSaveControls';
 import { SelectionEdit } from '../utils/startBeat';
 import { LoopPreset, MemoryAction, loopSnapshot, matchingLoopSlot, memoryDigit, isTextEntry } from '../utils/loopMemory';
@@ -110,7 +110,7 @@ export function LoopSampleControls({ visibleDuration, waveformWidth, active, aud
               {action('Next selection', samples && editSamples(samples, 'whole', samples.end - samples.start, frames), '\u25b6', 'move')}
             </div>
           </div>
-          <div className="loop-tools-row loop-slide-save"><div className="loop-move-group"><span>Slide</span><SlideEncoder visibleDuration={visibleDuration} waveformWidth={waveformWidth} start={samples?.start ?? 0} max={samples ? frames - (samples.end - samples.start) : 0} rate={rate} disabled={!samples || !active || section !== 'controls'} onChange={start => { if (samples) apply({ start, end: start + samples.end - samples.start }, 'move'); }} /></div>
+          <div className="loop-tools-row loop-slide-save"><div className="loop-move-group loop-slide-group"><span>Slide</span><SlideControl recording={audioBuffer} visibleDuration={visibleDuration} start={samples?.start ?? 0} max={samples ? frames - (samples.end - samples.start) : 0} rate={rate} disabled={!samples || !active || section !== 'controls'} onChange={start => { if (samples) apply({ start, end: start + samples.end - samples.start }, 'move'); }} /></div>
             <button type="button" aria-label="Show sample save" onClick={() => setSection('save')}>Save</button>
           </div>
         </section>
