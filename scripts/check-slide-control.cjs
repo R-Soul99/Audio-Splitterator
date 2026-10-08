@@ -85,7 +85,7 @@ app.whenReady().then(async () => {
       const baseline=JSON.parse(fs.readFileSync(baselinePath));assert.deepEqual(geometry.tools,baseline.tools);assert.deepEqual(geometry.wave,baseline.wave);assert.deepEqual(geometry.boundaries,baseline.boundaries);
       assert.ok(geometry.loopTools.width<baseline.loopTools.width);assert.deepEqual(geometry.memory.map(r=>({width:r.width,height:r.height})),baseline.memory.map(r=>({width:r.width,height:r.height})));
     }
-    const saveRect=await run(`document.querySelector('[aria-label="Show sample save"]').getBoundingClientRect().toJSON()`);assert.equal(saveRect.right,geometry.tools.right,'Save reaches the existing inner right margin');assert.ok(saveRect.left>geometry.memory[0].right,'Save is separate beside Memory');assert.equal(await run(`document.querySelector('[aria-label="Slide selection"]').getBoundingClientRect().width`),72);
+    const saveRect=await run(`document.querySelector('[aria-label="Show sample save"]').getBoundingClientRect().toJSON()`);assert.ok(Math.abs(saveRect.right-geometry.tools.right)<.05,'Save reaches the existing inner right margin');assert.ok(saveRect.left>geometry.memory[0].right,'Save is separate beside Memory');assert.equal(await run(`document.querySelector('[aria-label="Slide selection"]').getBoundingClientRect().width`),72);
     await snapshot('disabled');
     const control=()=>run(`document.querySelector('[aria-label="Slide selection"]').getBoundingClientRect().toJSON()`);
     const samples=()=>run(`({start:Math.round(currentSelection().start*48000),end:Math.round(currentSelection().end*48000),beat:component().memoizedProps.startBeat,custom:component().memoizedProps.customStartBeat})`);

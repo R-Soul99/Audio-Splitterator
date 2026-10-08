@@ -99,10 +99,10 @@ export function LoopSampleControls({ visibleDuration, waveformWidth, active, onC
           </div></div>
         </section>
         <section className="loop-section loop-movement" aria-label="Move Loop"><h3>Move Loop</h3>
-          <div className="loop-move-group"><span>Jump</span>
+          <div className="loop-move-group"><span>Jump</span><div className="loop-jump-buttons">
             {action('Previous selection', samples && editSamples(samples, 'whole', -(samples.end - samples.start), frames), '\u25c0', 'move')}
             {action('Next selection', samples && editSamples(samples, 'whole', samples.end - samples.start, frames), '\u25b6', 'move')}
-          </div>
+          </div></div>
           <div className="loop-move-group loop-slide-group"><span>Slide</span><SlideControl recording={audioBuffer} visibleDuration={visibleDuration} start={samples?.start ?? 0} max={samples ? frames - (samples.end - samples.start) : 0} rate={rate} disabled={!samples || !active || section !== 'controls'} onChange={start => { if (samples) apply({ start, end: start + samples.end - samples.start }, 'move'); }} /></div>
         </section>
         <section className="loop-section loop-beat" aria-label="1st Beat"><h3>1st Beat</h3>
