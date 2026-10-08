@@ -78,7 +78,17 @@ app.whenReady().then(async () => {
       if (key) { await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', {type:'keyDown',key,code:key,windowsVirtualKeyCode:key==='Enter'?13:27}); await pause(); }
       else { await run(`document.querySelector('[aria-label="${label}"]').blur()`); await pause(); }
     };
-    const snapshot = async name => { await win.webContents.capturePage(); await pause(); fs.writeFileSync(path.join(__dirname, `../build/loop-sample-${name}.png`), (await win.webContents.capturePage()).toPNG()); };
+    const assertGrid=async()=>{
+      const g=await run(`(()=>{const r=e=>e.getBoundingClientRect().toJSON(), q=s=>document.querySelector(s),sections=[...document.querySelectorAll('.loop-section')];return {sections:sections.map(e=>({rect:r(e),padding:getComputedStyle(e).padding,heading:r(e.querySelector('h3'))})),items:[...q('.loop-control-groups').children].map(r),set:r(q('.beat-set')),clear:r(q('.beat-clear')),readout:r(q('.loop-beat .loop-readout-frame')),moveLabel:r(q('.beat-move-label')),moveButtons:r(q('.beat-move-buttons')),arrows:[...q('.beat-move-buttons').children].map(r),jump:r(q('.loop-jump-buttons')),slide:r(q('.slide-control')),jumpButtons:[...q('.loop-jump-buttons').children].map(r),rows:[...q('.loop-memory-keypad').children].map(r)};})()`);
+      const near=(a,b)=>assert.ok(Math.abs(a-b)<.05,`${a} != ${b}`),center=r=>(r.left+r.right)/2;
+      for(const p of g.sections){near(p.rect.top,g.sections[0].rect.top);near(p.rect.bottom,g.sections[0].rect.bottom);assert.equal(p.padding,g.sections[0].padding);near(p.heading.top,g.sections[0].heading.top);near(p.heading.left-p.rect.left,g.sections[0].heading.left-g.sections[0].rect.left);}
+      const gaps=g.items.slice(1).map((r,i)=>r.left-g.items[i].right);gaps.forEach(v=>near(v,gaps[0]));assert.ok(gaps[0]>=8);
+      near(g.set.width,g.set.height);near(g.set.left,g.clear.left);assert.ok(g.clear.top>=g.set.bottom);near(center(g.readout),center(g.moveLabel));near(center(g.readout),center(g.moveButtons));
+      for(const b of [...g.arrows,...g.jumpButtons]){near(b.width,b.height);assert.ok(b.width>=20);}near(g.arrows[0].width,g.arrows[1].width);near(g.arrows[0].top,g.arrows[1].top);near(center(g.jump),center(g.slide));
+      const rows=[g.rows[0],g.rows[3],g.rows[6],g.rows[9]];for(let i=1;i<rows.length;i++){near(rows[i].top-rows[i-1].bottom,1);near(rows[i].height,rows[0].height);}near(rows[0].top,g.sections[3].rect.top+3);near(rows[3].bottom,g.sections[3].rect.bottom-3);
+      near((g.items[4].top+g.items[4].bottom)/2,(g.sections[0].rect.top+g.sections[0].rect.bottom)/2);
+    };
+    const snapshot = async name => { await assertGrid(); await win.webContents.capturePage(); await pause(); fs.writeFileSync(path.join(__dirname, `../build/loop-sample-${name}.png`), (await win.webContents.capturePage()).toPNG()); };
     await snapshot('no-selection');
     const panels=await run(`[...document.querySelectorAll('.loop-section')].map(e=>({name:e.getAttribute('aria-label'),top:e.getBoundingClientRect().top,bottom:e.getBoundingClientRect().bottom}))`);
     assert.deepEqual(panels.map(p=>p.name),['Boundaries','Move Loop','1st Beat','Memory']);

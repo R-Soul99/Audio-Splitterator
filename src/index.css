@@ -296,8 +296,8 @@
 
 .ruler-cursor-context { margin-left: 4px; color: #7dd3fc; font: 8px/11px sans-serif; }
 
-.loop-control-groups { display: flex; align-items: stretch; gap: 5px; }
-.loop-section { position: relative; border: 1px solid #334155; border-radius: 4px; padding: 2px 4px; display: flex; flex-direction: column; gap: 1px; flex: 0 0 auto; min-width: 0; background: #0b1220; }
+.loop-control-groups { display: grid; grid-template-columns: max-content 112px 110px 72px max-content; justify-content: space-between; align-items: stretch; column-gap: 8px; }
+.loop-section { position: relative; border: 1px solid #334155; border-radius: 4px; padding: 2px 4px; display: flex; flex-direction: column; gap: 1px; flex: 0 0 auto; min-width: 0; height: 57px; background: #0b1220; }
 .loop-section h3 { position: absolute; top: -5px; left: 3px; padding: 0 2px; background: #0b1220; height: 9px; margin: 0; font-size: 8px; line-height: 9px; letter-spacing: .06em; color: #64748b; }
 .loop-readout > span:first-child { width: 35px; flex: 0 0 35px; }
 .loop-beat .loop-readout > span:first-child { width: 40px; flex-basis: 40px; }
@@ -305,7 +305,7 @@
 .loop-tools-row { display: flex; align-items: center; gap: 3px; height: 16px; }
 .loop-save-action { align-self: center; }
 .loop-memory { padding-left: 4px; padding-right: 4px; }
-.loop-memory-keypad { display: grid; grid-template-columns: repeat(3, 20px); gap: 1px; }
+.loop-memory-keypad { display: grid; grid-template-columns: repeat(3, 20px); grid-template-rows: repeat(4, 12px); gap: 1px; height: 100%; }
 .loop-sample-controls .loop-memory-slot { height: 12px; font: 9px/10px monospace; padding: 0; color: #64748b; box-shadow: inset 0 1px 2px #000; }
 .loop-memory-slot:last-child { grid-column: 1 / -1; }
 .loop-sample-controls .loop-memory-slot[data-filled=true] { color: #7dd3fc; border-color: #456277; background: #142334; }
@@ -321,13 +321,16 @@
 .loop-control-status { position: absolute; top: -4px; left: 5px; right: 5px; height: 9px; line-height: 9px; font-size: 8px; pointer-events: none; }
 .loop-control-status:not(:empty) { background: #0b1220; }
 
-/* Retain the measured existing section width when Length shares arrow columns. */
-.loop-boundaries { width: 155.2265625px; }
+/* Keep the timing rows snug while spare width belongs between panels. */
+.loop-boundaries { width: max-content; }
 
-.loop-movement { width: 114px; }
-.loop-beat { width: 160.2265625px; }
+.loop-movement { width: 112px; display: grid; grid-template-rows: repeat(2, 25px); }
+.loop-movement .loop-move-group { display: grid; grid-template-columns: 28px 72px; column-gap: 2px; justify-items: center; }
+.loop-jump-buttons { display: flex; gap: 4px; }
+.loop-movement .loop-jump-buttons button { width: 20px; height: 20px; padding: 0; font-size: 10px; }
+.loop-beat { width: 110px; }
 .loop-movement .loop-move-group > span { width: 28px; flex: 0 0 28px; }
-.loop-memory { margin-left: auto; }
+
 .loop-slide-group .slide-control { flex: 0 0 72px; width: 72px; }
 .slide-control { position: relative; flex: 1; min-width: 50px; height: 16px; border: 1px solid #334155; border-radius: 3px; background: #020617; box-shadow: inset 0 1px 3px #000; touch-action: none; user-select: none; cursor: ew-resize; outline: none; }
 .slide-centre { position: absolute; left: 50%; top: 2px; bottom: 2px; border-left: 1px dotted #64748b; pointer-events: none; }
@@ -348,14 +351,15 @@
 .loop-beat .loop-control-status { position: static; height: 16px; line-height: 16px; color: #6ee7b7; }
 .loop-beat .loop-control-status[data-placement=true] { color: #f0abfc; }
 
-/* Set / Move / Clear occupy the existing 57 px marker panel without reflow. */
-.beat-workflow { display: flex; gap: 8px; height: 42px; flex: 0 0 42px; }
-.beat-set-clear { display: flex; flex-direction: column; gap: 2px; }
+/* Two snug columns share a fixed vertical grid and reserved feedback row. */
+.beat-workflow { display: grid; grid-template-columns: 28px 64px; column-gap: 8px; height: 44px; flex: 0 0 44px; }
+.beat-set-clear { display: grid; grid-template-rows: 28px 14px; row-gap: 2px; }
 .loop-beat .beat-set { width: 28px; height: 28px; padding: 0; font-size: 9px; }
-.loop-beat .beat-clear { width: 28px; height: 12px; padding: 0; font-size: 8px; line-height: 10px; }
-.beat-move-controls { display: flex; flex-direction: column; align-items: flex-start; margin-left: auto; }
+.loop-beat .beat-clear { width: 28px; height: 14px; padding: 0; font-size: 8px; line-height: 12px; }
+.beat-move-controls { display: grid; grid-template-rows: 16px 8px 20px; justify-items: center; }
 .loop-beat .loop-readout > span:first-child { display: none; }
-.beat-move-label { height: 6px; line-height: 6px; font-size: 7px; color: #64748b; }
-.beat-move-buttons { display: flex; gap: 3px; }
+.beat-move-label { height: 8px; line-height: 8px; font-size: 8px; color: #64748b; text-align: center; }
+.beat-move-buttons { display: flex; gap: 4px; }
 .loop-beat .beat-move-buttons button { width: 20px; height: 20px; padding: 0; font-size: 10px; }
-.loop-beat .loop-control-status { height: 8px; line-height: 8px; flex: 0 0 8px; }
+.loop-beat { gap: 0; }
+.loop-beat .loop-control-status { height: 7px; line-height: 7px; flex: 0 0 7px; }

@@ -440,3 +440,33 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     Review Set placement, independent Move/typing and protected seeking by hand
     before integration. All prerequisite branches/unrelated local work preserved;
     no merge or push. Primary checkout remains on main.
+
+2026-10-08 ? Consistent Loop / Sample panel grid (review refinement)
+    Shared fixed 57 px panel height, heading position and 2 px / 4 px inner
+    padding. Compact content / fixed column widths distribute remaining width evenly
+    between Boundaries, Move Loop, 1st Beat, Memory and centred Save.
+    Tightened 1st Beat to two snug columns: square Set / Clear below at left,
+    readout / centred Move label / equal square arrows at right. Clear is taller
+    and its placement-feedback row remains reserved. Jump uses matching square
+    arrows as a centred pair, with the unchanged 72 px Slide centred below.
+    Memory retains button sizes/order with four equal rows filling the inner
+    height. Save keeps a deliberate gap and is vertically centred.
+    Layout-only markup/CSS; no audio, selection, placement, transport, presets
+    or export handlers changed. Waveform, ruler, Tools dimensions and readout
+    sizes preserved. New native assertions cover equal gaps, panel/heading/
+    padding alignment, paired square buttons, Move / readout / Jump / Slide
+    centres, keypad row spacing and Save centring across control states.
+    Validation results and local review commit are reported in the handover.
+    Leroy's interactive review remains required before integration. Unmerged
+    work and unrelated files preserved; no merge or push.
+    Passed TypeScript, 74 utility tests, production build, whitespace and native
+    fixed-geometry / grid / transport / protected-loop / placement-export checks.
+    One final-layout PCM timing run failed during an existing live edit; its
+    unchanged sequential rerun passed (234 comparisons, max error 0.71 ms),
+    with no overlapping source schedules. Final-layout preset checks passed
+    (117 PCM comparisons, max error 0.51 ms). Active, inactive, playing, disabled
+    and pressed/fine release screenshots inspected; waveform/Tools sizes retained.
+    The existing bundle-size warning remains; packaging not repeated for this
+    renderer-only refinement.
+    Final Slide checks passed: full range/fine control, cleanup and 54 PCM
+    comparisons (max cursor error 0.44 ms). The latest review build is launched.
