@@ -80,6 +80,10 @@ app.whenReady().then(async () => {
     };
     const snapshot = async name => { await win.webContents.capturePage(); await pause(); fs.writeFileSync(path.join(__dirname, `../build/loop-sample-${name}.png`), (await win.webContents.capturePage()).toPNG()); };
     await snapshot('no-selection');
+    const panels=await run(`[...document.querySelectorAll('.loop-section')].map(e=>({name:e.getAttribute('aria-label'),top:e.getBoundingClientRect().top,bottom:e.getBoundingClientRect().bottom}))`);
+    assert.deepEqual(panels.map(p=>p.name),['Boundaries','Move Loop','1st Beat','Memory']);
+    assert.ok(panels.every(p=>p.top===panels[0].top && p.bottom===panels[0].bottom),'Panels have aligned full-height borders');
+    assert.equal(await run(`document.querySelector('[aria-label="Loop Tools"]')`),null);
     assert.equal(await run(`document.querySelector('[aria-label="Decrease Start"]').textContent`),String.fromCodePoint(0x25c0));
     assert.equal(await run(`document.querySelector('[aria-label="Next selection"]').textContent`),String.fromCodePoint(0x25b6));
     const readouts=await run(`([...document.querySelectorAll('.loop-readout-frame:has(input)')]).map(e=>({arrows:e.querySelectorAll('button').length,inputs:e.querySelectorAll('input').length}))`);assert.deepEqual(readouts,[{arrows:2,inputs:1},{arrows:2,inputs:1},{arrows:2,inputs:1}]);
@@ -111,7 +115,7 @@ app.whenReady().then(async () => {
     }
     await snapshot('long-values');
     for(const label of ['Loop Start','Loop End','Loop 1st Beat']) await typeTime(label,'0','Escape');
-    const groups=await run(`[...document.querySelectorAll('.loop-section')].map(e=>e.getBoundingClientRect().toJSON())`);assert.equal(groups.length,3);assert.ok(groups[1].left>=groups[0].right && groups[2].left>=groups[1].right);
+    const groups=await run(`[...document.querySelectorAll('.loop-section')].map(e=>e.getBoundingClientRect().toJSON())`);assert.equal(groups.length,4);assert.ok(groups.every((r,i)=>!i||r.left>=groups[i-1].right));
     assert.deepEqual(await run('wave().getBoundingClientRect().toJSON()'),rect,'Compact rows keep waveform geometry');
     await setRegion(1, 3);
     await typeTime('Loop Start','1.5','Enter'); assert.deepEqual(await run('currentSelection()'), {start:1.5,end:3});

@@ -79,13 +79,13 @@ app.whenReady().then(async () => {
       else { await run(`document.querySelector('[aria-label="${label}"]').blur()`); await pause(); }
     };
     const snapshot = async name => { await win.webContents.capturePage(); await pause(); fs.writeFileSync(path.join(__dirname, `../build/slide-${name}.png`), (await win.webContents.capturePage()).toPNG()); };
-    const geometry=await run(`(()=>{const r=e=>e.getBoundingClientRect().toJSON();return {tools:r(document.querySelector('[aria-label="Tools"]')),wave:r(wave()),boundaries:[...document.querySelectorAll('.loop-boundaries,.loop-boundaries input,.loop-boundaries output,.loop-boundaries button')].map(r),loopTools:r(document.querySelector('.loop-tools')),memory:[...document.querySelectorAll('.loop-memory,.loop-memory-slot')].map(r)};})()`);
+    const geometry=await run(`(()=>{const r=e=>e.getBoundingClientRect().toJSON();return {tools:r(document.querySelector('[aria-label="Tools"]')),wave:r(wave()),boundaries:[...document.querySelectorAll('.loop-boundaries,.loop-boundaries input,.loop-boundaries output,.loop-boundaries button')].map(r),loopTools:r(document.querySelector('.loop-movement')),memory:[...document.querySelectorAll('.loop-memory,.loop-memory-slot')].map(r)};})()`);
     const baselinePath=path.join(__dirname,'../build/slide-baseline.json');
     if(fs.existsSync(baselinePath)) {
       const baseline=JSON.parse(fs.readFileSync(baselinePath));assert.deepEqual(geometry.tools,baseline.tools);assert.deepEqual(geometry.wave,baseline.wave);assert.deepEqual(geometry.boundaries,baseline.boundaries);
-      assert.ok(geometry.loopTools.width>baseline.loopTools.width);assert.deepEqual(geometry.memory.map(r=>({width:r.width,height:r.height})),baseline.memory.map(r=>({width:r.width,height:r.height})));
+      assert.ok(geometry.loopTools.width<baseline.loopTools.width);assert.deepEqual(geometry.memory.map(r=>({width:r.width,height:r.height})),baseline.memory.map(r=>({width:r.width,height:r.height})));
     }
-    assert.equal(geometry.memory[0].right,geometry.tools.right,'Memory reaches the existing inner right margin');
+    const saveRect=await run(`document.querySelector('[aria-label="Show sample save"]').getBoundingClientRect().toJSON()`);assert.equal(saveRect.right,geometry.tools.right,'Save reaches the existing inner right margin');assert.ok(saveRect.left>geometry.memory[0].right,'Save is separate beside Memory');assert.equal(await run(`document.querySelector('[aria-label="Slide selection"]').getBoundingClientRect().width`),72);
     await snapshot('disabled');
     const control=()=>run(`document.querySelector('[aria-label="Slide selection"]').getBoundingClientRect().toJSON()`);
     const samples=()=>run(`({start:Math.round(currentSelection().start*48000),end:Math.round(currentSelection().end*48000),beat:component().memoizedProps.startBeat,custom:component().memoizedProps.customStartBeat})`);

@@ -74,7 +74,9 @@ app.whenReady().then(async () => {
     };
     const select = async (label,value) => { await run(`(() => { const el=document.querySelector('[aria-label="${label}"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,'${value}');el.dispatchEvent(new Event('change',{bubbles:true})); })()`); await pause(); };
     const rect=await run('wave().getBoundingClientRect().toJSON()');
+    let panels;
     const stable = async () => {
+      if(await run(`document.querySelector('[aria-label="Show sample save"]').getClientRects().length>0`)) { const current=await run(`[...document.querySelectorAll('.loop-section')].map(e=>e.getBoundingClientRect().toJSON())`); panels ??= current; assert.deepEqual(current,panels,'Placement and Save feedback preserve panel geometry'); }
       assert.deepEqual(await run('wave().getBoundingClientRect().toJSON()'),rect);
       const result=await run(`(() => {const p=document.querySelector('[aria-label="Tools"]').getBoundingClientRect();return {scroll:document.documentElement.scrollHeight>innerHeight,overflow:[...document.querySelectorAll('.loop-sample-controls button,.loop-sample-controls input,.loop-sample-controls select,.start-beat-readout,.sample-save-feedback')].filter(e=>e.getClientRects().length).filter(e=>{const r=e.getBoundingClientRect();return r.left<p.left-1||r.right>p.right+1||r.bottom>p.bottom+1}).map(e=>e.outerHTML)};})()`);
       assert.equal(result.scroll,false);assert.deepEqual(result.overflow,[]);
