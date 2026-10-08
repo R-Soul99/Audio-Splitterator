@@ -253,14 +253,13 @@
   animation: recording-led-blink 1s ease-in-out infinite;
 }
 
-/* Two compact control rows and reserved status space fit the existing Tools panel. */
-.loop-sample-controls { min-width: 0; display: flex; flex-direction: column; font-size: 9px; color: #94a3b8; }
+/* Three grouped sections fit inside the existing fixed Tools panel. */
+.loop-sample-controls { position: relative; min-width: 0; display: flex; flex-direction: column; font-size: 9px; color: #94a3b8; }
 .loop-sample-controls > div:not([hidden]) { display: flex; flex-direction: column; gap: 2px; }
-.loop-time-row, .loop-adjust-row { display: flex; align-items: center; gap: 4px; min-width: 0; height: 20px; }
-.loop-readout { display: flex; align-items: center; gap: 3px; min-width: 0; flex: 1; white-space: nowrap; }
-.loop-readout-frame { display: flex; align-items: stretch; min-width: 0; flex: 1; height: 20px; border: 1px solid #334155; border-radius: 3px; background: #020617; overflow: hidden; }
-.loop-readout input, .loop-length output { min-width: 0; width: 100%; padding: 0 2px; background: #020617; color: #7dd3fc; font: 9px monospace; font-variant-numeric: tabular-nums; text-align: center; }
-.loop-readout input { flex: 1; border: 0; outline: none; }
+.loop-readout { display: flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; height: 20px; }
+.loop-readout-frame { display: flex; align-items: stretch; min-width: 0; flex: 0 0 auto; height: 20px; border: 1px solid #334155; border-radius: 3px; background: #020617; overflow: hidden; }
+.loop-readout input, .loop-length output { min-width: 0; width: 11ch; padding: 0 2px; background: #020617; color: #7dd3fc; font: 9px monospace; font-variant-numeric: tabular-nums; text-align: center; }
+.loop-readout input { flex: 0 0 auto; border: 0; outline: none; }
 .loop-readout input:focus-visible { box-shadow: inset 0 0 0 1px #94a3b8; }
 .loop-readout input[aria-invalid=true] { box-shadow: inset 0 0 0 1px #fb7185; }
 .loop-sample-controls button, .loop-sample-controls select { height: 20px; flex-shrink: 0; border: 1px solid #334155; border-radius: 3px; background: #020617; padding: 0 3px; color: #cbd5e1; font-size: 9px; cursor: pointer; }
@@ -275,9 +274,6 @@
 .tools-panel > div:first-child { gap: 4px; }
 .tools-panel > div:first-child button { font-size: 9px; padding: 2px 4px; }
 .tools-panel > div:first-child > div { overflow: visible; gap: 3px; }
-.loop-adjust-row { justify-content: space-between; gap: 2px; }
-.loop-adjust-row > .loop-readout { flex: 0 0 auto; }
-.loop-adjust-row .loop-readout-frame { width: 92px; flex: 0 0 92px; }
 .loop-move-group { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .slide-encoder { flex: 0 0 20px; width: 20px; height: 20px; border-color: #334155; outline: none; }
 .slide-encoder[data-dragging=true] { border-color: #38bdf8; }
@@ -285,9 +281,8 @@
 .slide-encoder:focus-visible { outline: 1px dashed #94a3b8; outline-offset: 2px; }
 .slide-encoder[aria-disabled=true] { opacity: .4; cursor: not-allowed; }
 .loop-move-group button { padding: 0 2px; font-size: 8px; }
-.loop-adjust-row > button[aria-pressed=true] { background: #701a75; border-color: #e879f9; color: #fae8ff; }
-.loop-length { flex: .85; }
-.loop-length output { display: block; height: 20px; line-height: 18px; border: 1px solid #334155; border-radius: 3px; }
+.loop-tools-row > button[aria-pressed=true] { background: #701a75; border-color: #e879f9; color: #fae8ff; }
+.loop-length output { display: block; height: 18px; line-height: 18px; }
 .sample-save-controls { display: flex; flex-direction: column; gap: 2px; }
 .sample-save-row { display: flex; gap: 4px; align-items: center; min-width: 0; height: 20px; }
 .sample-save-row input { flex: 1; min-width: 0; height: 18px; border: 1px solid #334155; border-radius: 3px; background: #020617; padding: 1px 4px; font: 9px monospace; color: #7dd3fc; }
@@ -305,3 +300,29 @@
 .loop-sample-controls .loop-adjust-button:focus-visible { outline: 1px dashed #94a3b8; outline-offset: 1px; }
 
 .ruler-cursor-context { margin-left: 4px; color: #7dd3fc; font: 8px/11px sans-serif; }
+
+.loop-control-groups { display: flex; align-items: stretch; gap: 5px; }
+.loop-section { position: relative; border: 1px solid #334155; border-radius: 4px; padding: 2px 4px; display: flex; flex-direction: column; gap: 1px; flex: 0 0 auto; min-width: 0; background: #0b1220; }
+.loop-section h3 { position: absolute; top: -5px; left: 3px; padding: 0 2px; background: #0b1220; height: 9px; margin: 0; font-size: 8px; line-height: 9px; letter-spacing: .06em; color: #64748b; }
+.loop-readout > span:first-child { width: 35px; flex: 0 0 35px; }
+.loop-tools .loop-readout > span:first-child { width: 40px; flex-basis: 40px; }
+.loop-time-unit { align-self: center; padding: 0 3px 0 1px; color: #475569; font: 8px monospace; }
+.loop-length-row, .loop-tools-row { display: flex; align-items: center; gap: 3px; height: 16px; }
+.loop-slide-save { justify-content: space-between; }
+.loop-memory { padding-left: 4px; padding-right: 4px; }
+.loop-memory-keypad { display: grid; grid-template-columns: repeat(3, 20px); gap: 1px; }
+.loop-sample-controls .loop-memory-slot { height: 12px; font: 9px/10px monospace; padding: 0; color: #64748b; box-shadow: inset 0 1px 2px #000; }
+.loop-memory-slot:last-child { grid-column: 1 / -1; }
+.loop-sample-controls .loop-memory-slot[data-filled=true] { color: #7dd3fc; border-color: #456277; background: #142334; }
+.loop-sample-controls .loop-memory-slot[aria-pressed=true] { color: #6ee7b7; border-color: #34d399; background: #123b2e; box-shadow: inset 0 1px 2px #000, 0 0 4px #34d39955; }
+.loop-sample-controls .loop-memory-slot[data-replace=true] { color: #fbbf24; border-color: #fbbf24; }
+.loop-sample-controls .loop-memory-slot[data-pressed=true] { background: #164e63; color: #67e8f9; box-shadow: inset 0 2px 3px #000; }
+.loop-sample-controls button:focus-visible { outline: 1px dashed #cbd5e1; outline-offset: 1px; }
+
+.loop-section .loop-readout, .loop-section .loop-readout-frame { height: 16px; }
+.loop-section .loop-readout-frame button { height: 14px; }
+.loop-section .loop-readout input, .loop-section .loop-length output { height: 14px; line-height: 14px; }
+.loop-section button { height: 16px; }
+.loop-section .slide-encoder { width: 16px; height: 16px; flex-basis: 16px; }
+.loop-control-status { position: absolute; top: -4px; left: 5px; right: 5px; height: 9px; line-height: 9px; font-size: 8px; pointer-events: none; }
+.loop-control-status:not(:empty) { background: #0b1220; }

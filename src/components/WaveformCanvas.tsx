@@ -1,3 +1,4 @@
+import { LoopPreset, MemoryAction } from '../utils/loopMemory';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { waveformAmplitudeScale } from '../utils/waveformDisplay';
 import { selectionEndpoint } from '../utils/waveformSelection';
@@ -71,6 +72,8 @@ interface WaveformCanvasProps {
   onStop?: () => void;
   onSeek: (time: number) => void;
   onWaveformClick: (time: number) => void;
+  loopMemory: (LoopPreset | null)[];
+  onMemoryAction: (index: number, action: MemoryAction) => void;
   startBeat?: number | null;
   customStartBeat?: boolean;
   placingStartBeat?: boolean;
@@ -208,7 +211,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onSeek,
   onWaveformClick,
   onSelectionChange,
-  startBeat = null, customStartBeat = false, placingStartBeat = false, onPlacementChange, onStartBeatChange,
+  loopMemory, onMemoryAction, startBeat = null, customStartBeat = false, placingStartBeat = false, onPlacementChange, onStartBeatChange,
   onLoopSelection,
   onLoopChange,
   onCropToSelection,
@@ -862,7 +865,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.font = 'bold 10px monospace';
         const labelX = Math.max(3, Math.min(width - 66, x + 5));
         ctx.fillStyle = '#020617'; ctx.fillRect(labelX - 2, height - 19, 66, 16);
-        ctx.fillStyle = '#e879f9'; ctx.fillText('Start Beat', labelX, height - 7); ctx.restore();
+        ctx.fillStyle = '#e879f9'; ctx.fillText('1st Beat', labelX, height - 7); ctx.restore();
       }
     }
 
@@ -2150,7 +2153,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           {showLoopSample && <SelectionLoopSwitch audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onLoopChange={onLoopChange} />}
           </div>
 
-          <div hidden={!showLoopSample}><LoopSampleControls visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
+          <div hidden={!showLoopSample}><LoopSampleControls loopMemory={loopMemory} onMemoryAction={onMemoryAction} customStartBeat={customStartBeat} visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">
