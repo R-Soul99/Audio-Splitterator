@@ -83,77 +83,10 @@ app.whenReady().then(async () => {
     assert.equal(await run(`document.querySelector('[aria-label="Decrease Start"]').textContent`),String.fromCodePoint(0x25c0));
     assert.equal(await run(`document.querySelector('[aria-label="Next selection"]').textContent`),String.fromCodePoint(0x25b6));
     const readouts=await run(`([...document.querySelectorAll('.loop-readout-frame:has(input)')]).map(e=>({arrows:e.querySelectorAll('button').length,inputs:e.querySelectorAll('input').length}))`);assert.deepEqual(readouts,[{arrows:2,inputs:1},{arrows:2,inputs:1},{arrows:2,inputs:1}]);
-    const encoder = () => run(`document.querySelector('[aria-label="Slide encoder"]').getBoundingClientRect().toJSON()`);
-    const encoderEvent = async (type,x,y,fine=false,held=true) => {
-      await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x,y,button:type==='mouseMoved'&&!held?'none':'left',buttons:type==='mouseReleased'||!held?0:1,clickCount:type==='mouseMoved'?0:1,modifiers:fine?8:0});await pause();
+    const slideKey = async (direction, fine=false) => {
+      await run(`document.querySelector('[aria-label="Slide selection"]').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'${direction}',shiftKey:${fine}}))`);await pause();
+      await run(`window.dispatchEvent(new KeyboardEvent('keyup',{key:'${direction}',shiftKey:${fine}}))`);await pause();
     };
-    const encoderDrag = async (pixels,fine=false,reverse=0) => {
-      const r=await encoder(), x=r.x+r.width/2, y=r.y+r.height/2;
-      await encoderEvent('mouseMoved',x,y,fine,false);await encoderEvent('mousePressed',x,y,fine);assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').hasPointerCapture(1)`),true,'Native pointer captured');
-      await encoderEvent('mouseMoved',x,y-pixels,fine);
-      const atBoundary=await run('currentSelection()');
-      if(reverse)await encoderEvent('mouseMoved',x,y-pixels-reverse,fine);
-      await encoderEvent('mouseReleased',x,y-pixels-reverse,fine);
-      assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.dragging`),'false',JSON.stringify(await run('encoderEvents.slice(-8)')));
-      assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.fine`),'false');
-      return atBoundary;
-    };
-    await run(`window.encoderEvents=[];for(const type of ['pointerdown','pointermove','pointerup','gotpointercapture','lostpointercapture','pointercancel'])document.addEventListener(type,e=>encoderEvents.push({type,y:e.clientY,target:e.target.getAttribute('aria-label'),buttons:e.buttons}),true);void 0`);
-    const encoderFrames=960001;
-    const sensitivity=(await run('audioDuration'))*48000/Math.floor(rect.width);
-    const expectedRegion=start=>({start:start/48000,end:(start+96000)/48000});
-    await setRegion(0,2);await run('component().memoizedProps.onStartBeatChange(48000)');await pause();
-    for(let i=0;i<6;i++){await encoderDrag(100);console.log('Encoder upward drag',i+1);}
-    assert.deepEqual(await run('currentSelection()'),{start:(encoderFrames-96000)/48000,end:encoderFrames/48000},'Repeated drags reach exact recording end');
-    assert.equal(await run('component().memoizedProps.startBeat'),encoderFrames-48000);
-    for(let i=0;i<14;i++){await encoderDrag(-40);if(i%10===0)console.log('Encoder downward drag',i+1);}
-    assert.deepEqual(await run('currentSelection()'),{start:0,end:2},'Repeated drags reach sample zero');
-    assert.equal(await run('component().memoizedProps.startBeat'),48000);
-    await setRegion(.005,2.005);
-    assert.deepEqual(await encoderDrag(-2,false,1),{start:0,end:2},'Partial drag remainder reaches boundary');
-    assert.deepEqual(await run('currentSelection()'),expectedRegion(Math.round(sensitivity)),'Immediate reversal has no overshoot dead zone');
-    await setRegion((encoderFrames-96000-240)/48000,(encoderFrames-240)/48000);
-    assert.deepEqual(await encoderDrag(2,false,-1),{start:(encoderFrames-96000)/48000,end:encoderFrames/48000});
-    assert.deepEqual(await run('currentSelection()'),expectedRegion(Math.round(encoderFrames-96000-sensitivity)));
-    await setRegion(1,3);await encoderDrag(10,true);assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity)));
-    await encoderDrag(10);assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity*11)));
-    const er=await encoder(), ex=er.x+er.width/2, ey=er.y+er.height/2;
-    const encoderKey=async held=>{await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:held?'keyDown':'keyUp',key:'Shift',code:'ShiftLeft',windowsVirtualKeyCode:16,modifiers:held?8:0});await pause();};
-    await encoderEvent('mousePressed',ex,ey);await encoderKey(true);await encoderEvent('mouseMoved',ex,ey-10,true);
-    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity*12)));
-    assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.fine`),'true');await snapshot('encoder-fine');
-    await encoderKey(false);assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.fine`),'false');
-    await encoderEvent('mouseMoved',ex,ey-20);assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity*22)));
-    await encoderEvent('mouseReleased',ex,ey-20);
-    for(const reason of ['cancel','blur','tab']) {
-      await encoderEvent('mousePressed',ex,ey,true);
-      if(reason==='cancel')await run(`document.querySelector('[aria-label="Slide encoder"]').dispatchEvent(new PointerEvent('pointercancel',{bubbles:true,pointerId:1}))`);
-      if(reason==='blur')await run(`window.dispatchEvent(new Event('blur'))`);
-      if(reason==='tab'){await click('Auto-Split');await click('Loop / Sample');}
-      await pause();assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.dragging`),'false',JSON.stringify(await run('encoderEvents.slice(-8)')));assert.equal(await run(`document.querySelector('[aria-label="Slide encoder"]').dataset.fine`),'false');
-      await encoderEvent('mouseReleased',ex,ey,true);await encoderKey(false);
-    }
-    // Equal drags move the same proportion of the viewport at 1x and 60x.
-    const wideMove=Math.round(sensitivity*10);
-    await setRegion(1,3);await encoderDrag(10);assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+wideMove));await snapshot('encoder-wide');
-    await run('component().memoizedProps.onZoomChange(60);component().memoizedProps.onViewOffsetChange(1);void 0');await pause();
-    await setRegion(1,3);await encoderDrag(10);const narrowMove=Math.round(sensitivity*10/60);
-    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+narrowMove));await snapshot('encoder-narrow');
-    assert.ok(Math.abs(wideMove/narrowMove-60)<.2);
-    // Freeze sensitivity at pointer-down even if the viewport changes mid-drag.
-    await run('component().memoizedProps.onZoomChange(1)');await pause();await setRegion(1,3);
-    await encoderEvent('mousePressed',ex,ey);await encoderEvent('mouseMoved',ex,ey-10);
-    await run('component().memoizedProps.onZoomChange(60)');await pause();
-    await encoderEvent('mouseMoved',ex,ey-20);await encoderEvent('mouseReleased',ex,ey-20);
-    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity*20)));
-    // Fractional fine deltas accumulate instead of being rounded per event.
-    await setRegion(1,3);await encoderEvent('mousePressed',ex,ey,true);
-    for(let i=1;i<=20;i++)await encoderEvent('mouseMoved',ex,ey-i*.25,true);
-    await encoderEvent('mouseReleased',ex,ey-5,true);
-    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity/60*.1*5)));
-    await setRegion(1,3);for(let i=0;i<4;i++)await encoderDrag(.1,true);
-    assert.deepEqual(await run('currentSelection()'),expectedRegion(48000+Math.round(sensitivity/60*.1*.4)),'Subsample fine drags retain their remainder across releases');
-    await run('component().memoizedProps.onZoomChange(1);component().memoizedProps.onViewOffsetChange(0);void 0');await pause();
     await setRegion(48001/48000,144003/48000);await run('component().memoizedProps.onStartBeatChange(72001)');await pause();
     const exact=await run('({selection:currentSelection(),beat:component().memoizedProps.startBeat})');
     for(const label of ['Loop Start','Loop End','Loop 1st Beat']) {
@@ -167,8 +100,8 @@ app.whenReady().then(async () => {
     await click('Clear 1st Beat');assert.equal(await run('component().memoizedProps.customStartBeat'),false);assert.equal(await run('component().memoizedProps.startBeat'),48001);
     await run(`document.querySelector('[aria-label="Loop 1st Beat"]').focus();document.querySelector('[aria-label="Loop 1st Beat"]').blur()`);await pause();assert.equal(await run('component().memoizedProps.customStartBeat'),false);
     await click('Increase 1st Beat');assert.equal(await run('component().memoizedProps.customStartBeat'),true);assert.equal(await run('component().memoizedProps.startBeat'),48481);
-    await run(`document.querySelector('[aria-label="Slide encoder"]').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'ArrowRight',shiftKey:false}))`);await pause();assert.deepEqual(await run('currentSelection()'),{start:48481/48000,end:144483/48000});assert.equal(await run('component().memoizedProps.startBeat'),48961);
-    await run(`document.querySelector('[aria-label="Slide encoder"]').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'ArrowLeft',shiftKey:false}))`);await pause();assert.deepEqual(await run('currentSelection()'),exact.selection);assert.equal(await run('component().memoizedProps.startBeat'),48481);
+    await run(`component().memoizedProps.onSelectionChange({start:(Math.round(currentSelection().start*48000)+480)/48000,end:(Math.round(currentSelection().end*48000)+480)/48000},'move')`);await pause();assert.deepEqual(await run('currentSelection()'),{start:48481/48000,end:144483/48000});assert.equal(await run('component().memoizedProps.startBeat'),48961);
+    await run(`component().memoizedProps.onSelectionChange({start:(Math.round(currentSelection().start*48000)-480)/48000,end:(Math.round(currentSelection().end*48000)-480)/48000},'move')`);await pause();assert.deepEqual(await run('currentSelection()'),exact.selection);assert.equal(await run('component().memoizedProps.startBeat'),48481);
     await setRegion(0,2);assert.equal(await run(`document.querySelector('[aria-label="Slide left"]')`),null);
     const boundaryDuration=await run('audioDuration');await setRegion(boundaryDuration-2,boundaryDuration);assert.equal(await run(`document.querySelector('[aria-label="Slide right"]')`),null);
     await setRegion(1,3);
@@ -219,7 +152,7 @@ app.whenReady().then(async () => {
       await run(`document.querySelector('[aria-label="${label}"]').dispatchEvent(new MouseEvent('click',{bubbles:true,shiftKey:true}))`);await pause();
       await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyUp',key:'Shift',code:'ShiftLeft',windowsVirtualKeyCode:16});await pause();
     };
-    await run(`document.querySelector('[aria-label="Slide encoder"]').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'ArrowRight',shiftKey:true}))`);await pause();assert.deepEqual(await run('currentSelection()'),{start:1.011,end:3.001});assert.equal(await run('component().memoizedProps.startBeat'),72048);await run(`document.querySelector('[aria-label="Slide encoder"]').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'ArrowLeft',shiftKey:true}))`);await pause();
+    await run(`component().memoizedProps.onSelectionChange({start:(Math.round(currentSelection().start*48000)+48)/48000,end:(Math.round(currentSelection().end*48000)+48)/48000},'move')`);await pause();assert.deepEqual(await run('currentSelection()'),{start:1.011,end:3.001});assert.equal(await run('component().memoizedProps.startBeat'),72048);await run(`component().memoizedProps.onSelectionChange({start:(Math.round(currentSelection().start*48000)-48)/48000,end:(Math.round(currentSelection().end*48000)-48)/48000},'move')`);await pause();
     await fineClick('Decrease End');assert.deepEqual(await run('currentSelection()'),{start:1.01,end:2.999});
     await click('Increase 1st Beat');assert.equal(await run('component().memoizedProps.startBeat'),72480);
     await fineClick('Decrease 1st Beat');assert.equal(await run('component().memoizedProps.startBeat'),72432);
@@ -283,7 +216,7 @@ app.whenReady().then(async () => {
     const count = await run('sources.length'); await setRegion(.9, 1.2); assert.equal(await run('sources.length'), count+1, 'Inside edit schedules one replacement');
 
     await repeats(); await setRegion(2, 2.1); assert.equal(await run('sources.length'), count+2, 'Outside edit safely replaces source'); await repeats();
-    await run(`document.querySelector('[aria-label="Slide encoder"]').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'ArrowRight',shiftKey:false}))`);await pause();await repeats();await run(`document.querySelector('[aria-label="Slide encoder"]').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'ArrowLeft',shiftKey:false}))`);await pause();await repeats();
+    await run(`component().memoizedProps.onSelectionChange({start:(Math.round(currentSelection().start*48000)+480)/48000,end:(Math.round(currentSelection().end*48000)+480)/48000},'move')`);await pause();await repeats();await run(`component().memoizedProps.onSelectionChange({start:(Math.round(currentSelection().start*48000)-480)/48000,end:(Math.round(currentSelection().end*48000)-480)/48000},'move')`);await pause();await repeats();
     await click('Increase Start');await repeats();await click('Decrease End');await repeats();
     const markerSource=await run('sources.length');await click('Increase 1st Beat');assert.equal(await run('sources.length'),markerSource);await repeats();
     await click('Next selection');await repeats();await click('Previous selection');await repeats();
@@ -291,7 +224,7 @@ app.whenReady().then(async () => {
     await run('component().memoizedProps.onPlayPause()');await pause();assert.equal(await run('component().memoizedProps.isPlaying'),false);assert.equal(await run('component().memoizedProps.isLooping'),true);await snapshot('paused');
     await run('component().memoizedProps.onPlayPause()');await pause();await repeats();
     await click('Loop and play the selected region');await repeats();
-    await encoderDrag(5);await repeats();await encoderDrag(-5,true);await repeats();
+    await slideKey('ArrowRight');await repeats();await slideKey('ArrowLeft',true);await repeats();
     await run(`component().memoizedProps.onSelectionChange({start:2,end:2.2});component().memoizedProps.onPlayPause();component().memoizedProps.onPlayPause();void 0`);await pause();await repeats();
     await run('window.originalRAF=requestAnimationFrame;window.requestAnimationFrame=callback=>setTimeout(()=>callback(performance.now()),400);void 0');
     await click('Loop and play the selected region');await new Promise(r=>setTimeout(r,200));await click('Decrease Start');await new Promise(r=>setTimeout(r,450));
@@ -299,7 +232,7 @@ app.whenReady().then(async () => {
     await run('window.requestAnimationFrame=originalRAF;void 0');
     for (const label of ['Auto-Split','Peak Tamer','Normalise','Loop / Sample']) { await click(label); assert.deepEqual(await run('wave().getBoundingClientRect().toJSON()'), rect); assert.equal(await run('component().memoizedProps.isLooping'),true); }
     await repeats();
-    const geometry = await run(`(() => { const p=document.querySelector('[aria-label="Tools"]'), r=p.getBoundingClientRect(); return {panel:r.toJSON(), controls:[...document.querySelectorAll('[aria-label="Tools"] > div:first-child button, .loop-sample-controls button, .loop-sample-controls input, .loop-sample-controls select, .loop-sample-controls output, .slide-encoder, .loop-hint')].filter(e=>e.getClientRects().length).map(e=>({label:e.getAttribute('aria-label')||e.textContent, rect:e.getBoundingClientRect().toJSON()})), bodyScroll:document.documentElement.scrollHeight>innerHeight}; })()`);
+    const geometry = await run(`(() => { const p=document.querySelector('[aria-label="Tools"]'), r=p.getBoundingClientRect(); return {panel:r.toJSON(), controls:[...document.querySelectorAll('[aria-label="Tools"] > div:first-child button, .loop-sample-controls button, .loop-sample-controls input, .loop-sample-controls select, .loop-sample-controls output, .slide-control, .loop-hint')].filter(e=>e.getClientRects().length).map(e=>({label:e.getAttribute('aria-label')||e.textContent, rect:e.getBoundingClientRect().toJSON()})), bodyScroll:document.documentElement.scrollHeight>innerHeight}; })()`);
 
     for (const control of geometry.controls) { assert.ok(control.rect.right <= geometry.panel.right+1 && control.rect.bottom <= geometry.panel.bottom+1 && control.rect.left >= geometry.panel.left-1, JSON.stringify(control)); }
     assert.equal(geometry.bodyScroll,false);
