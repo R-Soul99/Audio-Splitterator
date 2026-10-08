@@ -89,10 +89,11 @@ export function LoopSampleControls({ visibleDuration, waveformWidth, active, aud
         <section className="loop-section loop-boundaries" aria-label="Boundaries"><h3>Boundaries</h3>
           <TimeReadout label="Start" disabled={!samples} value={samples ? samples.start / rate : null} commit={seconds => timeCommit('start', seconds)} arrows={direction => adjust('start', direction)} />
           <TimeReadout label="End" disabled={!samples} value={samples ? samples.end / rate : null} commit={seconds => timeCommit('end', seconds)} arrows={direction => adjust('end', direction)} />
-          <div className="loop-length-row"><div className="loop-readout loop-length"><span>Length</span><div className="loop-readout-frame"><output aria-label="Loop length" title="Selection length in seconds">{samples ? ((samples.end - samples.start) / rate).toFixed(3) : '--'}</output><span className="loop-time-unit" aria-hidden="true">s</span></div></div>
+          <div className="loop-readout loop-length"><span>Length</span><div className="loop-readout-frame">
             {action('Halve selection', samples && resizeSamples(samples, 0.5, 'start', frames), '\u00bd')}
+            <output aria-label="Loop length" title="Selection length in seconds">{samples ? ((samples.end - samples.start) / rate).toFixed(3) : '--'}</output><span className="loop-time-unit" aria-hidden="true">s</span>
             {action('Double selection', samples && resizeSamples(samples, 2, 'start', frames), '\u00d72')}
-          </div>
+          </div></div>
         </section>
         <section className="loop-section loop-tools" aria-label="Loop Tools"><h3>Loop Tools</h3>
           <TimeReadout label="1st Beat" disabled={!samples} value={samples && startBeat !== null ? startBeat / rate : null} arrows={direction => adjust('beat', direction)} commit={seconds => {
