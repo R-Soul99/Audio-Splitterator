@@ -19,8 +19,6 @@ import {
   Zap,
   Play,
   Pause,
-  Square,
-  SkipBack,
   Tag,
   CheckCircle2,
   RotateCcw,
@@ -1322,6 +1320,7 @@ export default function App() {
                         onFollowPlayheadChange={setFollowPlayhead}
                         onAutoPreviewOnClickChange={setAutoPreviewOnClick}
                         onPlayPause={handlePlayPause}
+                        onReturnToStart={handleReturnToStart}
                         onStop={handleStop}
                         onSeek={handleSeek}
                         onWaveformClick={handleWaveformClick}
@@ -1376,7 +1375,7 @@ export default function App() {
                       />
                     </div>
 
-                    {/* Tracks span waveform and transport, with only as many fixed-height slots as fit. */}
+                    {/* Tracks span waveform and Tools, with only as many fixed-height slots as fit. */}
                     <div className="col-start-2 row-start-1 row-span-2 min-w-0 bg-slate-900/60 border border-slate-700/70 px-2 py-2 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
                       {/* Header: relative so the Recording Info note can overlay downward into the
                           track list below without ever resizing this panel or the waveform. */}
@@ -1578,53 +1577,8 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Transport sits directly under the waveform; the freed space beside it
-                        (after moving Recording Info out) now hosts the Tools panel portal. */}
-                    <div className="col-start-1 row-start-2 min-w-0 flex items-stretch gap-2.5 text-xs">
-                      {/* Square controls keep the transport compact without increasing row height. */}
-                      <div className="flex w-[152px] shrink-0 flex-col gap-1.5 bg-slate-900/60 px-[9px] py-[7.5px] rounded-xl border border-slate-700/70">
-                        <div className="flex h-[15px] items-center justify-between">
-                          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Transport</h2>
-                          <button
-                            type="button"
-                            onClick={handleReturnToStart}
-                            disabled={!audioBuffer}
-                            title="Return to start (Home)"
-                            aria-label="Return to start"
-                            className="flex h-[14px] w-[18px] items-center justify-center rounded border border-slate-700 bg-slate-950 text-slate-400 hover:text-slate-200 hover:border-slate-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <SkipBack aria-hidden="true" className="h-2.5 w-2.5" />
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 flex-1 text-sm font-medium">
-                          <button
-                            type="button"
-                            onClick={handlePlayPause}
-                            disabled={!audioBuffer}
-                            title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                            className={`h-[60px] w-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                              isPlaying
-                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                                : 'bg-emerald-950/30 hover:bg-emerald-900/30 text-emerald-400 border-emerald-500/40 hover:border-emerald-400'
-                            }`}
-                          >
-                            {isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
-                            <span>{isPlaying ? 'Pause' : 'Play'}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleStop}
-                            disabled={!audioBuffer}
-                            title="Stop Playback"
-                            className="h-[60px] w-[60px] flex flex-col gap-[4.5px] items-center justify-center rounded-lg border bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <Square className="w-6 h-6 fill-current" />
-                            <span>Stop</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Tools controls are portaled into the space beside Transport. */}
+                    {/* Preserve the former transport row height while Tools fills its width. */}
+                    <div className="col-start-1 row-start-2 h-[98px] min-w-0 flex items-stretch text-xs">
                       <div ref={setProcessingPanelContainer} className="relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] pt-1 pb-[7.5px]" />
                     </div>
 

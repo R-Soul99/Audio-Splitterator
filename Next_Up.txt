@@ -360,3 +360,31 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     visually inspected. Renderer-only change; native packaging not repeated.
     Leroy should review repeated click / drag placement, fine adjustment,
     Escape / Clear and live looping before integration. No merge or push.
+
+
+    Edit Transport toolbar relocation (8 October 2026), for review:
+    Fresh feat/edit-toolbar-transport branch from fetched main 910009d,
+    preserving unmerged memory, alignment, Slide and placement prerequisites.
+    Compact Play / Pause, Stop and Return to start buttons now precede Selection
+    in the existing Edit toolbar. Accessible names, Space / Home tooltips and
+    green active playback styling retain existing callbacks and disabled states.
+    Toolbar remains one row at its original height. Bottom Transport removed;
+    Tools occupies the full left workspace width at the existing 98 px height,
+    preserving waveform / ruler / 1st Beat handle position and dimensions.
+    Existing Tools content / grouping and natural width usage are retained;
+    all time fields and keypad buttons keep their sizes, Memory stays right.
+    Further Tools layout changes await discussion after this space is reviewed.
+    Recording UI and audio / playback / selection / export logic are unchanged.
+    Passed TypeScript, 74 utility tests, production build, git diff --check,
+    focused native transport / geometry checks and existing loop, memory and
+    persistent placement / rotated WAV / FLAC export regressions. Actual toolbar
+    clicks verify pause at the heard position, resume, Stop at crop Start, Return
+    to absolute Start, Space / Home shortcuts, active and no-audio disabled states.
+    Prior-build geometry comparisons verify unchanged waveform, ruler, toolbar,
+    marker handle, time-field / keypad sizes and bottom height. Long timing
+    strings and Tools views have no toolbar overlap / wrapping or page scroll.
+    Stopped, playing, paused, no-audio and expanded Tools screenshots inspected.
+    Loop: 207 PCM comparisons, max cursor error 0.70 ms; memory: 117, max 0.67 ms.
+    Renderer-only pass; native packaging not repeated. Leroy should review the
+    compact transport and available Tools space before integration. No merge
+    or push; primary checkout and unrelated files remain preserved on main.

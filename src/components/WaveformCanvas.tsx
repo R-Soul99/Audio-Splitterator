@@ -27,6 +27,10 @@ import {
   AnomalousPeakEvent,
 } from '../utils/audioProcessing';
 import {
+  Play,
+  Pause,
+  Square,
+  SkipBack,
   Ear,
   Slice,
   Eye,
@@ -69,6 +73,7 @@ interface WaveformCanvasProps {
   onFollowPlayheadChange: (enabled: boolean) => void;
   onAutoPreviewOnClickChange: (enabled: boolean) => void;
   onPlayPause?: () => void;
+  onReturnToStart?: () => void;
   onStop?: () => void;
   onSeek: (time: number) => void;
   onWaveformClick: (time: number) => void;
@@ -119,6 +124,8 @@ interface TooltipButtonProps {
   onClick: (e: React.MouseEvent) => void;
   icon: React.ReactNode;
   label: string;
+  accessibleName?: string;
+  pressed?: boolean;
   caption?: string;
   captionAbove?: boolean;
   compact?: boolean;
@@ -131,6 +138,8 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
   onClick,
   icon,
   label,
+  accessibleName,
+  pressed,
   caption,
   captionAbove = false,
   compact = false,
@@ -165,7 +174,8 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({
         type="button"
         disabled={disabled}
         onClick={onClick}
-        aria-label={label}
+        aria-label={accessibleName ?? label}
+        aria-pressed={pressed}
         title={label}
         className={`${compact || captionAbove ? 'w-6 h-6' : caption && !captionAbove ? 'h-9 px-2 gap-1.5' : 'w-9 h-9'} flex items-center justify-center rounded-md border text-slate-300 font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
           isActive
@@ -207,6 +217,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onFollowPlayheadChange,
   onAutoPreviewOnClickChange,
   onPlayPause,
+  onReturnToStart,
   onStop,
   onSeek,
   onWaveformClick,
@@ -2031,7 +2042,20 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   return (
     <div className="gap-2 select-none flex flex-col h-full min-w-0 min-h-0 overflow-hidden" ref={containerRef}>
       {/* Editing controls and compact timing readouts share the toolbar. */}
-      <div aria-label="Waveform editing toolbar" className="order-2 flex flex-wrap items-end gap-2 bg-slate-900/60 border border-slate-700/70 px-2 py-1 rounded-xl text-xs shrink-0">
+      <div aria-label="Waveform editing toolbar" className="order-2 flex flex-nowrap items-end gap-2 bg-slate-900/60 border border-slate-700/70 px-2 py-1 rounded-xl text-xs shrink-0">
+          <div aria-label="Edit transport" className="flex shrink-0 flex-col items-start gap-1.5 px-2 py-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Transport</span>
+            <div className="flex h-9 items-center gap-1">
+              <TooltipButton compact onClick={() => onPlayPause?.()} disabled={!audioBuffer}
+                accessibleName={isPlaying ? 'Pause' : 'Play'} label={isPlaying ? 'Pause (Space)' : 'Play (Space)'} pressed={isPlaying}
+                isActive={isPlaying} activeClass="bg-emerald-600 text-white border-emerald-500 shadow-sm"
+                icon={isPlaying ? <Pause aria-hidden="true" className="w-3.5 h-3.5 fill-current" /> : <Play aria-hidden="true" className="w-3.5 h-3.5 fill-current text-emerald-400" />} />
+              <TooltipButton compact onClick={() => onStop?.()} disabled={!audioBuffer} accessibleName="Stop" label="Stop Playback"
+                icon={<Square aria-hidden="true" className="w-3 h-3 fill-current" />} />
+              <TooltipButton compact onClick={() => onReturnToStart?.()} disabled={!audioBuffer} accessibleName="Return to start" label="Return to start (Home)"
+                icon={<SkipBack aria-hidden="true" className="w-3.5 h-3.5" />} />
+            </div>
+          </div>
           {/* Selection actions */}
           <div className="flex flex-col items-start gap-1.5 px-2 py-1 shrink-0">
             <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400">Selection</span>
