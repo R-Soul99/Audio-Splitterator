@@ -1,5 +1,6 @@
 // Loop / Sample regression using real imported audio and native Web Audio sources.
 // Run after npm run build: electron scripts/check-loop-sample.cjs
+// Use --layout-only for the focused native-size layout/state screenshots.
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -79,14 +80,18 @@ app.whenReady().then(async () => {
       else { await run(`document.querySelector('[aria-label="${label}"]').blur()`); await pause(); }
     };
     const assertGrid=async()=>{
-      const g=await run(`(()=>{const r=e=>e.getBoundingClientRect().toJSON(), q=s=>document.querySelector(s),sections=[...document.querySelectorAll('.loop-section')];return {sections:sections.map(e=>({rect:r(e),padding:getComputedStyle(e).padding,heading:r(e.querySelector('h3'))})),items:[...q('.loop-control-groups').children].map(r),set:r(q('.beat-set')),clear:r(q('.beat-clear')),readout:r(q('.loop-beat .loop-readout-frame')),moveLabel:r(q('.beat-move-label')),moveButtons:r(q('.beat-move-buttons')),arrows:[...q('.beat-move-buttons').children].map(r),jump:r(q('.loop-jump-buttons')),slide:r(q('.slide-control')),jumpButtons:[...q('.loop-jump-buttons').children].map(r),rows:[...q('.loop-memory-keypad').children].map(r)};})()`);
+      const g=await run(`(()=>{const r=e=>e.getBoundingClientRect().toJSON(), q=s=>document.querySelector(s),sections=[...document.querySelectorAll('.loop-section')];return {sections:sections.map(e=>({rect:r(e),padding:getComputedStyle(e).padding,heading:r(e.querySelector('h3')),controls:[...e.querySelectorAll('button,input,output,.slide-control')].map(c=>{const t=getComputedStyle(c);return {rect:r(c),outline:t.outlineStyle==='none'?0:Math.max(0,parseFloat(t.outlineWidth)+parseFloat(t.outlineOffset))};})})),items:[...q('.loop-control-groups').children].map(r),set:r(q('.beat-set')),clear:r(q('.beat-clear')),readout:r(q('.loop-beat .loop-readout-frame')),moveLabel:r(q('.beat-move-label')),moveButtons:r(q('.beat-move-buttons')),arrows:[...q('.beat-move-buttons').children].map(r),jump:r(q('.loop-jump-buttons')),slide:r(q('.slide-control')),jumpButtons:[...q('.loop-jump-buttons').children].map(r),rows:[...q('.loop-memory-keypad').children].map(r),save:r(q('[aria-label="Show sample save"]')),header:r(q('.tools-selector-row')),tools:r(q('[aria-label="Tools"]')),outer:r(q('[aria-label="Tools"]').parentElement),hint:r(q('.beat-placement-hint'))};})()`);
       const near=(a,b)=>assert.ok(Math.abs(a-b)<.05,`${a} != ${b}`),center=r=>(r.left+r.right)/2;
       for(const p of g.sections){near(p.rect.top,g.sections[0].rect.top);near(p.rect.bottom,g.sections[0].rect.bottom);assert.equal(p.padding,g.sections[0].padding);near(p.heading.top,g.sections[0].heading.top);near(p.heading.left-p.rect.left,g.sections[0].heading.left-g.sections[0].rect.left);}
-      const gaps=g.items.slice(1).map((r,i)=>r.left-g.items[i].right);gaps.forEach(v=>near(v,gaps[0]));assert.ok(gaps[0]>=8);
+      const gaps=g.items.slice(1).map((r,i)=>r.left-g.items[i].right);gaps.forEach(v=>near(v,gaps[0]));near(gaps[0],6);
       near(g.set.width,g.set.height);near(g.set.left,g.clear.left);assert.ok(g.clear.top>=g.set.bottom);near(center(g.readout),center(g.moveLabel));near(center(g.readout),center(g.moveButtons));
       for(const b of [...g.arrows,...g.jumpButtons]){near(b.width,b.height);assert.ok(b.width>=20);}near(g.arrows[0].width,g.arrows[1].width);near(g.arrows[0].top,g.arrows[1].top);near(center(g.jump),center(g.slide));
-      const rows=[g.rows[0],g.rows[3],g.rows[6],g.rows[9]];for(let i=1;i<rows.length;i++){near(rows[i].top-rows[i-1].bottom,1);near(rows[i].height,rows[0].height);}near(rows[0].top,g.sections[3].rect.top+3);near(rows[3].bottom,g.sections[3].rect.bottom-3);
-      near((g.items[4].top+g.items[4].bottom)/2,(g.sections[0].rect.top+g.sections[0].rect.bottom)/2);
+      const rows=[g.rows[0],g.rows[3],g.rows[6],g.rows[9]];for(let i=1;i<rows.length;i++){near(rows[i].top-rows[i-1].bottom,1);near(rows[i].height,rows[0].height);}assert.ok(rows[0].top>=g.sections[3].heading.bottom+3);near(rows[3].bottom,g.sections[3].rect.bottom-3);
+      near(g.save.right,g.tools.right);near((g.save.top+g.save.bottom)/2,(g.header.top+g.header.bottom)/2);near(g.sections[3].rect.right,g.tools.right);
+      assert.ok(g.outer.bottom-g.sections[0].rect.bottom>=2 && g.outer.bottom-g.sections[0].rect.bottom<=4,'Panels use lower padding with a small outer margin');
+      for(const p of g.sections) for(const c of p.controls){assert.ok(c.rect.top-c.outline>=p.heading.bottom+2,'Heading never clips a control/focus outline');assert.ok(c.rect.left-c.outline>=p.rect.left+1 && c.rect.right+c.outline<=p.rect.right-1 && c.rect.bottom+c.outline<=p.rect.bottom-1,'Panel border contains focus outline');}
+      assert.ok(g.moveButtons.bottom<=g.hint.top && g.clear.bottom<=g.hint.top,'Reserved hint does not crowd controls');
+      for(const c of g.sections[2].controls){if(c.rect.top>=g.moveButtons.top) assert.ok(c.rect.top-c.outline>=g.moveLabel.bottom,'Move focus outline stays below its label');if(c.rect.bottom>=g.clear.bottom) assert.ok(c.rect.bottom+c.outline<=g.hint.top,'Focus outline never enters the hint row');}
     };
     const snapshot = async name => { await assertGrid(); await win.webContents.capturePage(); await pause(); fs.writeFileSync(path.join(__dirname, `../build/loop-sample-${name}.png`), (await win.webContents.capturePage()).toPNG()); };
     await snapshot('no-selection');
@@ -195,6 +200,12 @@ app.whenReady().then(async () => {
     await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await pause();
     await run(`document.querySelector('[aria-label="Increase Start"]').focus()`);await pause();
     assert.equal(await run(`getComputedStyle(document.querySelector('[aria-label="Increase Start"]')).outlineStyle`),'dashed');await snapshot('keyboard-focus');
+    for(const [label,name] of [['Set 1st Beat','beat-set-focus'],['Clear 1st Beat','beat-clear-focus'],['Increase 1st Beat','beat-move-focus'],['Loop memory 7','memory-focus'],['Show sample save','save-focus']]){await run(`document.querySelector('[aria-label="${label}"]').focus()`);await pause();assert.equal(await run(`getComputedStyle(document.querySelector('[aria-label="${label}"]')).outlineStyle`),'dashed');await snapshot(name);}
+    const setButton=await run(`document.querySelector('[aria-label="Set 1st Beat"]').getBoundingClientRect().toJSON()`);
+    await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:setButton.x+setButton.width/2,y:setButton.y+setButton.height/2,button:'left',buttons:1,clickCount:1});await pause();await snapshot('beat-set-pressed');
+    await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',x:setButton.x+setButton.width/2,y:setButton.y+setButton.height/2,button:'left',buttons:0,clickCount:1});await pause();assert.equal(await run('component().memoizedProps.placingStartBeat'),true);await snapshot('beat-placement-active');await click('Set 1st Beat');
+    if(process.argv.includes('--layout-only')) { console.log('PASS: native-size no-selection / valid / placement / pressed / keyboard-focus screenshots, heading/border/hint/outline clearance, header Save, 6 px gaps, taller panels and right-edge Memory');app.exit(0);return; }
+
     await click('Auto-Split');
     const knob=await run(`document.querySelector('[aria-label="Noise floor"]').getBoundingClientRect().toJSON()`);
     await shift(true);await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:knob.x+knob.width/2,y:knob.y+knob.height/2,button:'left',buttons:1,clickCount:1,modifiers:8});await pause();
