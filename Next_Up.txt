@@ -411,3 +411,32 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     Leroy should review the grouping and shorter Slide's physical feel before
     integration. Unmerged prerequisites remain on this review branch; no merge
     or push. Primary main checkout and unrelated files remain preserved.
+
+2026-10-08 ? 1st Beat Set / Move / Clear and protected loop clicks
+    Implemented on the review branch; Leroy's interactive approval pending.
+    The existing 1st Beat panel now has square Set on the left, smaller Clear
+    below, an editable digital readout at top right, and separate square Move
+    arrows below their label. The dim seconds suffix, three decimals and full
+    stored sample precision remain. Reserved feedback shows Click inside loop.
+    Set toggles persistent placement; Move and committed typed edits create the
+    custom marker without activating placement, retaining an already active mode.
+    Escape cancels time drafts even while placement mode is active. Clear removes
+    only the custom marker, exits placement and preserves selection/playback.
+    Ordinary inside-selection clicks in Loop / Sample preserve the brace and
+    looping state, seeking with existing running/paused/stopped transport semantics.
+    Near-End clicks clamp to the last included sample. The toolbar's separate
+    Clear selection action removes the loop brace without deleting recording audio.
+    Other waveform views retain normal click behavior; placement, marker/edge/fade
+    drags, selection creation, presets and export remain covered by regressions.
+    Passed TypeScript, 74 utility tests, production build and native loop/seek PCM,
+    memory, Slide, transport and persistent placement/export checks. Loop: 235 PCM
+    comparisons, max cursor error 0.58 ms; memory: 118, max 0.62 ms; Slide: 55,
+    max 0.65 ms. Source schedule intervals do not overlap. WAV/FLAC 16/24-bit
+    decoded rotated exports retain exact sample order/count, channels and rate.
+    Prior-build geometry confirms unchanged Tools/panel/Save, waveform, ruler,
+    transport and time-input/keypad dimensions. Active/inactive/disabled screens
+    and pressed/fine highlight release inspected. Existing build chunk warning
+    remains; native packaging omitted for this renderer-only change.
+    Review Set placement, independent Move/typing and protected seeking by hand
+    before integration. All prerequisite branches/unrelated local work preserved;
+    no merge or push. Primary checkout remains on main.

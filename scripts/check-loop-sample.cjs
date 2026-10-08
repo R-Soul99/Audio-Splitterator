@@ -86,7 +86,7 @@ app.whenReady().then(async () => {
     assert.equal(await run(`document.querySelector('[aria-label="Loop Tools"]')`),null);
     assert.equal(await run(`document.querySelector('[aria-label="Decrease Start"]').textContent`),String.fromCodePoint(0x25c0));
     assert.equal(await run(`document.querySelector('[aria-label="Next selection"]').textContent`),String.fromCodePoint(0x25b6));
-    const readouts=await run(`([...document.querySelectorAll('.loop-readout-frame:has(input)')]).map(e=>({arrows:e.querySelectorAll('button').length,inputs:e.querySelectorAll('input').length}))`);assert.deepEqual(readouts,[{arrows:2,inputs:1},{arrows:2,inputs:1},{arrows:2,inputs:1}]);
+    const readouts=await run(`([...document.querySelectorAll('.loop-readout-frame:has(input)')]).map(e=>({arrows:e.querySelectorAll('button').length,inputs:e.querySelectorAll('input').length}))`);assert.deepEqual(readouts,[{arrows:2,inputs:1},{arrows:2,inputs:1},{arrows:0,inputs:1}]);
     const slideKey = async (direction, fine=false) => {
       await run(`document.querySelector('[aria-label="Slide selection"]').dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'${direction}',shiftKey:${fine}}))`);await pause();
       await run(`window.dispatchEvent(new KeyboardEvent('keyup',{key:'${direction}',shiftKey:${fine}}))`);await pause();
@@ -217,6 +217,10 @@ app.whenReady().then(async () => {
     };
     await repeats();
 
+    // Native ordinary clicks retain the active loop and use the heard-clock
+    // seek handover. Compare actual PCM after repeated inside-loop seeks.
+    const mouseInside=async time=>{const r=await run('wave().getBoundingClientRect().toJSON()'),d=await run('audioDuration');const x=r.left+r.width*time/d,y=r.top+r.height*.3;for(const type of ['mouseMoved','mousePressed','mouseReleased']){await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x,y,button:type==='mouseMoved'?'none':'left',buttons:type==='mousePressed'?1:0,clickCount:type==='mouseMoved'?0:1});await pause();}};
+    for(const time of [1.025,1.075,1.035]){const before=await run('sources.length');await mouseInside(time);assert.deepEqual(await run('currentSelection()'),{start:1,end:1.1});assert.equal(await run('sources.length'),before+1);await repeats();}
     const count = await run('sources.length'); await setRegion(.9, 1.2); assert.equal(await run('sources.length'), count+1, 'Inside edit schedules one replacement');
 
     await repeats(); await setRegion(2, 2.1); assert.equal(await run('sources.length'), count+2, 'Outside edit safely replaces source'); await repeats();

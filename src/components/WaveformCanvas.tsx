@@ -1599,8 +1599,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const timeDiff = Math.abs(endTime - activeDrag.startTime);
 
       if (pixelDiff <= 5 || timeDiff < 0.05) {
-        // Clear the brace and seek/audition in one action, without a click delay.
-        onWaveformClick(activeDrag.startTime);
+        const samples = audioBuffer ? sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) : null;
+        const inside = samples && audioBuffer && activeDrag.startTime >= samples.start / audioBuffer.sampleRate && activeDrag.startTime < samples.end / audioBuffer.sampleRate;
+        if (showLoopSample && inside && samples && audioBuffer) {
+          // Seek without auto-audition or clearing the loop; the transport owns
+          // running/paused state and the existing audio-clock handover.
+          const sample = Math.max(samples.start, Math.min(samples.end - 1, Math.round(activeDrag.startTime * audioBuffer.sampleRate)));
+          onSeek(sample / audioBuffer.sampleRate);
+        } else onWaveformClick(activeDrag.startTime);
       } else {
         // Drag selection complete!
         const selStart = Math.min(activeDrag.startTime, endTime);
@@ -2085,6 +2091,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 icon={<Scissors className="w-3.5 h-3.5" />}
                 label="Cut Selection (Del / Backspace): Remove the selected region and splice the remaining audio"
               />
+              <TooltipButton compact onClick={() => onSelectionChange?.(null)} disabled={!hasSelection}
+                accessibleName="Clear selection" label="Clear selection and loop brace; keep the recording. Does not clear only 1st Beat."
+                icon={<span aria-hidden="true" className="text-sm leading-none">{'\u00d7'}</span>} />
               {onUndo && (
                 <TooltipButton
                   onClick={onUndo}
@@ -2670,7 +2679,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onContextMenu={handleContextMenu}
           className={`w-full block touch-none ${cursorStyle} ${audioBuffer ? '' : 'pointer-events-none'}`}
           style={{ height: `${canvasDimensions.height}px` }}
-          title={placingStartBeat ? "Click inside the loop to place 1st Beat; Set or Escape exits." : chopEnabled ? "Chop: click to add a split marker; right-click a marker to remove it; drag markers to adjust" : "Click to clear selection and seek; scroll to zoom at cursor; Shift+scroll to adjust waveform height"}
+          title={placingStartBeat ? "Click inside the loop to place 1st Beat; Set or Escape exits." : showLoopSample && hasSelection ? "Click inside the loop to seek without clearing it; use Clear selection to remove the brace. Drag to edit the selection." : chopEnabled ? "Chop: click to add a split marker; right-click a marker to remove it; drag markers to adjust" : "Click to clear selection and seek; scroll to zoom at cursor; Shift+scroll to adjust waveform height"}
         />
         <canvas
           ref={overlayCanvasRef}

@@ -276,7 +276,7 @@
 .tools-panel > div:first-child > div { overflow: visible; gap: 3px; }
 .loop-move-group { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .loop-move-group button { padding: 0 2px; font-size: 8px; }
-.loop-tools-row > button[aria-pressed=true] { background: #701a75; border-color: #e879f9; color: #fae8ff; }
+.beat-set[aria-pressed=true] { background: #701a75; border-color: #e879f9; color: #fae8ff; }
 .loop-length output { display: block; height: 18px; line-height: 18px; }
 .sample-save-controls { display: flex; flex-direction: column; gap: 2px; }
 .sample-save-row { display: flex; gap: 4px; align-items: center; min-width: 0; height: 20px; }
@@ -347,3 +347,15 @@
 
 .loop-beat .loop-control-status { position: static; height: 16px; line-height: 16px; color: #6ee7b7; }
 .loop-beat .loop-control-status[data-placement=true] { color: #f0abfc; }
+
+/* Set / Move / Clear occupy the existing 57 px marker panel without reflow. */
+.beat-workflow { display: flex; gap: 8px; height: 42px; flex: 0 0 42px; }
+.beat-set-clear { display: flex; flex-direction: column; gap: 2px; }
+.loop-beat .beat-set { width: 28px; height: 28px; padding: 0; font-size: 9px; }
+.loop-beat .beat-clear { width: 28px; height: 12px; padding: 0; font-size: 8px; line-height: 10px; }
+.beat-move-controls { display: flex; flex-direction: column; align-items: flex-start; margin-left: auto; }
+.loop-beat .loop-readout > span:first-child { display: none; }
+.beat-move-label { height: 6px; line-height: 6px; font-size: 7px; color: #64748b; }
+.beat-move-buttons { display: flex; gap: 3px; }
+.loop-beat .beat-move-buttons button { width: 20px; height: 20px; padding: 0; font-size: 10px; }
+.loop-beat .loop-control-status { height: 8px; line-height: 8px; flex: 0 0 8px; }
