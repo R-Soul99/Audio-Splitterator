@@ -317,3 +317,46 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     confirm unchanged Boundaries / waveform / outer Tools and keypad sizes.
     Neutral, disabled, fine movement and separate keyboard focus screenshots
     visually inspected at the fixed workspace size.
+
+
+    Safer persistent 1st Beat placement pass (8 October 2026), for review:
+    Fresh feat/persistent-beat-placement branch from fetched main 910009d;
+    existing memory, Boundaries alignment and spring Slide changes preserved
+    as prerequisites. Primary checkout and unrelated files remain untouched.
+    Set now toggles persistent placement. Purple Set styling and a compact
+    Click inside the loop hint share the existing Loop Tools heading space;
+    labels, readouts, controls, panel dimensions and waveform remain fixed.
+    Repeated inside clicks sample-align 1st Beat; outside clicks are consumed
+    and preserve selection / transport. Set, Escape and Clear exit; Clear
+    restores default Start. Selection clear, source replacement, preset recall,
+    tool / Save navigation and leaving Edit cancel placement.
+    Actual 10 ms / Shift 1 ms readout arrow changes and committed time changes
+    reveal the custom marker and activate placement. Unchanged rounded text
+    cannot replace the stored sample position. End remains exclusive.
+    Added a purple diamond handle in the existing fixed-height ruler, separate
+    from the cyan playback cursor. Captured dragging edits only 1st Beat, clamps
+    to Start / End-minus-one-sample, and activates placement. Pointer release,
+    cancellation / lost capture, blur and mode exit clean up its capture.
+    Accessible slider naming, sample values, distinct keyboard focus and
+    Left / Right 10 ms (Shift 1 ms) operation are included. Ruler interaction
+    is available in Loop / Sample Controls. Canvas edge / fade drags retain
+    priority over placement; the previous lower marker handle is preserved.
+    Beat edits leave playing sources untouched. New beat applies on the next
+    explicit loop audition and rotated export. Existing exact length / sample
+    order, whole-move offset, edge-reset rules, preset custom/default identity
+    and safe audio handover / output-clock cursor logic remain unchanged.
+    Passed: TypeScript, all 74 utility tests, production build, git diff --check
+    and six native Electron regressions: expanded placement / export, loop
+    controls, memory, spring Slide, ruler / selection and fade / Chop / loading.
+    Native placement covers repeated / outside clicks, Set / Escape / Clear,
+    arrow-then-click, exact arrow steps, rounded-entry precision, captured
+    ruler movement and boundary clamps, fine keyboard adjustment, edge / fade
+    priority, workflow / Tools / Save / recall / import cancellation, disabled
+    placement, uninterrupted sources, explicit audition and decoded rotated
+    WAV / FLAC 16 / 24-bit stereo sample order / count / rate.
+    Existing loop PCM: 198 comparisons, max cursor error 0.60 ms; preset recall:
+    117 comparisons, max 0.60 ms; spring Slide: 54 comparisons, max 0.28 ms.
+    Active Set, compact hint, diamond / cursor distinction and fixed workspace
+    visually inspected. Renderer-only change; native packaging not repeated.
+    Leroy should review repeated click / drag placement, fine adjustment,
+    Escape / Clear and live looping before integration. No merge or push.
