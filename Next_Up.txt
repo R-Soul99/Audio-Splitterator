@@ -500,3 +500,7 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     repeated. Leroy should review the spacing in the latest local review build
     before integration. Unmerged prerequisites and unrelated files preserved;
     no merge or push. Primary checkout remains on main.
+
+Next layout review:
+    1st Beat section needs bigger Set and Move buttons to fill more of the
+    available area, while keeping everything neatly aligned.
