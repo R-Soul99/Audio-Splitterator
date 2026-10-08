@@ -14,7 +14,7 @@ function TimeReadout({ label, value, disabled, commit, arrows }: { label: string
     if (cancelBlur.current) { cancelBlur.current = false; return; }
     // A rounded display is presentation only. Focus, Enter or blur without edits
     // must never write it back over a full-precision sample boundary.
-    if (draft === null || !edited.current) { setDraft(null); setInvalid(false); return; }
+    if (draft === null || !edited.current || draft === value?.toFixed(3)) { setDraft(null); setInvalid(false); return; }
     const seconds = parseLoopTime(draft);
     if (seconds === null || !commit(seconds)) { setInvalid(true); return; }
     edited.current = false; setInvalid(false); setDraft(null);
@@ -31,8 +31,9 @@ export function SelectionLoopSwitch({ audioBuffer, selection, isLooping, onLoopC
   const valid = audioBuffer && sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
   return <button type="button" onKeyDown={e => e.stopPropagation()} role="switch" aria-label="Selection loop" title="Enable selection looping without starting stopped playback." aria-checked={isLooping} disabled={!valid} onClick={() => onLoopChange?.(!isLooping)} className="loop-switch"><span className={isLooping ? 'loop-led lit' : 'loop-led'} />Loop {isLooping ? 'On' : 'Off'}</button>;
 }
-export function LoopSampleControls({ visibleDuration, waveformWidth, active, audioBuffer, selection, startBeat, customStartBeat, loopMemory, onMemoryAction, placingStartBeat, onPlacementChange, onStartBeatChange, onSelectionChange }: {
+export function LoopSampleControls({ visibleDuration, waveformWidth, active, onControlsActiveChange, audioBuffer, selection, startBeat, customStartBeat, loopMemory, onMemoryAction, placingStartBeat, onPlacementChange, onStartBeatChange, onSelectionChange }: {
   visibleDuration: number; waveformWidth: number;
+  onControlsActiveChange?: (active: boolean) => void;
   active: boolean; audioBuffer: AudioBuffer | null; selection: TimeSelection | null;
   startBeat: number | null; customStartBeat: boolean; loopMemory: (LoopPreset | null)[];
   onMemoryAction: (index: number, action: MemoryAction) => void; placingStartBeat: boolean;
@@ -40,6 +41,8 @@ export function LoopSampleControls({ visibleDuration, waveformWidth, active, aud
   onSelectionChange?: (selection: TimeSelection | null, edit?: SelectionEdit) => void;
 }) {
   const [section, setSection] = useState<'controls' | 'save'>('controls');
+  useEffect(() => { const visible = active && section === 'controls'; onControlsActiveChange?.(visible); if (!visible) onPlacementChange?.(false); }, [active, section, onPlacementChange, onControlsActiveChange]);
+  useEffect(() => () => onPlacementChange?.(false), [onPlacementChange]);
   const [fine, setFine] = useState(false);
   const [pressed, setPressed] = useState<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -78,7 +81,7 @@ export function LoopSampleControls({ visibleDuration, waveformWidth, active, aud
     const label = `${direction < 0 ? 'Decrease' : 'Increase'} ${target === 'beat' ? '1st Beat' : target === 'start' ? 'Start' : 'End'}`;
     return <button type="button" className="loop-adjust-button" data-fine={fine && active && section === 'controls'} aria-label={label} title={`${label}: click for 10 ms; Shift-click for 1 ms (nearest audio sample).`} disabled={next(fine) === null} onClick={e => {
       const value = next(e.shiftKey);
-      if (typeof value === 'number') onStartBeatChange?.(value);
+      if (typeof value === 'number') { onStartBeatChange?.(value); onPlacementChange?.(true); }
       else if (value) apply(value);
     }}>{direction < 0 ? '\u25c0' : '\u25b6'}</button>;
   };
@@ -95,15 +98,15 @@ export function LoopSampleControls({ visibleDuration, waveformWidth, active, aud
             {action('Double selection', samples && resizeSamples(samples, 2, 'start', frames), '\u00d72')}
           </div></div>
         </section>
-        <section className="loop-section loop-tools" aria-label="Loop Tools"><h3>Loop Tools</h3>
+        <section className="loop-section loop-tools" aria-label="Loop Tools"><h3>Loop Tools</h3><span className="beat-placement-hint" role="status">{placingStartBeat ? 'Click inside the loop' : ''}</span>
           <TimeReadout label="1st Beat" disabled={!samples} value={samples && startBeat !== null ? startBeat / rate : null} arrows={direction => adjust('beat', direction)} commit={seconds => {
             if (!samples) return false;
             const sample = Math.round(seconds * rate);
             if (seconds < samples.start / rate || seconds >= samples.end / rate || sample < samples.start || sample >= samples.end) return false;
-            onStartBeatChange?.(sample); return true;
+            if (sample !== startBeat) { onStartBeatChange?.(sample); onPlacementChange?.(true); } return true;
           }} />
           <div className="loop-tools-row">
-            <button type="button" aria-label="Set 1st Beat" title="Place 1st Beat once inside the selection; Escape cancels." aria-pressed={placingStartBeat} disabled={!samples} onClick={() => onPlacementChange?.(!placingStartBeat)}>Set</button>
+            <button type="button" aria-label="Set 1st Beat" title="Toggle 1st Beat placement. Click inside the loop repeatedly; Set or Escape exits." aria-pressed={placingStartBeat} disabled={!samples} onClick={() => onPlacementChange?.(!placingStartBeat)}>Set</button>
             <button type="button" aria-label="Clear 1st Beat" title="Remove the custom 1st Beat marker and use the selection's left boundary." disabled={!samples} onClick={() => { onPlacementChange?.(false); onStartBeatChange?.(null); }}>Clear</button>
             <div className="loop-move-group"><span>Jump</span>
               {action('Previous selection', samples && editSamples(samples, 'whole', -(samples.end - samples.start), frames), '\u25c0', 'move')}
@@ -128,7 +131,7 @@ export function LoopSampleControls({ visibleDuration, waveformWidth, active, aud
           })}
         </div></section>
       </div>
-      <span className="loop-control-status" role="status" title={status}>{status || (placingStartBeat ? 'Click inside the selection to place 1st Beat.' : '')}</span>
+      <span className="loop-control-status" role="status" title={status}>{status}</span>
     </div>
     <div hidden={section !== 'save'}><SampleSaveControls audioBuffer={audioBuffer} selection={samples} startBeat={startBeat} onControls={() => setSection('controls')} onSaved={path => { setStatus(`Saved: ${path}`); setSection('controls'); }} /></div>
   </div>;

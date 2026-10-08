@@ -337,3 +337,7 @@
 .slide-control[data-fine=true] .slide-thumb { border-color: #fbbf24; }
 .slide-control:focus-visible { outline: 1px dashed #cbd5e1; outline-offset: 2px; }
 .slide-control[aria-disabled=true] { opacity: .4; cursor: not-allowed; }
+
+.beat-ruler-handle { position: absolute; top: 5px; width: 12px; height: 12px; padding: 0; transform: translateX(-50%); border: 0; background: #020617cc; color: #e879f9; font-size: 11px; line-height: 12px; cursor: ew-resize; touch-action: none; z-index: 3; }
+.beat-ruler-handle:focus-visible { outline: 1px dashed #fae8ff; outline-offset: 1px; }
+.beat-placement-hint { position: absolute; top: -5px; right: 4px; max-width: calc(100% - 62px); height: 9px; padding: 0 2px; font-size: 8px; line-height: 9px; color: #f0abfc; background: #0b1220; pointer-events: none; white-space: nowrap; }
