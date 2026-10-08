@@ -90,12 +90,12 @@ app.whenReady().then(async () => {
     assert.equal(await run(`document.querySelector('[aria-label="Sample bit depth"]').value`),'16');
     await select('Sample format','wav');await select('Sample bit depth','24');await click('Show loop controls');
     await region(1,3,'new');assert.equal(await run('component().memoizedProps.startBeat'),48000);
-    await click('Set Start Beat');await shot('placement');await mouseClick(4);assert.deepEqual(await run('currentSelection()'),{start:1,end:3});assert.equal(await run('component().memoizedProps.placingStartBeat'),true);
+    await click('Set 1st Beat');await shot('placement');await mouseClick(4);assert.deepEqual(await run('currentSelection()'),{start:1,end:3});assert.equal(await run('component().memoizedProps.placingStartBeat'),true);
     await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await pause();assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.deepEqual(await run('currentSelection()'),{start:1,end:3});
-    await click('Set Start Beat');await click('Set Start Beat');assert.equal(await run('component().memoizedProps.placingStartBeat'),false);
-    await click('Set Start Beat');await mouseClick(1.5);let beat=await run('component().memoizedProps.startBeat');assert.ok(Math.abs(beat-72000)<1500);assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.equal(await run('component().memoizedProps.isPlaying'),false);
+    await click('Set 1st Beat');await click('Set 1st Beat');assert.equal(await run('component().memoizedProps.placingStartBeat'),false);
+    await click('Set 1st Beat');await mouseClick(1.5);let beat=await run('component().memoizedProps.startBeat');assert.ok(Math.abs(beat-72000)<1500);assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.equal(await run('component().memoizedProps.isPlaying'),false);
     await click('Loop and play the selected region');assert.equal(await run('sources.at(-1).offset'),beat/48000);
-    const count=await run('sources.length');await click('Set Start Beat');await mouseClick(2);assert.equal(await run('sources.length'),count,'Placement does not replace source');assert.equal(await run('component().memoizedProps.isPlaying'),true);assert.equal(await run('sources.filter(s=>s.active).length'),1);
+    const count=await run('sources.length');await click('Set 1st Beat');await mouseClick(2);assert.equal(await run('sources.length'),count,'Placement does not replace source');assert.equal(await run('component().memoizedProps.isPlaying'),true);assert.equal(await run('sources.filter(s=>s.active).length'),1);
     const dragBeat = async target => {
       const r=await run('wave().getBoundingClientRect().toJSON()'), d=await run('audioDuration'), sample=await run('component().memoizedProps.startBeat');
       const y=r.bottom-26, from=r.left+r.width*(sample/48000)/d, to=r.left+r.width*target/d;
@@ -112,13 +112,13 @@ app.whenReady().then(async () => {
     beat=await run('component().memoizedProps.startBeat');await region(2,4,'move');assert.equal(await run('component().memoizedProps.startBeat'),beat+48000);
     await region(2.1,4,'edge');assert.equal(await run('component().memoizedProps.startBeat'),beat+48000);
     await region(3.9,4,'edge');assert.equal(await run('component().memoizedProps.startBeat'),187200);
-    await click('Clear Start Beat');assert.equal(await run('component().memoizedProps.customStartBeat'),false);assert.equal(await run('component().memoizedProps.startBeat'),187200);
+    await click('Clear 1st Beat');assert.equal(await run('component().memoizedProps.customStartBeat'),false);assert.equal(await run('component().memoizedProps.startBeat'),187200);
     await region(1,1.1,'new');await run('component().memoizedProps.onStartBeatChange(50400)');await pause();await click('Loop and play the selected region');assert.equal(await run('sources.at(-1).offset'),1.05);
-    const clearSourceCount=await run('sources.length');await click('Clear Start Beat');assert.equal(await run('component().memoizedProps.startBeat'),48000);assert.equal(await run('component().memoizedProps.customStartBeat'),false);assert.equal(await run('sources.length'),clearSourceCount,'Clear leaves playback uninterrupted');
-    await type('Loop Start Beat','1.025');await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await pause();assert.equal(await run('component().memoizedProps.startBeat'),49200);assert.equal(await run('component().memoizedProps.customStartBeat'),true);assert.equal(await run('sources.length'),clearSourceCount,'Typed beat is passive until audition');await click('Loop and play the selected region');assert.equal(await run('sources.at(-1).offset'),1.025);
+    const clearSourceCount=await run('sources.length');await click('Clear 1st Beat');assert.equal(await run('component().memoizedProps.startBeat'),48000);assert.equal(await run('component().memoizedProps.customStartBeat'),false);assert.equal(await run('sources.length'),clearSourceCount,'Clear leaves playback uninterrupted');
+    await type('Loop 1st Beat','1.025');await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await pause();assert.equal(await run('component().memoizedProps.startBeat'),49200);assert.equal(await run('component().memoizedProps.customStartBeat'),true);assert.equal(await run('sources.length'),clearSourceCount,'Typed beat is passive until audition');await click('Loop and play the selected region');assert.equal(await run('sources.at(-1).offset'),1.025);
     for(let i=0;i<10;i++){await new Promise(r=>setTimeout(r,80));const state=await run(`({time:component().memoizedProps.currentTime,playing:component().memoizedProps.isPlaying,active:sources.filter(s=>s.active).length})`);assert.equal(state.playing,true);assert.equal(state.active,1);assert.ok(state.time>=1&&state.time<1.1);}
     await mouseClick(4);assert.equal(await run('currentSelection()'),null,'Normal click clears');assert.equal(await run('component().memoizedProps.isLooping'),false);
-    await region(1,3,'new');await run('component().memoizedProps.onStartBeatChange(60000)');await pause();await click('Show sample save');
+    await region(1,3,'new');await run('component().memoizedProps.onStartBeatChange(60000)');await pause();await click('Loop memory 9');await region(4,5,'new');await click('Loop memory 9');assert.deepEqual(await run('currentSelection()'),{start:1,end:3});assert.equal(await run('component().memoizedProps.startBeat'),60000);await click('Show sample save');
     await click('Browse sample folder');assert.equal(await run(`document.querySelector('[aria-label="Sample destination"]').value`),output);
     const savedBase='Sample Regression '+Date.now();await type('Sample filename',savedBase);
     await select('Sample bit depth','24');const beforeSave=await run('({selection:currentSelection(),beat:component().memoizedProps.startBeat,playing:component().memoizedProps.isPlaying,looping:component().memoizedProps.isLooping,count:sources.length})');await click('Save Sample');await saved();assert.deepEqual(await run('({selection:currentSelection(),beat:component().memoizedProps.startBeat,playing:component().memoizedProps.isPlaying,looping:component().memoizedProps.isLooping,count:sources.length})'),beforeSave);await shot('success');
@@ -129,7 +129,7 @@ app.whenReady().then(async () => {
     await run(`([...document.querySelectorAll('.sample-save-feedback button')].find(b=>b.textContent==='Numbered')).click()`);await saved();assert.ok(fs.existsSync(path.join(output,savedBase+' (2).wav')));
     await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Filename exists')`);await run(`([...document.querySelectorAll('.sample-save-feedback button')].find(b=>b.textContent==='Replace')).click()`);await saved();
     await select('Sample format','flac');await click('Save Sample');await saved();assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+'.flac'))),true);
-    // Default Start Beat and both supported bit depths.
+    // Default 1st Beat and both supported bit depths.
     await run('component().memoizedProps.onStartBeatChange(48000)');await pause();await select('Sample bit depth','16');
     for(const format of ['wav','flac']){await select('Sample format',format);await type('Sample filename',savedBase+' default');await click('Save Sample');await saved();assert.equal(await verify(fs.readFileSync(path.join(output,savedBase+' default.'+format)),48000,144000,48000,16),true);}
     // The smallest possible selection exports one frame, including the final recording frame.
@@ -149,9 +149,9 @@ app.whenReady().then(async () => {
     failSave=true;await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('Error:')`);assert.equal(await run(`document.querySelector('[aria-label="Save Sample"]').getClientRects().length>0`),true);await shot('error');failSave=false;
     await type('Sample filename','../invalid');await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('valid sample filename')`);await stable();
     await type('Sample filename','valid');await type('Sample destination','relative');await click('Save Sample');await wait(`document.querySelector('.sample-save-feedback').textContent.includes('full sample destination')`);await stable();
-    await click('Show loop controls');await click('Set Start Beat');assert.equal(await run('component().memoizedProps.placingStartBeat'),true);
+    await click('Show loop controls');await click('Set 1st Beat');assert.equal(await run('component().memoizedProps.placingStartBeat'),true);
     await run('clearSelection()');await pause();assert.equal(await run('component().memoizedProps.placingStartBeat'),false);
-    await region(1,3,'new');await click('Set Start Beat');
+    await region(1,3,'new');await click('Set 1st Beat');
     await run(`document.querySelector('input[type=file]').value=''`);
     await win.webContents.debugger.sendCommand('DOM.setFileInputFiles',{nodeId,files:[file]});await wait(`!document.querySelector('main').inert && currentSelection()===null`);
     assert.equal(await run('component().memoizedProps.placingStartBeat'),false);assert.equal(await run('component().memoizedProps.startBeat'),null);

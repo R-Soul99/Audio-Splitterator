@@ -4,8 +4,9 @@ import { WaveformCanvas } from './components/WaveformCanvas';
 import { SplitsManager } from './components/SplitsManager';
 import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
 import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
+import { emptyLoopMemory, loopSnapshot, LoopPreset, MemoryAction } from './utils/loopMemory';
 import { adjustStartBeatState, SelectionEdit } from './utils/startBeat';
-import { sampleSelection } from './utils/loopSelection';
+import { sampleTimes, sampleSelection } from './utils/loopSelection';
 import { PlaybackSegment, playbackPosition, timelinePosition, outputClock } from './utils/playbackClock';
 import { mergeAutoSplitMarkers } from './utils/autoSplitPolicy';
 import {
@@ -79,6 +80,17 @@ export default function App() {
   const [placingStartBeat, setPlacingStartBeat] = useState(false);
   const setBeat = useCallback((sample: number | null, custom = false) => { startBeatRef.current = sample; setStartBeat(sample); customStartBeatRef.current = sample !== null && custom; setCustomStartBeat(sample !== null && custom); }, []);
   const [selection, setSelection] = useState<TimeSelection | null>(null);
+  // Recording-owned session memory survives workspace / Tools component unmounts.
+  const memoryRef = useRef<{ owner: AudioBuffer | null; slots: (LoopPreset | null)[]; serial: number }>({ owner: null, slots: emptyLoopMemory(), serial: 0 });
+  const [loopMemory, setLoopMemory] = useState(memoryRef.current);
+  const recalledStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (memoryRef.current.owner !== audioBuffer) {
+      memoryRef.current = { owner: audioBuffer, slots: emptyLoopMemory(), serial: 0 };
+      setLoopMemory(memoryRef.current);
+      recalledStartRef.current = null;
+    }
+  }, [audioBuffer]);
 
   // Split markers
   const [markers, setMarkers] = useState<Marker[]>([]);
@@ -390,6 +402,7 @@ export default function App() {
     (offsetTime: number, forceLoop?: boolean, transition = false) => {
       const buffer = audioBufferRef.current;
       if (!buffer) return;
+      recalledStartRef.current = null;
       const activeLoop = forceLoop !== undefined ? forceLoop : isLoopingRef.current;
       const ctx = getAudioContext();
       if (isStandbyMode) {
@@ -463,7 +476,7 @@ export default function App() {
       const endLimit = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
       const startLimit = cropStartRef.current;
       const cur = currentTimeRef.current;
-      const resumeFrom = cur >= endLimit - 0.05 ? startLimit : cur;
+      const resumeFrom = recalledStartRef.current ?? (cur >= endLimit - 0.05 ? startLimit : cur);
       startPlayback(resumeFrom);
     }
   }, [stopPlayback, startPlayback]);
@@ -471,6 +484,7 @@ export default function App() {
   // Handle Stop button
   const handleStop = useCallback(() => {
     stopPlayback();
+    recalledStartRef.current = null;
     const resetTime = cropStartRef.current;
     currentTimeRef.current = resetTime;
     setCurrentTime(resetTime);
@@ -479,6 +493,7 @@ export default function App() {
   // Seek playhead
   const handleSeek = useCallback(
     (newTime: number) => {
+      recalledStartRef.current = null;
       currentTimeRef.current = newTime;
       setCurrentTime(newTime);
       if (isPlayingRef.current) {
@@ -501,6 +516,7 @@ export default function App() {
     (newTime: number) => {
       const buffer = audioBufferRef.current;
       if (!buffer) return;
+      recalledStartRef.current = null;
       const end = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
       const time = Math.max(cropStartRef.current, Math.min(end, newTime));
       selectionRef.current = null;
@@ -519,6 +535,7 @@ export default function App() {
   // Keep native loop bounds and the playhead clock in sync with selection edits.
   const handleSelectionChange = useCallback((nextSelection: TimeSelection | null, edit: SelectionEdit = 'edge') => {
     const buffer = audioBufferRef.current;
+    recalledStartRef.current = null;
     // A transient collapsed waveform drag must not replace an active valid loop.
     if (nextSelection && buffer && isLoopingRef.current && !sampleSelection(nextSelection, buffer.sampleRate, buffer.length)) return;
     const previousSamples = buffer ? sampleSelection(selectionRef.current, buffer.sampleRate, buffer.length) : null;
@@ -552,6 +569,42 @@ export default function App() {
     }
   }, [startPlayback, setBeat]);
 
+  const handleMemoryAction = useCallback((index: number, action: MemoryAction) => {
+    const buffer = audioBufferRef.current;
+    if (!buffer || !Number.isInteger(index) || index < 0 || index > 9) return;
+    const memory = memoryRef.current.owner === buffer ? memoryRef.current : { owner: buffer, slots: emptyLoopMemory(), serial: 0 };
+    const slot = memory.slots[index];
+    const slots = [...memory.slots];
+    const serial = memory.serial + 1;
+    if (action === 'clear') {
+      slots[index] = null; // Clearing memory never changes selection or transport.
+    } else if (!slot || action === 'replace') {
+      const selection = sampleSelection(selectionRef.current, buffer.sampleRate, buffer.length);
+      const snapshot = loopSnapshot(selection, startBeatRef.current, customStartBeatRef.current, buffer.length);
+      if (!snapshot) return;
+      slots[index] = { ...snapshot, used: serial };
+    } else {
+      const snapshot = loopSnapshot(slot, slot.beat, slot.custom, buffer.length);
+      if (!snapshot) return;
+      slots[index] = { ...slot, used: serial };
+      // Restore atomically before scheduling exactly one existing safe handover.
+      const restored = sampleTimes(slot, buffer.sampleRate);
+      selectionRef.current = restored; setSelection(restored);
+      beatSelectionRef.current = { start: slot.start, end: slot.end };
+      setBeat(slot.beat, slot.custom); setPlacingStartBeat(false);
+      loopModeRequestedRef.current = true;
+      isLoopingRef.current = true; setIsLooping(true);
+      const position = slot.beat / buffer.sampleRate;
+      if (isPlayingRef.current) startPlayback(position, true);
+      else {
+        recalledStartRef.current = position;
+        currentTimeRef.current = position; setCurrentTime(position);
+      }
+    }
+    memoryRef.current = { owner: buffer, slots, serial };
+    setLoopMemory(memoryRef.current);
+  }, [setBeat, startPlayback]);
+
   // Cover selection changes from import, undo and other established edit paths.
   useEffect(() => {
     const next = audioBuffer ? sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) : null;
@@ -575,6 +628,8 @@ export default function App() {
   // Load new audio buffer (recording finished or imported file)
   const loadAudio = (buffer: AudioBuffer, fileName: string, artist?: string, album?: string, markerTimes: number[] = []) => {
     stopPlayback();
+    memoryRef.current = { owner: buffer, slots: emptyLoopMemory(), serial: 0 };
+    setLoopMemory(memoryRef.current); recalledStartRef.current = null;
     setBeat(null); beatSelectionRef.current = null; setPlacingStartBeat(false);
     audioBufferRef.current = buffer;
     undoStackRef.current = [];
@@ -1270,6 +1325,8 @@ export default function App() {
                         onStop={handleStop}
                         onSeek={handleSeek}
                         onWaveformClick={handleWaveformClick}
+                        loopMemory={loopMemory.owner === audioBuffer ? loopMemory.slots : emptyLoopMemory()}
+                        onMemoryAction={handleMemoryAction}
                         startBeat={startBeat}
                         customStartBeat={customStartBeat}
                         placingStartBeat={placingStartBeat}

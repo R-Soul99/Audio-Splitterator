@@ -235,3 +235,45 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     Loop / Sample, Start Beat, export, waveform / Slide and playback timing work.
     Earlier per-pass review / no-merge notes above describe development history.
     Other feature branches and unrelated local files are outside this merge.
+
+
+    Loop memory / grouped Controls pass (8 October 2026), implemented for review:
+    Fresh feat/loop-memory-presets branch from main 910009d; existing branches
+    and unrelated local files preserved in the primary checkout.
+    Three bordered sections within the fixed Tools panel: Boundaries, Loop Tools,
+    Memory. Start / End / Length are stacked; Length has half / double beside it.
+    Loop Tools stacks 1st Beat, Set / Clear / Jump, then Slide encoder / Save.
+    Visible Start Beat labels are now 1st Beat. Slide arrow buttons removed;
+    the viewport-scaled encoder, Shift fine movement and exact clamping remain.
+    Snug fixed-width three-decimal seconds readouts include a dim internal s;
+    unedited rounded values retain full sample precision. Waveform / device size,
+    Tools tabs, Loop On switch and ruler cursor placement remain unchanged.
+    Ten session presets use 7-8-9 / 4-5-6 / 1-2-3 / wide 0 (tenth slot).
+    Empty click stores; filled click recalls; Shift-click replaces a valid loop;
+    right-click or focused Delete clears memory without changing transport.
+    Exact Start / End / 1st Beat samples and custom marker state are restored.
+    Digits and Num Lock number-pad digits store / recall only in visible Controls;
+    text-entry controls, modified presses and repeats are excluded.
+    Recall arms selection looping, cancels pending placement, starts at 1st Beat
+    through the existing safe handover when playing, and never autoplays when
+    stopped / paused. Next explicit start uses the recalled beat, including a
+    final one-frame loop. Stored values stay independent of subsequent edits.
+    Most recently used matching slot illuminates; focus / press / Shift states
+    remain distinct and release / cancel / blur clears transient highlighting.
+    App-owned memory survives Tools, Controls / Save and workflow navigation;
+    importing or replacing the source recording clears it. No restart persistence.
+    Existing rotated-export pipeline, overwrite protection, export settings and
+    successful-save return to Controls remain intact.
+    Passed: TypeScript, 69 utility tests, sample-store test, production build,
+    five native Electron regressions (memory, loop controls, beat/export, ruler /
+    selection, waveform scale), and git diff --check. Screenshots visually checked
+    for all three sections, disabled / long-value / active / focus / Shift states.
+    Memory recall: 117 PCM comparisons, max cursor error 0.62 ms; rapid schedules
+    never overlap. Existing loop regression: 193 comparisons, max 0.59 ms.
+    Native WAV / FLAC 16 / 24-bit decoded sample order / count checked after recall.
+    Renderer-only pass; native packaging not repeated. Final keypad size / grouping
+    and preset workflow await Leroy's interactive review. Playback approval stands.
+    No merge or push. Primary checkout remains main; review build is isolated.
+    Future pass: Immediate / At Loop End switching. At Loop End will queue and
+    flash a slot, then recall it when the current cycle completes at its 1st Beat.
+    Queuing / flashing and at-cycle-end scheduling are not implemented here.

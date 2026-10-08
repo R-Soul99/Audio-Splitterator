@@ -14,7 +14,7 @@ export function SlideEncoder({ visibleDuration, waveformWidth, start, max, rate,
   return <div role="slider" tabIndex={disabled ? -1 : 0} aria-label="Slide encoder"
     aria-disabled={disabled} aria-valuemin={0} aria-valuemax={max} aria-valuenow={start}
     aria-valuetext={`${(start / rate).toFixed(3)} seconds`}
-    title="Slide selection: drag up/down to move by visible waveform pixels; Shift is ten times finer. Sensitivity stays fixed for each drag. Preserve length and relative Start Beat; stop at recording boundaries."
+    title="Slide selection: drag up/down to move by visible waveform pixels; Shift is ten times finer. Sensitivity stays fixed for each drag. Preserve length and relative 1st Beat; stop at recording boundaries."
     {...handlers} data-dragging={dragging} data-fine={fineAdjusting}
     onKeyDown={event => {
       if (disabled || !['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft'].includes(event.key)) return;

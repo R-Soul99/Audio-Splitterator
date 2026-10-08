@@ -76,7 +76,7 @@ export function SampleSaveControls({ audioBuffer, selection, startBeat, onContro
       <button type="button" aria-label="Save Sample" disabled={!api || !selection || busy || !!pending} onClick={() => void save()}>Save Sample</button>
     </div>
     <div className="sample-save-feedback" role="status" aria-live="polite" aria-busy={busy}>
-      <span title={status}>{status || (!api ? 'Sample export requires the desktop app.' : !selection ? 'Select a region to save a sample.' : 'One cycle, starting at Start Beat. No fades or processing.')}</span>
+      <span title={status}>{status || (!api ? 'Sample export requires the desktop app.' : !selection ? 'Select a region to save a sample.' : 'One cycle, starting at 1st Beat. No fades or processing.')}</span>
       {pending && <><button type="button" disabled={busy} onClick={() => void save('replace')}>Replace</button><button type="button" disabled={busy} onClick={() => void save('numbered')}>Numbered</button><button type="button" disabled={busy} onClick={() => { setPending(null); setStatus('Save cancelled.'); }}>Cancel</button></>}
       {phase === 'encoding' && <button type="button" onClick={() => { cancelled.current = true; setStatus('Save cancelled.'); }}>Cancel</button>}
     </div>
