@@ -264,6 +264,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const verticalZoomRef = useRef(1);
 
   const [showLoopSample, setShowLoopSample] = useState(false);
+  const [loopSaveContainer, setLoopSaveContainer] = useState<HTMLDivElement | null>(null);
   const [loopControlsActive, setLoopControlsActive] = useState(false);
 
   // Popover States
@@ -2155,8 +2156,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {processingPanelContainer && createPortal(
-        <div aria-label="Tools" className="tools-panel absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1">
-          <div className="flex shrink-0 items-center gap-2">
+        <div aria-label="Tools" className={`tools-panel ${showLoopSample ? 'loop-tools-open' : ''} absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1`}>
+          <div className="tools-selector-row flex shrink-0 items-center gap-2">
           <span className="shrink-0 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto custom-scrollbar">
             <button type="button" aria-label="Chop" title="Chop: click the waveform to split" aria-pressed={chopEnabled}
@@ -2212,9 +2213,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); onLoopChange?.(true); setProcessingOpen(false); setShowPeakTamerPopover(false); setShowNormalisePopover(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
           </div>
           {showLoopSample && <SelectionLoopSwitch audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onLoopChange={onLoopChange} />}
+          <div className="loop-save-header" ref={setLoopSaveContainer} />
           </div>
 
-          <div hidden={!showLoopSample}><LoopSampleControls loopMemory={loopMemory} onMemoryAction={onMemoryAction} customStartBeat={customStartBeat} visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} onControlsActiveChange={setLoopControlsActive} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
+          <div className="loop-controls-host" hidden={!showLoopSample}><LoopSampleControls saveContainer={loopSaveContainer} loopMemory={loopMemory} onMemoryAction={onMemoryAction} customStartBeat={customStartBeat} visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} onControlsActiveChange={setLoopControlsActive} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">

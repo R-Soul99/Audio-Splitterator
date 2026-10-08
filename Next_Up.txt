@@ -470,3 +470,33 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     renderer-only refinement.
     Final Slide checks passed: full range/fine control, cleanup and 54 PCM
     comparisons (max cursor error 0.44 ms). The latest review build is launched.
+
+2026-10-09 ? Loop / Sample spacing and clipping review pass
+    Layout-only: Save uses its existing handler/state through a header portal,
+    at the far right of the Tools selector row. Its visibility and workflow
+    remain unchanged. The panel row has four explicit grid columns, 6 px gaps,
+    right-edge Memory and deliberately distributed width for the first three.
+    Panels now use the former bottom padding, with aligned edges and about
+    3 px outer bottom margin; the bordered 98 px Tools panel is unchanged.
+    Every panel reserves an internal heading row before controls, with shared
+    padding. Set no longer touches its heading or border. 1st Beat has a clear
+    two-column layout and a separate hint row; Jump / Move squares are 22 px,
+    Set remains 28 px, and readouts retain snug values, 3 decimals and dim s.
+    Memory retains the keypad arrangement with equal rows and wider buttons.
+    Focus outlines stay clear of headings, borders, Move labels and hints.
+    No adjustment, placement, selection, playback, preset or export handlers
+    changed. Waveform/ruler/transport and outer Tools geometry match the prior
+    build. Save export success/failure/cancellation and stable feedback remain
+    covered by native regressions.
+    Passed TypeScript, 74 utility tests, production build, whitespace and native
+    transport/geometry, loop/seek, persistent placement/export, presets and Slide
+    checks. Loop: 235 PCM comparisons, max cursor error 0.69 ms; presets: 117,
+    max 0.59 ms; Slide: 54, max 0.68 ms. No overlapping source schedules.
+    Native-size full-window screenshots inspected for no/valid selection,
+    active placement, Set/Clear/Move/Memory/Save keyboard focus, and pressed/fine
+    states. Focused --layout-only checks validate heading/outline/hint clearance,
+    equal panel gaps/edges, lower-space use and Save header alignment.
+    Existing large-chunk build warning remains. Renderer-only; packaging not
+    repeated. Leroy should review the spacing in the latest local review build
+    before integration. Unmerged prerequisites and unrelated files preserved;
+    no merge or push. Primary checkout remains on main.

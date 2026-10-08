@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { SlideControl } from './SlideControl';
 import { SampleSaveControls } from './SampleSaveControls';
 import { SelectionEdit } from '../utils/startBeat';
@@ -31,7 +32,8 @@ export function SelectionLoopSwitch({ audioBuffer, selection, isLooping, onLoopC
   const valid = audioBuffer && sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
   return <button type="button" onKeyDown={e => e.stopPropagation()} role="switch" aria-label="Selection loop" title="Enable selection looping without starting stopped playback." aria-checked={isLooping} disabled={!valid} onClick={() => onLoopChange?.(!isLooping)} className="loop-switch"><span className={isLooping ? 'loop-led lit' : 'loop-led'} />Loop {isLooping ? 'On' : 'Off'}</button>;
 }
-export function LoopSampleControls({ visibleDuration, waveformWidth, active, onControlsActiveChange, audioBuffer, selection, startBeat, customStartBeat, loopMemory, onMemoryAction, placingStartBeat, onPlacementChange, onStartBeatChange, onSelectionChange }: {
+export function LoopSampleControls({ saveContainer, visibleDuration, waveformWidth, active, onControlsActiveChange, audioBuffer, selection, startBeat, customStartBeat, loopMemory, onMemoryAction, placingStartBeat, onPlacementChange, onStartBeatChange, onSelectionChange }: {
+  saveContainer?: HTMLElement | null;
   visibleDuration: number; waveformWidth: number;
   onControlsActiveChange?: (active: boolean) => void;
   active: boolean; audioBuffer: AudioBuffer | null; selection: TimeSelection | null;
@@ -137,9 +139,10 @@ export function LoopSampleControls({ visibleDuration, waveformWidth, active, onC
             >{index}</button>;
           })}
         </div></section>
-        <button type="button" className="loop-save-action" aria-label="Show sample save" onClick={() => setSection('save')}>Save</button>
+
       </div>
     </div>
+    {saveContainer && createPortal(<button type="button" hidden={!active || section !== 'controls'} className="loop-save-action" aria-label="Show sample save" onClick={() => setSection('save')}>Save</button>, saveContainer)}
     <div hidden={section !== 'save'}><SampleSaveControls audioBuffer={audioBuffer} selection={samples} startBeat={startBeat} onControls={() => setSection('controls')} onSaved={path => { setStatus(`Saved: ${path}`); setSection('controls'); }} /></div>
   </div>;
 }
