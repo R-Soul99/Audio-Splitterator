@@ -307,7 +307,7 @@
 .loop-readout > span:first-child { width: 35px; flex: 0 0 35px; }
 .loop-tools .loop-readout > span:first-child { width: 40px; flex-basis: 40px; }
 .loop-time-unit { align-self: center; padding: 0 3px 0 1px; color: #475569; font: 8px monospace; }
-.loop-length-row, .loop-tools-row { display: flex; align-items: center; gap: 3px; height: 16px; }
+.loop-tools-row { display: flex; align-items: center; gap: 3px; height: 16px; }
 .loop-slide-save { justify-content: space-between; }
 .loop-memory { padding-left: 4px; padding-right: 4px; }
 .loop-memory-keypad { display: grid; grid-template-columns: repeat(3, 20px); gap: 1px; }
@@ -326,3 +326,6 @@
 .loop-section .slide-encoder { width: 16px; height: 16px; flex-basis: 16px; }
 .loop-control-status { position: absolute; top: -4px; left: 5px; right: 5px; height: 9px; line-height: 9px; font-size: 8px; pointer-events: none; }
 .loop-control-status:not(:empty) { background: #0b1220; }
+
+/* Retain the measured existing section width when Length shares arrow columns. */
+.loop-boundaries { width: 155.2265625px; }
