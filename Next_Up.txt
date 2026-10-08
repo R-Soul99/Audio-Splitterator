@@ -388,3 +388,26 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
     Renderer-only pass; native packaging not repeated. Leroy should review the
     compact transport and available Tools space before integration. No merge
     or push; primary checkout and unrelated files remain preserved on main.
+
+2026-10-08 ? Loop / Sample purpose panels (implemented; review pending)
+    Boundaries, Move Loop, 1st Beat and Memory now have separate full-height
+    bordered panels. Jump is above a fixed 72 px spring Slide; Save sits as a
+    separate action at the far right beside the unchanged Memory keypad.
+    Removed the Loop Tools grouping. Readouts remain snug and precise, with
+    Length actions in the existing arrow compartments. Placement and Save
+    feedback occupy reserved space inside the fixed-width 1st Beat panel.
+    No selection maths, audio, preset, marker, export or Transport changes.
+    Passed TypeScript, 74 utility tests, production build and focused native
+    loop, memory, Slide, persistent placement/export and transport regressions.
+    Final PCM checks: loop 199 (max 0.60 ms), memory 117 (max 0.68 ms),
+    Slide 54 (max 0.42 ms). An initial concurrent memory timing run failed;
+    its sequential rerun passed. Slide verifies full displacement, fine Shift,
+    elapsed-time/sample precision, clamps/reversal, pointer/keyboard cleanup.
+    Prior-build geometry confirms unchanged Tools, waveform, ruler, toolbar,
+    transport, readout/keypad sizes and bottom dimensions. Screenshots checked
+    with valid/no selection, playing, active placement and disabled controls,
+    including long Save feedback without layout movement. Build retains its
+    existing large-chunk warning. Renderer-only; packaging not repeated.
+    Leroy should review the grouping and shorter Slide's physical feel before
+    integration. Unmerged prerequisites remain on this review branch; no merge
+    or push. Primary main checkout and unrelated files remain preserved.
