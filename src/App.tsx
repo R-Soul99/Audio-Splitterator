@@ -4,7 +4,7 @@ import { WaveformCanvas } from './components/WaveformCanvas';
 import { SplitsManager } from './components/SplitsManager';
 import { Marker, SplitSegment, FadeSettings, TimeSelection } from './types';
 import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from './utils/audioProcessing';
-import { emptyLoopMemory, loopSnapshot, LoopPreset, MemoryAction } from './utils/loopMemory';
+import { isTextEntry, emptyLoopMemory, loopSnapshot, LoopPreset, MemoryAction } from './utils/loopMemory';
 import { adjustStartBeatState, SelectionEdit } from './utils/startBeat';
 import { sampleTimes, sampleSelection } from './utils/loopSelection';
 import { PlaybackSegment, playbackPosition, timelinePosition, outputClock } from './utils/playbackClock';
@@ -617,7 +617,7 @@ export default function App() {
   useEffect(() => {
     if (!placingStartBeat) return;
     const cancel = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); setPlacingStartBeat(false); }
+      if (event.key === 'Escape') { event.preventDefault(); if (!isTextEntry(event.target)) event.stopImmediatePropagation(); setPlacingStartBeat(false); }
     };
     window.addEventListener('keydown', cancel, true);
     return () => window.removeEventListener('keydown', cancel, true);
