@@ -8,16 +8,16 @@
 /* Auto-Split uses the existing 573px-wide, fixed-height Tools workspace. */
 .auto-split-host {
   overflow: visible;
-  }
+}
 .tools-detection {
   height: 100%;
   display: grid;
   grid-template-columns: minmax(240px, 1.5fr) minmax(132px, .85fr) minmax(165px, 1fr);
   gap: 8px;
-  }
+}
 .tools-peak-tamer > div:first-child, .tools-normalise > div:first-child {
   display: none;
-  }
+}
 .detection-section {
   min-width: 0;
   min-height: 0;
@@ -26,10 +26,10 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  }
+}
 .detection-section:first-child {
   border-left: 0;
-  }
+}
 .detection-section h3 {
   margin: 0;
   color: #94a3b8;
@@ -38,40 +38,55 @@
   letter-spacing: .06em;
   text-transform: uppercase;
   font-weight: 600;
-  }
-.detection-knobs {
+}
+.detection-settings {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  flex: 1;
+  grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: 10px minmax(0, 1fr);
+  gap: 2px 8px;
+}
+.detection-settings h3 { grid-column: 1; grid-row: 1; }
+.detection-knobs { display: contents; }
+.detection-detect {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: center;
+  height: 30px;
+  font-size: 11px;
+}
+.detection-detect:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+.detection-noise, .detection-duration {
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
-  }
-.detection-noise, .detection-duration, .detection-snap {
+  justify-content: space-between;
+  font-size: 9px;
+  line-height: 10px;
+}
+.detection-noise { grid-column: 2; }
+.detection-duration { grid-column: 3; }
+.detection-noise > div, .detection-duration > span:last-child {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  font-size: 9px;
-  line-height: 10px;
-  }
-.detection-noise > div, .detection-duration > span:last-child, .detection-snap > span:last-child {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  }
+}
 .detection-value {
-  width: 43px;
-  text-align: right;
+  width: 66px;
+  text-align: center;
   font-family: monospace;
   font-variant-numeric: tabular-nums;
   font-size: 9px;
   line-height: 12px;
   white-space: nowrap;
-  }
+}
+.waveform-sensitivity { display: flex; align-items: center; gap: 3px; font-size: 9px; color: #94a3b8; }
+
 .detection-counts {
   display: grid;
   gap: 1px;
-  }
+}
 .detection-counts > span {
   display: flex;
   align-items: center;
@@ -81,13 +96,13 @@
   font-size: 9px;
   line-height: 12px;
   white-space: nowrap;
-  }
+}
 .detection-counts strong {
   min-width: 4ch;
   text-align: right;
   font: 600 11px/12px monospace;
   font-variant-numeric: tabular-nums;
-  }
+}
 .detection-feedback {
   height: 12px;
   flex: none;
@@ -95,35 +110,35 @@
   line-height: 12px;
   color: #94a3b8;
   white-space: nowrap;
-  }
+}
 .detection-buttons {
   display: flex;
   align-items: center;
   gap: 4px;
   flex: 1;
-  }
+}
 .detection-buttons > button {
   flex: none;
   padding: 0 7px;
   height: 28px;
   font-size: 10px;
   white-space: nowrap;
-  }
+}
 .detection-buttons > button:focus-visible {
   outline: 2px solid #38bdf8;
   outline-offset: 2px;
-  }
+}
 .detection-buttons > button:active:not(:disabled) {
   background: #334155;
-  }
+}
 .detection-buttons > .detection-apply {
   border-color: #b45309;
   background: #78350f;
   color: #fcd34d;
-  }
+}
 .detection-buttons > .detection-apply:active:not(:disabled) {
   background: #92400e;
-  }
+}
 
 .tools-peak-tamer {
   display: grid;
@@ -192,15 +207,15 @@
   0% {
     box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.85);
     transform: scale(1);
-  }
+}
   35% {
     box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
     transform: scale(1.15);
-  }
+}
   100% {
     box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
     transform: scale(1);
-  }
+}
 }
 
 .flash-once {
@@ -239,7 +254,7 @@
 @media (prefers-reduced-motion: no-preference) {
   .recording-paused-icon {
     animation: recording-pause-blink 1s ease-in-out infinite;
-  }
+}
 }
 
 /* The small REC lamp signals pause even when larger animations are reduced. */

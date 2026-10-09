@@ -586,3 +586,30 @@ Next layout review:
 - Existing bundle-size warning remains. No dedicated Auto-Split error state exists;
   existing information/success notifications remain outside the layout flow.
 - Leroy to review before integration. Volume tab remains a separate future pass.
+
+
+2026-10-09 - Shared detection controls (ready for review)
+- Preserves the preceding Auto-Split layout refinement as a branch prerequisite.
+- Compact waveform Detect and larger panel Detect share one Noise Floor handler,
+  value, busy/disabled state and synchronous duplicate-scan latch. Both replace
+  manual adjustments using the unchanged selected-region noise measurement.
+- Detect samples Noise Floor only; cached stereo candidate analysis remains separate.
+- One Gap-filtered candidate set now feeds dots, Chop/radar, predictions and Apply.
+  Uses the existing Auto-Split spike bridging, sensitivity policy and five-second
+  recording-edge exclusions. Gap now also affects manual dots, as requested.
+- Sensitivity retains 0-100 / normal 1 / fine 0.1; named visibly above the waveform.
+- Removed adjustable Snap. Fixed capture uses the original default 0.150 seconds,
+  with the existing quiet-region envelope, nearest-region/centre tie-breaking,
+  exact dot target and radar acquisition/re-arming. No saved Snap preference exists;
+  obsolete values cannot influence the fixed range and unrelated preferences stay intact.
+- Detection layout: Detect at left, Noise Floor and Gap labels aligned with heading,
+  24px knobs centred beneath labels, centred values/units beneath knobs.
+- Required TypeScript, 84 utility tests, production build and diff checks passed.
+- Native shared Detect/busy/replacement/duplicate guard/candidate-refresh tests,
+  radar/preview/Chop/selection tests, fade/loading/import recovery, loop playback
+  and preset batch/rotated-export regressions passed. Fixed 980x650 geometry;
+  actual-size no-audio/enabled/busy screenshots fit without scrolling/overlap.
+- Loop playback: 234 PCM checks, maximum cursor discrepancy about 0.613 ms,
+  one active source. Export regression covered collisions, cancellation and retry.
+- Renderer-only change: Electron packaging omitted. Existing bundle-size warning remains.
+- Needs Leroy's interactive review before integration; no merge/push.

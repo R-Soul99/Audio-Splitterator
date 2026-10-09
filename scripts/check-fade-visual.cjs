@@ -49,42 +49,45 @@ app.whenReady().then(async () => {
  await win.reload();await new Promise(r=>setTimeout(r,200));
  const radarDocument=await win.webContents.debugger.sendCommand('DOM.getDocument');
  ({nodeId}=await win.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:radarDocument.root.nodeId,selector:'input[type=file]'}));
- // Synthetic needle lifts: both are shorter than the default 1 s Auto-Split Gap.
- for(let i=0;i<count;i++) {
-   const time=i/rate, quiet=(time>=3&&time<3.3)||(time>=6&&time<6.3);
-   wav.writeInt16LE(Math.round((quiet?32:20000)*Math.sin(2*Math.PI*440*i/rate)),44+i*2);
+ // Shared candidates obey Gap and the five-second edge exclusions.
+ const radarCount=rate*20, radarWav=Buffer.alloc(44+radarCount*2);
+ wav.copy(radarWav,0,0,44);radarWav.writeUInt32LE(radarWav.length-8,4);radarWav.writeUInt32LE(radarCount*2,40);
+ for(let i=0;i<radarCount;i++) {
+   const time=i/rate, quiet=(time>=5&&time<7)||(time>=12&&time<14);
+   radarWav.writeInt16LE(Math.round((quiet?32:20000)*Math.sin(2*Math.PI*440*i/rate)),44+i*2);
  }
- const radarPath=path.join(app.getPath('temp'),'quiet-radar-check.wav');fs.writeFileSync(radarPath,wav);
+ const radarPath=path.join(app.getPath('temp'),'quiet-radar-check.wav');fs.writeFileSync(radarPath,radarWav);
  await win.webContents.debugger.sendCommand('DOM.setFileInputFiles',{nodeId,files:[radarPath]});
- await new Promise(r=>setTimeout(r,1000));
+ await win.webContents.executeJavaScript(`(async()=>{const end=Date.now()+20000;while(document.querySelector('main').inert||document.body.textContent.includes('Building waveform')){if(Date.now()>end)throw Error('Radar fixture not ready');await new Promise(r=>setTimeout(r,50));}})()`);
  await win.webContents.executeJavaScript(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Auto-Split').click()`);
  await new Promise(r=>setTimeout(r,100));
  const radarRect=await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector('canvas[title]').getBoundingClientRect();return {left:r.left,top:r.top,width:r.width}})()`);
- for(const [type,time] of [['mouseMoved',2.99],['mousePressed',2.99],['mouseMoved',3.28],['mouseReleased',3.28]]){
- await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x:radarRect.left+radarRect.width*time/10,y:radarRect.top+70,button:type==='mouseMoved'?'none':'left',buttons:type==='mouseReleased'?0:1,clickCount:1});
+ for(const [type,time] of [['mouseMoved',5.2],['mousePressed',5.2],['mouseMoved',5.4],['mouseReleased',5.4]]){
+ await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x:radarRect.left+radarRect.width*time/20,y:radarRect.top+70,button:type==='mouseMoved'?'none':'left',buttons:type==='mouseReleased'?0:1,clickCount:1});
  await new Promise(r=>setTimeout(r,60));
  }
  console.log(await win.webContents.executeJavaScript(`(async()=>{
  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
  const wave=document.querySelector('canvas[title]'), overlay=wave.nextElementSibling,rect=wave.getBoundingClientRect();
- const fire=(type,time,y=70)=>wave.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:2,button:0,buttons:type==='pointerup'?0:1,clientX:rect.left+rect.width*time/10,clientY:rect.top+y}));
+ const fire=(type,time,y=70)=>wave.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:2,button:0,buttons:type==='pointerup'?0:1,clientX:rect.left+rect.width*time/20,clientY:rect.top+y}));
 
- document.querySelector('[aria-label="Detect noise floor"]').click();await wait(300);
+ let fiber=wave[Object.keys(wave).find(key=>key.startsWith('__reactFiber'))];while(fiber&&!fiber.memoizedProps?.onAutoSplit)fiber=fiber.return;fiber.memoizedProps.onSelectionChange({start:5.2,end:5.4});await wait(60);
+ document.querySelector('[aria-label="Detect noise floor"]').click();await wait(500);
  const threshold=document.querySelector('[aria-label="Noise floor in dB"]').textContent;
  const preview=document.querySelector('[aria-label="Auto-split preview"]').textContent;
- const scale=overlay.width/rect.width; const x=Math.floor(rect.width*6.15/10*scale);
+ const scale=overlay.width/rect.width; const x=Math.floor(rect.width*13/20*scale);
  const brightness=()=>{const data=overlay.getContext('2d').getImageData(x,Math.floor(overlay.height/2),Math.ceil(2*scale),1).data;return Math.max(...Array.from(data).filter((_,index)=>index%4===3));};
  const baseline=brightness();
- fire('pointermove',6.15);await wait(60);fire('pointermove',7);await wait(60);
- const initial=brightness();await wait(500);const fading=brightness();await wait(1900);fire('pointermove',7.1);await wait(60);const gone=brightness();
+ fire('pointermove',13);await wait(60);fire('pointermove',15);await wait(60);
+ const initial=brightness();await wait(500);const fading=brightness();await wait(1900);fire('pointermove',15.1);await wait(60);const gone=brightness();
  if(initial<100||fading>=initial||gone!==baseline)throw Error('Hover radar did not leave a stationary fading trace '+JSON.stringify({initial,fading,gone,baseline,threshold,preview}));
  document.querySelector('[aria-label="Chop"]').click();await wait(60);
- return JSON.stringify({shortQuietHoverRadar:true,threshold,preview,traceAlpha:[initial,fading,gone]});
+ return JSON.stringify({sharedCandidateHoverRadar:true,threshold,preview,traceAlpha:[initial,fading,gone]});
  })()`));
  const chopRect=await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector('[aria-label="Edit waveform"]').getBoundingClientRect();return {left:r.left,top:r.top,width:r.width}})()`);
  for(const type of ['mouseMoved','mousePressed','mouseReleased']) {
-   await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x:chopRect.left+chopRect.width*.62,y:chopRect.top+70,button:type==='mouseMoved'?'none':'left',clickCount:1});
+   await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x:chopRect.left+chopRect.width*.66,y:chopRect.top+70,button:type==='mouseMoved'?'none':'left',clickCount:1});
    await new Promise(resolve=>setTimeout(resolve,60));
  }
  if(!await win.webContents.executeJavaScript(`!!document.querySelector('[aria-label="Track 2 name"]')`))throw Error('Native single-click Chop failed to place a marker');

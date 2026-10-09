@@ -1038,14 +1038,14 @@ export default function App() {
   };
 
   const handleAutoSplit = useCallback(
-    (thresholdDb: number, minSilenceDurationSec: number): number => {
+    (thresholdDb: number, minSilenceDurationSec: number, candidates?: readonly number[]): number => {
       const buffer = audioBufferRef.current;
       if (!buffer) return 0;
 
       const effectiveStart = cropStartRef.current;
       const effectiveEnd = cropEndRef.current > 0 ? cropEndRef.current : buffer.duration;
 
-      const detectedTimes = detectSilenceSplits(
+      const detectedTimes = candidates ? [...candidates] : detectSilenceSplits(
         buffer,
         thresholdDb,
         minSilenceDurationSec,

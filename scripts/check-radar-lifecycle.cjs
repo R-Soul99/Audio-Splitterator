@@ -37,7 +37,7 @@ app.whenReady().then(async () => {
   await run('radarTrace=[];[5.5,5.7,5.9,6.1,6.5,6.1,5.9,5.7,5.5].forEach(move)');
   const trace=await run('radarTrace');
   console.log('Fragmented quiet-area waveform transitions:',JSON.stringify(trace));
-  assert.equal(new Set(trace.map(row=>row.runStart)).size,5,'actual handler selects five fine-grained runs');
+  assert.equal(new Set(trace.map(row=>row.runStart)).size,1,'actual handler uses the shared Gap-filtered candidate');
   assert.equal(trace.filter(row=>row.acquired).length,0,'candidate switches retain existing acquisition');
   assert.equal(new Set(trace.map(row=>JSON.stringify(row.zone))).size,1,'all candidates share one envelope');
   assert.equal(await run('pings'),1,'fragmented area never repeats the ping');
@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
     };
     window.preview=()=>document.querySelector('[aria-label="Show detected split preview"]');
     window.chop=()=>document.querySelector('[aria-label="Chop"]');
-    window.sensitivity=value=>{const e=document.querySelector('[aria-label="Snap Sensitivity"]');props(e).onKeyDown({key:value===0?'Home':'End',preventDefault(){}});};
+    window.sensitivity=value=>{const e=document.querySelector('[aria-label="Sensitivity"]');props(e).onKeyDown({key:value===0?'Home':'End',preventDefault(){}});};
     window.pointer=(type,t)=>{const c=wave(),r=c.getBoundingClientRect();props(c)[type]({type:type==='onPointerCancel'?'pointercancel':type,button:0,pointerId:1,clientX:r.left+t/20*r.width,clientY:r.top+r.height/2});};
     window.markers=()=>component().memoizedProps.markers;
     void 0;
@@ -134,7 +134,7 @@ app.whenReady().then(async () => {
   await run('pointer("onPointerDown",13.2)');await new Promise(resolve=>setTimeout(resolve,30));
   await run('pointer("onPointerMove",13)');await new Promise(resolve=>setTimeout(resolve,30));
   await run('pointer("onPointerUp",13)');await new Promise(resolve=>setTimeout(resolve,30));
-  await run('sensitivity(0)');await wait(`document.querySelector('[aria-label="Snap Sensitivity"]').getAttribute('aria-valuenow')==='0'`);
+  await run('sensitivity(0)');await wait(`document.querySelector('[aria-label="Sensitivity"]').getAttribute('aria-valuenow')==='0'`);
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="true"');
   await run('candidateStrokes=[];move(13)');await new Promise(resolve=>setTimeout(resolve,100));
   assert.equal(await run('candidateStrokes.length'),0,'low sensitivity removes marginal candidates');

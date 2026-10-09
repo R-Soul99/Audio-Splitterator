@@ -1,4 +1,18 @@
-import { LevelWindow } from './silenceAnalysis';
+import { LevelWindow, findSilenceRegions } from './silenceAnalysis';
+import { filterAutoSplitCandidates } from './autoSplitPolicy';
+
+// The original 150 ms capture envelope, independent of detection parameters.
+export const CHOP_CAPTURE_SECONDS = 0.15;
+
+// One Gap-filtered candidate set for dots, Chop/radar, prediction and Apply.
+// Keep Auto-Split's existing spike bridging, stereo windows and edge policy.
+export function detectionCandidates(windows: LevelWindow[], noiseFloorDb: number,
+  sensitivity: number, gapSec: number, recordingDuration: number): QuietRun[] {
+  const policy = quietCandidatePolicy(noiseFloorDb, sensitivity);
+  const regions = findSilenceRegions(windows, policy.thresholdDb, Math.max(gapSec, policy.minimumSec));
+  const allowed = new Set(filterAutoSplitCandidates(regions.map(region => region.candidate), recordingDuration));
+  return regions.filter(region => allowed.has(region.candidate));
+}
 
 export interface QuietRun { start: number; end: number; candidate: number }
 interface QuietZone { start: number; end: number }
@@ -41,13 +55,13 @@ export class QuietRadarAcquisition {
 }
 
 // Sensitivity filters audio evidence, independently of the pointer capture radius.
-// 100 preserves the original manual radar; lower settings require longer, deeper gaps.
+// 100 leaves the baseline threshold/minimum unchanged; lower values require longer, deeper gaps.
 export function quietCandidatePolicy(thresholdDb: number, sensitivity: number) {
   const selectivity = 1 - Math.max(0, Math.min(100, sensitivity)) / 100;
   return { thresholdDb: thresholdDb - 6 * selectivity, minimumSec: 0.5 * selectivity ** 2 };
 }
 
-// Manual radar retains fine-grained runs and does not borrow Auto-Split's spike policy.
+// Legacy fine-run analysis utility. Active dots/Chop/Auto-Split use detectionCandidates above.
 export function buildQuietRuns(windows: LevelWindow[], thresholdDb: number, sensitivity = 100): QuietRun[] {
   const threshold = 10 ** (thresholdDb / 20);
   const runs: QuietRun[] = [];
