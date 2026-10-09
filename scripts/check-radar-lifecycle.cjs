@@ -7,11 +7,12 @@ app.whenReady().then(async () => {
  const run = async code => { try { return await win.webContents.executeJavaScript(code); } catch(e) { console.error(code); throw e; } };
  const wait = async code => { const end=Date.now()+15000; while(!await run(code)) { if(Date.now()>end) throw Error(code); await new Promise(r=>setTimeout(r,30)); } };
  try {
-  await win.loadURL(process.argv[2] || 'http://localhost:3000/?standby=1');
+  if(process.argv[2]==='--production')await win.loadFile(require('node:path').join(__dirname,'../dist/index.html'));
+  else await win.loadURL(process.argv[2] || 'http://localhost:3000/?standby=1');
   await run(`
    window.wave=()=>document.querySelector('[aria-label="Edit waveform"]');
    window.props=e=>e[Object.keys(e).find(k=>k.startsWith('__reactProps'))];
-   window.component=()=>{ let root=wave()[Object.keys(wave()).find(k=>k.startsWith('__reactFiber'))];while(root.return)root=root.return;const queue=[root.stateNode.current];while(queue.length){const f=queue.shift();if(f.type?.name==='WaveformCanvas')return f;if(f.child)queue.push(f.child);if(f.sibling)queue.push(f.sibling);} };
+   window.component=()=>{ let root=wave()[Object.keys(wave()).find(k=>k.startsWith('__reactFiber'))];while(root.return)root=root.return;const queue=[root.stateNode.current];while(queue.length){const f=queue.shift();if(f.memoizedProps?.onAutoSplit && f.memoizedProps?.onSelectionChange)return f;if(f.child)queue.push(f.child);if(f.sibling)queue.push(f.sibling);} };
    window.importAudio=()=>{ const input=document.querySelector('input[type=file]'); const d=new DataTransfer();d.items.add(new File(['test'],'radar.wav'));input.files=d.files;input.dispatchEvent(new Event('change',{bubbles:true})); };
    window.FileReader=class { readAsArrayBuffer(){ this.result=new ArrayBuffer(8);this.onload(); } };
    window.AudioContext=class { currentTime=0;state='running';destination={};createBufferSource(){return {connect(){},start(){},stop(){},disconnect(){}};}resume(){return Promise.resolve();} decodeAudioData(){const b=new AudioBuffer({length:48000*20,numberOfChannels:2,sampleRate:48000});for(let c=0;c<2;c++){const a=b.getChannelData(c);a.fill(.1);a.fill(.001,48000*5,48000*7);for(const t of [5.6,5.8,6,6.2])a.fill(.1,Math.round(48000*t),Math.round(48000*(t+.02)));a.fill(.001,48000*12,48000*14);}return Promise.resolve(b);}close(){return Promise.resolve();} };
@@ -20,13 +21,13 @@ app.whenReady().then(async () => {
    window.splitter=()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Auto-Split');
    window.readout=()=>document.querySelector('[aria-label="Waveform readouts"]');
    window.floorOutput=()=>document.querySelector('[aria-label="Noise floor in dB"]');
-   window.closeSplitter=()=>document.querySelector('[aria-label="Close auto-split"]');
+   window.closeSplitter=()=>splitter();
    window.detectControls=()=>document.querySelectorAll('[aria-label="Detect noise floor"]');
    window.pings=0;window.radarTrace=[];void 0;
   `);
   await run('importAudio()');
   await wait('!!wave() && !document.querySelector("main").inert');
-  await run(`let h=component().memoizedState;while(h){const v=h.memoizedState?.current;if(v?.constructor?.name==='QuietRadarAcquisition'){const update=v.update.bind(v);v.update=t=>{const acquired=update(t);if(acquired)pings++;radarTrace.push({runStart:t?.runStart??null,zone:t?.zone??null,acquired});return acquired;};break;}h=h.next;} void 0;`);
+  await run(`let h=component().memoizedState;while(h){const v=h.memoizedState?.current;if(typeof v?.update==='function' && typeof v?.reset==='function'){const update=v.update.bind(v);v.update=t=>{const acquired=update(t);if(acquired)pings++;radarTrace.push({runStart:t?.runStart??null,zone:t?.zone??null,acquired});return acquired;};break;}h=h.next;} void 0;`);
   await run('move(5.5)');assert.equal(await run('pings'),0);
   await run('component().memoizedProps.onSelectionChange({start:5.2,end:5.4})');
   await wait('readout().textContent.includes("0:05")');
@@ -48,7 +49,7 @@ app.whenReady().then(async () => {
   await run('move(6.2)');assert.equal(await run('pings'),1,'close preserves latch');
   assert.equal(await run('JSON.stringify(wave().getBoundingClientRect().toJSON())'),before,'stable waveform geometry');
   await run('move(9);move(6);move(12.5)');assert.equal(await run('pings'),3,'loss/reentry/distinct target');
-  await run('importAudio()');await wait('!document.querySelector("main").inert && !document.querySelector("[role=status]") && readout().textContent.includes("-45.0")');
+  await run('importAudio()');await wait('!document.querySelector("main").inert && readout().textContent.includes("-45.0")');
   await run('move(6)');assert.equal(await run('pings'),3,'new recording requires detection');
   assert.equal(await run('detectControls().length'),1);
   await run('component().memoizedProps.onSelectionChange({start:12.2,end:13.8})');
@@ -141,7 +142,7 @@ app.whenReady().then(async () => {
   await run('preview().click();sensitivity(100)');await wait('preview().getAttribute("aria-pressed")==="false"');
   await run('splitter().click()');await wait(`!!document.querySelector('[aria-label="Auto-split preview"]')`);
   await wait(`document.querySelector('[aria-label="Auto-split preview"]').getAttribute('aria-busy')==='false'`);
-  assert.ok((await run(`document.querySelector('[aria-label="Auto-split preview"]').textContent`)).includes('2 auto-splits'),'underlying Auto-Split predictions exist');
+  assert.equal(await run(`document.querySelector('[aria-label="Auto-split preview"] strong').textContent`),'2','underlying Auto-Split predictions exist');
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="true"');
   await run('orangePreviewStrokes=0;candidateStrokes=[];move(13.2)');await wait('candidateStrokes.length>0');
   assert.equal(await run('orangePreviewStrokes'),0,'Preview On draws radar indicators without orange prediction lines');

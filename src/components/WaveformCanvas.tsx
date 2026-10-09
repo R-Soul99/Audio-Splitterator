@@ -2227,63 +2227,53 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           <div className="loop-controls-host" hidden={!showLoopSample}><LoopSampleControls saveContainer={loopSaveContainer} loopMemory={loopMemory} onMemoryAction={onMemoryAction} customStartBeat={customStartBeat} visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} onControlsActiveChange={setLoopControlsActive} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
-            <div aria-label="Active tool controls" className="min-h-0 flex-1 overflow-auto text-xs select-none custom-scrollbar">
+            <div aria-label="Active tool controls" className={`min-h-0 flex-1 text-xs select-none ${processingOpen ? 'auto-split-host' : 'overflow-auto custom-scrollbar'}`}>
               {processingOpen && (
                 <div id="processing-detection-controls" className="tools-detection">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                    <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
-                      <Activity className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Auto-Split</span>
+                  <section className="detection-section detection-settings" aria-label="Detection">
+                    <h3>Detection</h3>
+                    <div className="detection-knobs">
+                      <div title="Audio below this level is treated as silence when detecting gaps." className="detection-noise text-slate-400">
+                        <span title="Audio below this level is treated as silence when detecting gaps.">Noise floor</span>
+                        <div className="flex items-center gap-1">
+                          <RotaryKnob size={24} step={0.5} fineStep={0.1} value={noiseFloorDb} min={-96} max={0} onChange={setNoiseFloorDb} title="Noise floor" formatValue={(v) => `${v.toFixed(1)} dB`} />
+                          <output aria-label="Noise floor in dB" className="detection-value text-amber-300">{noiseFloorDb.toFixed(1)} dB</output>
+                        </div>
+                      </div>
+                      <div title="Minimum silence duration required before a split is proposed." className="detection-duration text-slate-400">
+                        <span title="Minimum silence duration required before a split is proposed.">Gap</span>
+                        <span className="flex items-center gap-1">
+                          <RotaryKnob size={24} step={0.1} fineStep={0.01} value={silenceDurationSec} min={0.1} max={10} onChange={setSilenceDurationSec} title="Minimum silence" formatValue={(v) => `${v.toFixed(2)} sec`} />
+                          <output aria-label="Minimum silence in seconds" className="detection-value text-slate-200">{silenceDurationSec.toFixed(2)} s</output>
+                        </span>
+                      </div>
+                      <div title="How close marker placement snaps to a detected split point." className="detection-snap text-slate-400">
+                        <span title="How close marker placement snaps to a detected split point.">Snap</span>
+                        <span className="flex items-center gap-1">
+                          <RotaryKnob size={24} value={snapAmountSec} min={0} max={0.5} onChange={setSnapAmountSec} title="Snap" formatValue={(v) => (v <= 0 ? 'Off' : `${Math.round(v * 1000)}ms`)} />
+                          <output className="detection-value text-sky-300">{snapAmountSec <= 0 ? 'Off' : `${Math.round(snapAmountSec * 1000)} ms`}</output>
+                        </span>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      aria-label="Close auto-split"
-                      onClick={() => setProcessingOpen(false)}
-                      className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  <div title="Audio below this level is treated as silence when detecting gaps." className="detection-noise text-slate-400">
-                    <span title="Audio below this level is treated as silence when detecting gaps.">Noise floor</span>
-                    <div className="flex items-center gap-1">
-                      <RotaryKnob size={18} step={0.5} fineStep={0.1} value={noiseFloorDb} min={-96} max={0} onChange={setNoiseFloorDb} title="Noise floor" formatValue={(v) => `${v.toFixed(1)} dB`} />
-                      <output aria-label="Noise floor in dB" className="detection-value text-amber-300">{noiseFloorDb.toFixed(1)} dB</output>
+                  </section>
+                  <section className="detection-section detection-results" aria-label="Results">
+                    <h3>Results</h3>
+                    <output aria-label="Auto-split preview" aria-live="polite" aria-busy={!!audioBuffer && previewTimes === null} title="Predicted auto-split count. Press Apply to create split markers." className="detection-counts">
+                      <span><span>Detected splits</span><strong className="text-amber-300">{previewTimes === null ? '\u2014' : previewTimes.length}</strong></span>
+                      <span><span>Resulting slices</span><strong className="text-sky-300">{previewSliceCount ?? '\u2014'}</strong></span>
+                    </output>
+                    <div className="detection-feedback" aria-live="polite">
+                      {!audioBuffer ? 'Load audio to preview slices' : previewTimes === null ? 'Calculating slices\u2026' : previewTimes.length === 0 && markers.length > 0 ? 'Existing markers kept' : ''}
                     </div>
-                  </div>
-                  <div title="Minimum silence duration required before a split is proposed." className="detection-duration text-slate-400">
-                    <span title="Minimum silence duration required before a split is proposed.">Gap</span>
-                    <span className="flex items-center gap-1">
-                      <RotaryKnob size={18} step={0.1} fineStep={0.01} value={silenceDurationSec} min={0.1} max={10} onChange={setSilenceDurationSec} title="Minimum silence" formatValue={(v) => `${v.toFixed(2)} sec`} />
-                      <output aria-label="Minimum silence in seconds" className="detection-value text-slate-200">{silenceDurationSec.toFixed(2)} s</output>
-                    </span>
-                  </div>
-                  <div title="How close marker placement snaps to a detected split point." className="detection-snap text-slate-400">
-                    <span title="How close marker placement snaps to a detected split point.">Snap</span>
-                    <span className="flex items-center gap-1">
-                      <RotaryKnob size={18} value={snapAmountSec} min={0} max={0.5} onChange={setSnapAmountSec} title="Snap" formatValue={(v) => (v <= 0 ? 'Off' : `${Math.round(v * 1000)}ms`)} />
-                      <output className="font-mono tabular-nums text-sky-300">{snapAmountSec <= 0 ? 'Off' : `${Math.round(snapAmountSec * 1000)} ms`}</output>
-                    </span>
-                  </div>
-                  <div aria-label="Split markers" className="detection-markers">
-                    <button type="button" aria-label="Undo last marker action" title="Undo last marker action" disabled={!canUndoMarkers} onClick={onMarkerUndo} className="rounded border border-slate-700 bg-slate-950 text-slate-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Undo</button>
-                    {onClearMarkers && <button type="button" aria-label="Clear all split markers" title="Clear all split markers" disabled={markers.length === 0} onClick={onClearMarkers} className="rounded border border-slate-700 bg-slate-950 text-slate-400 hover:text-rose-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Clear All</button>}
-                  </div>
-                  <div className="detection-preview">
-                  <output aria-label="Auto-split preview" aria-live="polite" aria-busy={!!audioBuffer && previewTimes === null} title="Predicted auto-split count. Press Apply to create split markers." className="font-mono tabular-nums text-slate-300">
-                    {!audioBuffer ? 'Load audio to preview slices' : previewTimes === null ? 'Calculating slices…' : (
-                      <>
-                        <span className="text-amber-300">{previewTimes.length} auto-{previewTimes.length === 1 ? 'split' : 'splits'}</span>
-                        <span className="text-sky-300">{previewSliceCount} {previewSliceCount === 1 ? 'slice' : 'slices'}</span>
-                        {previewTimes.length === 0 && markers.length > 0 && <span>Existing markers kept</span>}
-                      </>
-                    )}
-                  </output>
-                  <button type="button" onClick={handleTriggerAutoSplit} disabled={!audioBuffer || !onAutoSplit} className="rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 font-semibold hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                    Apply
-                  </button>
-                  </div>
+                  </section>
+                  <section className="detection-section detection-actions" aria-label="Actions">
+                    <h3>Actions</h3>
+                    <div className="detection-buttons">
+                      <button type="button" onClick={handleTriggerAutoSplit} disabled={!audioBuffer || !onAutoSplit} className="detection-apply rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 font-semibold hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Apply</button>
+                      <button type="button" aria-label="Undo last marker action" title="Undo last marker action" disabled={!canUndoMarkers} onClick={onMarkerUndo} className="rounded border border-slate-700 bg-slate-950 text-slate-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Undo</button>
+                      {onClearMarkers && <button type="button" aria-label="Clear all split markers" title="Clear all split markers" disabled={markers.length === 0} onClick={onClearMarkers} className="rounded border border-slate-700 bg-slate-950 text-slate-400 hover:text-rose-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Clear All</button>}
+                    </div>
+                  </section>
                 </div>
               )}
 

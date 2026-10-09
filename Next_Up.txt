@@ -569,3 +569,20 @@ Next layout review:
     unchanged desktop IPC/writer, Electron packaging not repeated.
     Ready for Leroy's interactive review. No merge or push; main and unrelated
     local files preserved. Earlier mode-selector notes describe the prior pass.
+
+
+2026-10-09 - Auto-Split Tools layout (ready for review)
+- Detection, Results and Actions now share the existing fixed Tools width.
+- Consistent 24px knobs retain their ranges, units, tooltips and coarse/fine steps.
+- Aligned fixed-width counts and a reserved feedback line keep controls stable.
+- Compact 28px-high Apply, Undo and Clear All retain existing availability/handlers.
+- Apply is visually primary; Undo and Clear All remain secondary.
+- Waveform geometry, other Tools tabs and all audio/loop/export logic unchanged.
+- Checked native 980x650 screenshots: no audio, zero/multiple results, applied,
+  disabled, keyboard focus, pressed and calculation feedback. No scrolling/clipping.
+- Required TypeScript, 82 audio utility tests and production build passed.
+- Native Auto-Split layout/actions, radar/preview/snapping and loop playback passed.
+- Desktop packaging omitted: renderer-only layout, no Electron changes.
+- Existing bundle-size warning remains. No dedicated Auto-Split error state exists;
+  existing information/success notifications remain outside the layout flow.
+- Leroy to review before integration. Volume tab remains a separate future pass.

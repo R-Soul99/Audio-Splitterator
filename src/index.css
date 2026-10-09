@@ -5,126 +5,125 @@
   white-space: nowrap;
 }
 
+/* Auto-Split uses the existing 573px-wide, fixed-height Tools workspace. */
+.auto-split-host {
+  overflow: visible;
+  }
 .tools-detection {
+  height: 100%;
   display: grid;
-  grid-template-columns: repeat(3, 43px) 90px minmax(0, 1fr);
-  align-items: center;
-  grid-template-rows: 30px 18px;
-  gap: 2px 6px;
-}
-
-.tools-detection > div:first-child,
-.tools-peak-tamer > div:first-child,
-.tools-normalise > div:first-child {
+  grid-template-columns: minmax(240px, 1.5fr) minmax(132px, .85fr) minmax(165px, 1fr);
+  gap: 8px;
+  }
+.tools-peak-tamer > div:first-child, .tools-normalise > div:first-child {
   display: none;
-}
-
-.tools-detection > div,
-.tools-detection > output {
+  }
+.detection-section {
   min-width: 0;
+  min-height: 0;
+  border-left: 1px solid #334155;
+  padding: 2px 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  }
+.detection-section:first-child {
+  border-left: 0;
+  }
+.detection-section h3 {
+  margin: 0;
+  color: #94a3b8;
   font-size: 9px;
-  line-height: 12px;
-}
-
-.tools-detection > .detection-duration,
-.tools-detection > .detection-noise,
-.tools-detection > .detection-snap {
-  grid-row: 1 / 3;
+  line-height: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  }
+.detection-knobs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  }
+.detection-noise, .detection-duration, .detection-snap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0;
-}
-
-.tools-detection > .detection-noise {
-  grid-column: 1;
-}
-
-.tools-detection > .detection-duration {
-  grid-column: 2;
-}
-
-.tools-detection > .detection-snap {
-  grid-column: 3;
-}
-
+  gap: 2px;
+  font-size: 9px;
+  line-height: 10px;
+  }
+.detection-noise > div, .detection-duration > span:last-child, .detection-snap > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  }
 .detection-value {
+  width: 43px;
+  text-align: right;
   font-family: monospace;
   font-variant-numeric: tabular-nums;
   font-size: 9px;
+  line-height: 12px;
   white-space: nowrap;
-}
-
-.detection-noise > div,
-.detection-duration > span:last-child,
-.detection-snap > span:last-child {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  }
+.detection-counts {
+  display: grid;
   gap: 1px;
-}
-
-.detection-noise > span,
-.detection-duration > span:first-child,
-.detection-snap > span:first-child {
-  line-height: 11px;
-  white-space: nowrap;
-}
-
-.detection-preview > button {
-  height: 18px;
-  padding: 0 3px;
+  }
+.detection-counts > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  color: #94a3b8;
   font-size: 9px;
   line-height: 12px;
   white-space: nowrap;
-}
-
-.tools-detection > .detection-preview {
-  grid-column: 5;
-  grid-row: 1 / 3;
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-end;
-  border-left: 1px solid #334155;
-  padding-left: 6px;
+  }
+.detection-counts strong {
+  min-width: 4ch;
   text-align: right;
-  white-space: normal;
-}
-
-.detection-markers {
-  grid-column: 4;
-  grid-row: 1 / 3;
-  display: grid;
-  grid-template-columns: 36px 51px;
-  gap: 3px;
-  align-content: center;
-}
-
-.detection-markers > button {
-  height: 18px;
+  font: 600 11px/12px monospace;
+  font-variant-numeric: tabular-nums;
+  }
+.detection-feedback {
+  height: 12px;
+  flex: none;
+  font-size: 8px;
+  line-height: 12px;
+  color: #94a3b8;
+  white-space: nowrap;
+  }
+.detection-buttons {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  line-height: 16px;
-}
-
-.detection-preview > output {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  font-size: 9px;
-  line-height: 10px;
-}
-
-.detection-preview > button {
-  width: 100%;
-  flex-shrink: 0;
-}
+  gap: 4px;
+  flex: 1;
+  }
+.detection-buttons > button {
+  flex: none;
+  padding: 0 7px;
+  height: 28px;
+  font-size: 10px;
+  white-space: nowrap;
+  }
+.detection-buttons > button:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+  }
+.detection-buttons > button:active:not(:disabled) {
+  background: #334155;
+  }
+.detection-buttons > .detection-apply {
+  border-color: #b45309;
+  background: #78350f;
+  color: #fcd34d;
+  }
+.detection-buttons > .detection-apply:active:not(:disabled) {
+  background: #92400e;
+  }
 
 .tools-peak-tamer {
   display: grid;
