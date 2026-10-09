@@ -100,7 +100,7 @@ app.whenReady().then(async () => {
     await key('1',{code:'Numpad1'});assert.ok((await state()).slots[1]);await key('2',{code:'Numpad2'});assert.ok((await state()).slots[2]);
     await key('End',{code:'Numpad1'});assert.equal((await state()).slots.filter(Boolean).length,5);
     await click('Auto-Split');await key('3');assert.equal((await state()).slots[3],null);await click('Loop / Sample');
-    await click('Show sample save');await key('3');assert.equal((await state()).slots[3],null);await click('Show loop controls');
+    await click('Show sample save');await key('3');assert.equal((await state()).slots[3],null);await click('Cancel sample export');
     // Leaving Edit unmounts its controls; memory is still recording-owned.
     await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='RECORD').click()`);await pause();await key('3');await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='EDIT').click()`);await wait(`!!document.querySelector('[aria-label="Edit waveform"]') && !document.querySelector('main').inert`);await click('Loop / Sample');assert.ok((await state()).slots[7]);assert.equal((await state()).slots[3],null);
     await run(`document.querySelector('${slot(1)}').focus()`);await key('Delete');assert.equal((await state()).slots[1],null);

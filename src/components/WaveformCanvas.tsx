@@ -1,3 +1,5 @@
+import { presetStrip, drawPresetStrip, PRESET_STRIP_HEIGHT } from '../utils/presetStrip';
+import { loopSnapshot, matchingLoopSlot } from '../utils/loopMemory';
 import { LoopPreset, MemoryAction } from '../utils/loopMemory';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { waveformAmplitudeScale } from '../utils/waveformDisplay';
@@ -868,6 +870,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.fillRect(selXEnd, height / 2 - 12, 2, 24);
     }
 
+    if (showLoopSample) {
+      const samples = sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
+      drawPresetStrip(ctx, presetStrip(loopMemory, audioBuffer.sampleRate, currentOffset, visibleDuration, width), width,
+        matchingLoopSlot(loopMemory, loopSnapshot(samples, startBeat, customStartBeat, audioBuffer.length)));
+    }
+
     // Start Beat has a lower drag handle, separate from selection braces and fades.
     if (audioBuffer && customStartBeat && startBeat !== null && selection) {
       const x = timeToX(startBeat / audioBuffer.sampleRate, width);
@@ -1177,7 +1185,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvasDimensions, cropStart, cropEnd, selection, startBeat, customStartBeat, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
+  }, [showLoopSample, loopMemory, currentOffset, visibleDuration, canvasDimensions, cropStart, cropEnd, selection, startBeat, customStartBeat, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, snapAmountSec, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
 
   const drawOverlayRef = useRef(drawOverlay);
 
@@ -2645,6 +2653,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             {(importStatus?.progress === undefined && importStatus) && <span className="ml-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" />}
           </div>
         )}
+        {showLoopSample && audioBuffer && hoverPosition && hoverPosition.y < PRESET_STRIP_HEIGHT && hoverTime !== null && (() => {
+          const pointerTime = currentOffset + hoverPosition.x / Math.max(1, canvasDimensions.width) * visibleDuration;
+          const slots = loopMemory.map((p, slot) => ({ p, slot })).filter(({ p }) => p && pointerTime >= p.start / audioBuffer.sampleRate && pointerTime < p.end / audioBuffer.sampleRate);
+          const layout = presetStrip(loopMemory, audioBuffer.sampleRate, currentOffset, visibleDuration, canvasDimensions.width);
+          const details = hoverPosition.x > canvasDimensions.width - 25 && layout.overflow.length ? layout.overflow.map(slot => ({ p: loopMemory[slot], slot })) : slots;
+          return details.length ? <div role="tooltip" className="preset-strip-tooltip">{details.map(({ p, slot }) => <div key={slot}>Slot {slot === 0 ? '0 (10)' : slot}: Start {(p!.start / audioBuffer.sampleRate).toFixed(3)} s; End {(p!.end / audioBuffer.sampleRate).toFixed(3)} s; {((p!.end - p!.start) / audioBuffer.sampleRate).toFixed(3)} s</div>)}</div> : null;
+        })()}
         {/* Feedback Notification Toast (floats over the canvas; never shifts layout) */}
         {feedbackToast && (
           <div

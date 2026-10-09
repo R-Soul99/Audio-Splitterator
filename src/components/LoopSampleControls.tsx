@@ -42,6 +42,7 @@ export function LoopSampleControls({ saveContainer, visibleDuration, waveformWid
   onPlacementChange?: (active: boolean) => void; onStartBeatChange?: (sample: number | null) => void;
   onSelectionChange?: (selection: TimeSelection | null, edit?: SelectionEdit) => void;
 }) {
+  const [exportFilename, setExportFilename] = useState('Loop Sample');
   const [section, setSection] = useState<'controls' | 'save'>('controls');
   useEffect(() => { const visible = active && section === 'controls'; onControlsActiveChange?.(visible); if (!visible) onPlacementChange?.(false); }, [active, section, onPlacementChange, onControlsActiveChange]);
   useEffect(() => () => onPlacementChange?.(false), [onPlacementChange]);
@@ -89,7 +90,7 @@ export function LoopSampleControls({ saveContainer, visibleDuration, waveformWid
   };
   const timeCommit = (target: 'start' | 'end', seconds: number) => !!samples && seconds >= 0 && seconds <= frames / rate && apply(editSamples(samples, target, Math.round(seconds * rate) - samples[target], frames));
   return <div ref={panelRef} className="loop-sample-controls" aria-label="Loop / Sample controls" onKeyDown={e => e.stopPropagation()} onPointerUpCapture={() => setFine(false)} onPointerCancelCapture={() => setFine(false)}>
-    <div hidden={section !== 'controls'} className="loop-controls-rows">
+    <div className="loop-controls-rows">
       <div className="loop-control-groups">
         <section className="loop-section loop-boundaries" aria-label="Boundaries"><h3>Boundaries</h3>
           <TimeReadout label="Start" disabled={!samples} value={samples ? samples.start / rate : null} commit={seconds => timeCommit('start', seconds)} arrows={direction => adjust('start', direction)} />
@@ -143,6 +144,6 @@ export function LoopSampleControls({ saveContainer, visibleDuration, waveformWid
       </div>
     </div>
     {saveContainer && createPortal(<button type="button" hidden={!active || section !== 'controls'} className="loop-save-action" aria-label="Show sample save" onClick={() => setSection('save')}>Save</button>, saveContainer)}
-    <div hidden={section !== 'save'}><SampleSaveControls audioBuffer={audioBuffer} selection={samples} startBeat={startBeat} onControls={() => setSection('controls')} onSaved={path => { setStatus(`Saved: ${path}`); setSection('controls'); }} /></div>
+    {section === 'save' && createPortal(<SampleSaveControls initialFilename={exportFilename} onFilenameChange={setExportFilename} presets={loopMemory} audioBuffer={audioBuffer} selection={samples} startBeat={startBeat} onControls={() => setSection('controls')} onSaved={path => { setStatus(path); setSection('controls'); }} />, document.body)}
   </div>;
 }

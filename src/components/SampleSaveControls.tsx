@@ -1,84 +1,108 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { samplePreferences } from '../utils/samplePreferences';
 import { SampleSelection } from '../utils/loopSelection';
-import { sampleFilename, snapshotSample } from '../utils/sampleExport';
+import { LoopPreset } from '../utils/loopMemory';
 import { encodeFlac, encodeWav } from '../utils/audioEncoder';
-import { getSampleExport, SampleSaveRequest } from '../utils/desktopExport';
+import { getSampleExport } from '../utils/desktopExport';
+import { captureExport, exportItemChannels, ExportSnapshot, ItemResult, runExport } from '../utils/presetExport';
 
-export function SampleSaveControls({ audioBuffer, selection, startBeat, onControls, onSaved }: { audioBuffer: AudioBuffer | null; selection: SampleSelection | null; startBeat: number | null; onControls: () => void; onSaved: (path: string) => void }) {
+export function SampleSaveControls({ initialFilename, onFilenameChange, audioBuffer, selection, startBeat, presets, onControls, onSaved }: { initialFilename: string; onFilenameChange: (value: string) => void; audioBuffer: AudioBuffer | null; selection: SampleSelection | null; startBeat: number | null; presets: (LoopPreset | null)[]; onControls: () => void; onSaved: (message: string) => void }) {
   const api = getSampleExport();
-  const [filename, setFilename] = useState('Loop Sample');
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [mode, setMode] = useState<'current' | 'presets'>('current');
+  const [selected, setSelected] = useState<number[]>([]);
+  const [filename, setFilename] = useState(initialFilename);
   const [format, setFormat] = useState<'wav' | 'flac'>(() => { try { return samplePreferences(localStorage.getItem('audiophonic_sample_format'), null).format; } catch { return 'flac'; } });
   const [depth, setDepth] = useState<16 | 24>(() => { try { return samplePreferences(null, localStorage.getItem('audiophonic_sample_depth')).depth; } catch { return 16; } });
-  useEffect(() => { try { localStorage.setItem('audiophonic_sample_format', format); localStorage.setItem('audiophonic_sample_depth', String(depth)); } catch {} }, [format, depth]);
   const [folder, setFolder] = useState('');
   const [status, setStatus] = useState('');
-  const [phase, setPhase] = useState<'idle' | 'encoding' | 'writing'>('idle');
-  const [pending, setPending] = useState<SampleSaveRequest | null>(null);
-  const active = useRef(false);
-  const cancelled = useRef(false);
-  const mounted = useRef(true);
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<Record<number, ItemResult>>({});
+  const [collision, setCollision] = useState<string | null>(null);
+  const decision = useRef<((mode: 'replace' | 'numbered' | null) => void) | null>(null);
+  const batch = useRef<ExportSnapshot | null>(null);
+  const resultRef = useRef<Record<number, ItemResult>>({});
+  const active = useRef(false), cancelled = useRef(false), mounted = useRef(true);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const occupied = [1,2,3,4,5,6,7,8,9,0].filter(id => !!presets[id]);
+  const valid = !!audioBuffer && !!selection && startBeat !== null;
   useEffect(() => {
-    mounted.current = true;
-    api?.getSampleFolder().then(value => { if (mounted.current) setFolder(value); }).catch(error => { if (mounted.current) setStatus(String(error.message)); });
-    return () => { mounted.current = false; cancelled.current = true; };
+    previousFocus.current = document.activeElement as HTMLElement;
+    dialog.current?.showModal();
+    api?.getSampleFolder().then(value => { if (mounted.current) setFolder(value); }).catch(error => { if (mounted.current) setStatus(error.message); });
+    return () => { mounted.current = false; cancelled.current = true; decision.current?.(null); dialog.current?.close(); setTimeout(() => { const target = previousFocus.current; if (target?.getClientRects().length && target !== document.body) target.focus(); else document.querySelector<HTMLButtonElement>('[aria-label="Show sample save"]')?.focus(); }, 0); };
   }, []);
-  const message = (text: string) => { if (mounted.current) setStatus(text); };
-  const commitFolder = async (value: string) => {
-    if (!api || !value) return;
-    try { await api.setSampleFolder(value); } catch (error) { message((error as Error).message); }
-  };
-  const browse = async () => {
-    try { const value = await api?.chooseSampleFolder(); if (value) { setFolder(value); message('Sample destination updated.'); } else message('Folder selection cancelled.'); }
-    catch (error) { message((error as Error).message); }
-  };
-  const write = async (request: SampleSaveRequest) => {
-    setPhase('writing'); message('Writing sample...');
-    const result = await api!.saveSample(request);
-    if (result.status === 'exists') { setPending(request); message(`Filename exists: ${request.name}. Replace or Numbered?`); }
-    else { setPending(null); message(`Saved: ${result.path}`); if (mounted.current) onSaved(result.path); }
-  };
-  const save = async (mode?: 'replace' | 'numbered') => {
+  useEffect(() => { try { localStorage.setItem('audiophonic_sample_format', format); localStorage.setItem('audiophonic_sample_depth', String(depth)); } catch {} }, [format, depth]);
+  useEffect(() => { if (collision) dialog.current?.querySelector<HTMLButtonElement>('[aria-label="Replace existing sample"]')?.focus(); }, [collision]);
+  const choose = (choice: 'replace' | 'numbered' | null) => { const resolve = decision.current; decision.current = null; setCollision(null); resolve?.(choice); };
+  const cancel = () => { cancelled.current = true; choose(null); setStatus('Cancelling — the current write may finish. Completed files are retained.'); };
+  const save = async () => {
     if (active.current || !api) return;
-    active.current = true; cancelled.current = false;
+    active.current = true; cancelled.current = false; setBusy(true);
     try {
-      if (mode && pending) { await write({ ...pending, mode }); return; }
-      if (!audioBuffer || !selection || startBeat === null) throw Error('Select a valid region first.');
-      const name = sampleFilename(filename, format);
-      const destination = folder;
-      const bitDepth = depth;
-      const encoding = format;
-      // Copy samples and settings synchronously before any asynchronous work.
-      const snapshot = snapshotSample(audioBuffer, { ...selection }, startBeat);
-      setPending(null); setPhase('encoding'); message('Encoding sample...');
-      await api.setSampleFolder(destination);
-      await new Promise(resolve => setTimeout(resolve, 30));
-      if (cancelled.current) return;
-      const data = encoding === 'wav' ? encodeWav(snapshot, { bitDepth }) : await encodeFlac(snapshot, { bitDepth });
-      // Let queued cancellation run before publishing a file.
-      await new Promise(resolve => setTimeout(resolve, 0));
-      if (cancelled.current) return;
-      await write({ name, folder: destination, data, mode: 'ask' });
-    } catch (error) { setPending(null); message(`Error: ${(error as Error).message}`); }
-    finally { active.current = false; if (mounted.current) setPhase('idle'); }
+      if (!batch.current) {
+        if (!audioBuffer) throw Error('Load a recording first.');
+        const regions = mode === 'presets' ? occupied.filter(id => selected.includes(id)).map(id => ({ id, region: { ...presets[id]! } })) : valid ? [{ id: -1, region: { ...selection!, beat: startBeat! } }] : [];
+        batch.current = captureExport(audioBuffer, regions, { base: filename, folder, format, depth }, mode === 'presets');
+        resultRef.current = Object.fromEntries(batch.current.items.map(item => [item.id, { state: 'pending' }]));
+        setResults({ ...resultRef.current });
+      }
+      const snapshot = batch.current;
+      await api.setSampleFolder(snapshot.folder);
+      const summary = await runExport(snapshot, resultRef.current, {
+        cancelled: () => cancelled.current,
+        encode: async (s, item) => {
+          await new Promise(resolve => setTimeout(resolve, 30));
+          const channels = exportItemChannels(s, item);
+          const buffer = new AudioBuffer({ sampleRate: s.sampleRate, length: item.end - item.start, numberOfChannels: channels.length });
+          channels.forEach((channel, c) => buffer.copyToChannel(channel, c));
+          const data = s.format === 'wav' ? encodeWav(buffer, { bitDepth: s.depth }) : await encodeFlac(buffer, { bitDepth: s.depth });
+          await new Promise(resolve => setTimeout(resolve, 0));
+          return data;
+        },
+        write: request => api.saveSample(request),
+        collision: name => new Promise(resolve => { decision.current = resolve; setCollision(name); setStatus(`Already exists: ${name}`); }),
+        update: (_id, result, ordinal, total) => { if (mounted.current) { setResults({ ...resultRef.current }); if (result.state === 'saving') setStatus(`Saving ${ordinal} of ${total}`); } },
+      });
+      if (!mounted.current) return;
+      if (summary.saved === summary.total && !summary.cancelled) onSaved(`Saved ${summary.saved} ${summary.saved === 1 ? 'loop' : 'loops'} to ${snapshot.folder}`);
+      else setStatus(`${summary.cancelled ? 'Cancelled' : 'Incomplete'}: saved ${summary.saved} of ${summary.total}. Retry saves only failed or unfinished items.`);
+    } catch (error) { if (mounted.current) setStatus(`Error: ${(error as Error).message}`); }
+    finally { active.current = false; if (mounted.current) setBusy(false); }
   };
-  const busy = phase !== 'idle';
-  return <div className="sample-save-controls" aria-label="Save Sample controls" onKeyDown={event => event.stopPropagation()}>
-    <div className="sample-save-row">
-      <input aria-label="Sample filename" title="Sample filename; extension follows the selected format" disabled={!!pending} value={filename} onChange={e => { setFilename(e.target.value); if (!busy) setStatus(''); }} />
-      <select aria-label="Sample format" disabled={!!pending} value={format} onChange={e => setFormat(e.target.value as 'wav' | 'flac')}><option value="wav">WAV</option><option value="flac">FLAC</option></select>
-      <select aria-label="Sample bit depth" disabled={!!pending} value={depth} onChange={e => setDepth(Number(e.target.value) as 16 | 24)}><option value={16}>16 bit</option><option value={24}>24 bit</option></select>
-      <button type="button" aria-label="Show loop controls" onClick={onControls}>Controls</button>
+  const locked = busy || !!batch.current;
+  const rows = mode === 'presets' ? occupied : [-1];
+  return <dialog ref={dialog} className="sample-export-dialog" aria-labelledby="sample-export-title" onCancel={event => { event.preventDefault(); if (!active.current) onControls(); }} onKeyDown={event => event.stopPropagation()}>
+    <header><h2 id="sample-export-title">Save loops</h2><span>One cycle per file · no processing</span></header>
+    <div className="sample-export-mode" role="group" aria-label="Export choices">
+      <button autoFocus type="button" aria-pressed={mode === 'current'} disabled={locked || !valid} title={!valid ? 'Select a valid loop first.' : 'Save the current loop.'} onClick={() => setMode('current')}>Current Loop</button>
+      <button type="button" aria-pressed={mode === 'presets'} disabled={locked || !occupied.length} title={!occupied.length ? 'Store a preset first.' : 'Save stored preset regions.'} onClick={() => { setMode('presets'); setSelected(occupied); }}>Presets</button>
+      <span>{!valid && mode === 'current' ? 'No current loop selected.' : !occupied.length ? 'No stored presets.' : ''}</span>
     </div>
-    <div className="sample-save-row">
-      <input aria-label="Sample destination" title="Separate remembered sample destination" disabled={!!pending} value={folder} onChange={e => { setFolder(e.target.value); if (!busy) setStatus(''); }} onBlur={() => void commitFolder(folder)} placeholder="Sample destination folder" />
-      <button type="button" aria-label="Browse sample folder" disabled={!api || busy || !!pending} onClick={() => void browse()}>Folder</button>
-      <button type="button" aria-label="Save Sample" disabled={!api || !selection || busy || !!pending} onClick={() => void save()}>Save Sample</button>
+    <div className="sample-export-body">
+      <section className="sample-export-list" aria-label="Loops to export">
+        <div className="sample-export-list-heading"><span>{mode === 'presets' ? 'Stored presets' : 'Current selection'}</span>{mode === 'presets' && <button type="button" disabled={locked} onClick={() => setSelected(selected.length === occupied.length ? [] : occupied)}>{selected.length === occupied.length ? 'Select none' : 'Select all'}</button>}</div>
+        <div className="sample-export-items">
+          {rows.map(id => { const r = id === -1 ? selection : presets[id]; const result = results[id]; return <label key={id} className="sample-export-item">
+            {mode === 'presets' ? <input type="checkbox" aria-label={`Export preset ${id}`} disabled={locked} checked={selected.includes(id)} onChange={event => setSelected(value => event.target.checked ? [...value, id] : value.filter(slot => slot !== id))} /> : <span />}
+            <span>{id === -1 ? 'Current Loop' : id === 0 ? '0 (slot 10)' : `Slot ${id}`}</span><span>{r && audioBuffer ? ((r.end - r.start) / audioBuffer.sampleRate).toFixed(3) + ' s' : '—'}</span>
+            <span data-state={result?.state} title={result?.error || result?.path}>{result?.state || (id === -1 || selected.includes(id) ? 'pending' : '—')}</span>
+          </label>; })}
+        </div>
+      </section>
+      <section className="sample-export-settings" aria-label="Export settings">
+        <label>{mode === 'presets' ? 'Base filename' : 'Filename'}<input aria-label="Sample filename" disabled={locked} value={filename} onChange={event => { setFilename(event.target.value); onFilenameChange(event.target.value); }} /></label>
+        <p>{mode === 'presets' ? `Slot suffixes: _01…_10.${format}` : `Extension: .${format}`}</p>
+        <label>Destination<input aria-label="Sample destination" disabled={locked} value={folder} onChange={event => setFolder(event.target.value)} onBlur={() => { if (api && folder && !active.current) void api.setSampleFolder(folder).catch(error => { if (mounted.current) setStatus(error.message); }); }} placeholder="Full destination path" /></label>
+        <button type="button" aria-label="Browse sample folder" disabled={!api || locked} onClick={async () => { try { const value = await api?.chooseSampleFolder(); if (value) setFolder(value); } catch (error) { setStatus((error as Error).message); } }}>Choose folder</button>
+        <div className="sample-export-format"><label>Format<select aria-label="Sample format" disabled={locked} value={format} onChange={e => setFormat(e.target.value as 'wav' | 'flac')}><option value="wav">WAV</option><option value="flac">FLAC</option></select></label>
+          <label>Depth<select aria-label="Sample bit depth" disabled={locked} value={depth} onChange={e => setDepth(Number(e.target.value) as 16 | 24)}><option value={16}>16 bit</option><option value={24}>24 bit</option></select></label></div>
+        <div className="sample-export-collision" aria-label="Filename collision">
+          {collision && <><span title={collision}>File exists: {collision}</span><div><button type="button" aria-label="Replace existing sample" onClick={() => choose('replace')}>Replace</button><button type="button" onClick={() => choose('numbered')}>Numbered</button></div></>}
+        </div>
+      </section>
     </div>
-    <div className="sample-save-feedback" role="status" aria-live="polite" aria-busy={busy}>
-      <span title={status}>{status || (!api ? 'Sample export requires the desktop app.' : !selection ? 'Select a region to save a sample.' : 'One cycle, starting at 1st Beat. No fades or processing.')}</span>
-      {pending && <><button type="button" disabled={busy} onClick={() => void save('replace')}>Replace</button><button type="button" disabled={busy} onClick={() => void save('numbered')}>Numbered</button><button type="button" disabled={busy} onClick={() => { setPending(null); setStatus('Save cancelled.'); }}>Cancel</button></>}
-      {phase === 'encoding' && <button type="button" onClick={() => { cancelled.current = true; setStatus('Save cancelled.'); }}>Cancel</button>}
-    </div>
-  </div>;
+    <div className="sample-export-status" title={status} role="status" aria-live="polite" aria-busy={busy}>{status || (!api ? 'Sample export requires the desktop app.' : 'Choose loops and settings, then Save. Existing files will ask before replacing.')}</div>
+    <footer>{batch.current && !busy && <button type="button" onClick={() => { batch.current = null; resultRef.current = {}; setResults({}); setStatus('New export: completed files are retained.'); }}>New export</button>}<button type="button" aria-label="Save Sample" disabled={!api || busy || (!batch.current && (mode === 'current' ? !valid : !selected.length))} onClick={() => void save()}>{busy ? 'Saving...' : batch.current ? 'Retry unfinished' : 'Save'}</button><button type="button" aria-label="Cancel sample export" onClick={() => busy ? cancel() : onControls()}>{busy ? 'Cancel export' : 'Cancel'}</button></footer>
+  </dialog>;
 }

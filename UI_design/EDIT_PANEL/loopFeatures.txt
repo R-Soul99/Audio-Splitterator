@@ -46,3 +46,28 @@ size and preset workflow still need interactive user review. No merge or push.
 Future pass (not implemented)
 Immediate / At Loop End switching. Queue and flash the chosen slot, then restore
 it at the current cycle's completion, beginning at that slot's 1st Beat.
+
+9 October 2026 - Batch loop export / visual preset indicators (review branch)
+- Save opens a fixed-size modal, default Current Loop; occupied Presets are all
+  selected on entering that mode. All/subset choices retain keypad slot numbering
+  (0 is slot 10, filename suffix _10). Ten rows/settings/actions remain visible.
+- Shared editable filename/base, remembered destination with native chooser,
+  WAV/FLAC and 16/24-bit preferences. Unsaved preference defaults remain FLAC/16.
+- Capture immutable selected audio spans, exact stored boundaries/1st Beat and
+  settings before asynchronous work. Export sequentially with original stereo
+  alignment and [Beat, End) then [Start, Beat), no fades/processing.
+- Inline explicit Replace/Numbered collision decisions reuse the atomic/exclusive
+  writer. Progress/per-item results have reserved space. Cancellation retains
+  completed files; partial results remain open and retry skips saved items.
+- Modal focus and inert background block editing/shortcuts; opening/closing and
+  marker exports leave selection, presets and running playback intact.
+- Three compact informational lanes below the ruler, inside unchanged waveform
+  bounds; deterministic overlap/overflow, exact-match highlight, clipped zoom/
+  scrolling, immediate store/replace/clear updates, hover details on the existing
+  waveform pointer path. No indicator click targets or preset recall on bars.
+- Verified TypeScript, 79 utility tests, safe-writer races/cleanup, build and native
+  batch decoded exports/focus/cancellation/retry/geometry/strip regressions;
+  existing loop, memory, marker/audition, Slide and Edit transport checks pass.
+  All requested native-size states visually inspected without overlay scrolling.
+- No new desktop IPC or packaging changes; existing bundle-size warning remains.
+  User review required before integration. No merge/push; prior work preserved.

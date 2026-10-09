@@ -123,7 +123,7 @@ app.whenReady().then(async () => {
       if(reason==='save')await click('Show sample save');
       await pause();await step(1000);assert.deepEqual(await samples(),frozen,reason);
       assert.equal(await run(`document.querySelector('[aria-label="Slide selection"]').getAttribute('aria-valuenow')`),'0');assert.equal(await run(`document.querySelector('[aria-label="Slide selection"]').dataset.fine`),'false');
-      if(reason==='tab')await click('Loop / Sample');if(reason==='save')await click('Show loop controls');await release();
+      if(reason==='tab')await click('Loop / Sample');if(reason==='save')await click('Cancel sample export');await release();
     }
     const key=async(type,key,fine=false,repeat=false)=>{await run(`document.querySelector('[aria-label="Slide selection"]').dispatchEvent(new KeyboardEvent('${type}',{bubbles:true,key:'${key}',shiftKey:${fine},repeat:${repeat}}))`);await pause();};
     for(const direction of ['ArrowLeft','ArrowRight']){await reset();await key('keydown',direction);const speed=await velocity();await step(100);await key('keydown',direction,false,true);await step(100);assert.equal((await shape()).start,Math.round(240000+speed*.2));await key('keyup',direction);const frozen=await samples();await step(1000);assert.deepEqual(await samples(),frozen);}

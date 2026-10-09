@@ -617,7 +617,7 @@ export default function App() {
   useEffect(() => {
     if (!placingStartBeat) return;
     const cancel = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); if (!isTextEntry(event.target)) event.stopImmediatePropagation(); setPlacingStartBeat(false); }
+      if (!document.querySelector('dialog[open]') && event.key === 'Escape') { event.preventDefault(); if (!isTextEntry(event.target)) event.stopImmediatePropagation(); setPlacingStartBeat(false); }
     };
     window.addEventListener('keydown', cancel, true);
     return () => window.removeEventListener('keydown', cancel, true);
@@ -1112,6 +1112,7 @@ export default function App() {
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector('dialog[open]')) return;
       if (loadingRef.current) {
         if (e.code === 'Space' || ['Home', 'Delete', 'Backspace', 'Escape', 'm', 'i', 'o'].includes(e.key)
           || ((e.ctrlKey || e.metaKey) && ['z', 't'].includes(e.key.toLowerCase()))) e.preventDefault();

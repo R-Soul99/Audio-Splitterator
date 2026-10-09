@@ -504,3 +504,36 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
 Next layout review:
     1st Beat section needs bigger Set and Move buttons to fill more of the
     available area, while keeping everything neatly aligned.
+
+9 October 2026 - Review pass: batch loop preset export and memory strip
+    Existing Save opens a fixed-size native modal, defaulting to Current Loop.
+    Presets mode lists every occupied slot (including 0 / slot 10), initially
+    checked; all/subset selection, shared filename/folder/WAV/FLAC/depth settings,
+    remembered preferences and native folder chooser. No list/overlay scrolling.
+    Immutable snapshots copy only selected audio spans, sharing overlaps;
+    sequential raw rotated exports preserve exact frame count/order, channels,
+    sample rate and stored 1st Beat. Slot 0 uses _10; subsets retain slot numbers.
+    Existing safe writer handles explicit inline Replace/Numbered decisions and
+    late collisions. Completed files survive cancellation/failure; retries skip
+    saved items. Busy export blocks dismissal and offers explicit cancellation.
+    Native modal focus/inert background and shortcut guards preserve playback.
+    Success returns brief feedback to the reserved Controls status area.
+    Informational 22 px memory strip uses three deterministic lanes plus compact
+    overflow, follows waveform zoom/scroll, highlights exact matching presets,
+    and shows hover details through the existing waveform pointer handling.
+    No added click targets or changes to waveform/ruler/device geometry.
+    Passed TypeScript, 79 utility tests, sample-store race/cleanup tests and
+    production build (existing large-chunk warning). Native batch tests decode
+    WAV/FLAC at both depths, default/custom/one-frame loops and all/subset stored
+    presets; naming, settings, collisions, focus, keyboard isolation, cancellation,
+    partial failure/retry, strip replace/clear/hover/clipping and stable geometry.
+    Existing native loop, memory, marker/audition, Slide and transport checks pass.
+    Loop: 234 PCM comparisons, max cursor error 0.582 ms; memory: 116, 0.671 ms;
+    Slide: 54, 0.316 ms. No overlapping playback sources.
+    Native-size full-window screenshots inspected: Current Loop, ten presets,
+    collision, progress, partial failure/cancellation and overlapping/short/active
+    preset bars. Every row, setting, action and result fits without scrolling.
+    Renderer changes reuse unchanged desktop IPC; packaging not repeated.
+    Branch feat/preset-batch-export carries the existing unmerged review work.
+    Ready for Leroy's interactive review; no merge or push. Main/unrelated files
+    preserved. Further 1st Beat button sizing remains a future layout note.
