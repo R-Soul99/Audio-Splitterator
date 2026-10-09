@@ -613,3 +613,30 @@ Next layout review:
   one active source. Export regression covered collisions, cancellation and retry.
 - Renderer-only change: Electron packaging omitted. Existing bundle-size warning remains.
 - Needs Leroy's interactive review before integration; no merge/push.
+
+2026-10-09 - Volume tab (ready for review, branch feat/volume-tab)
+- Peak Tamer and Normalise tabs replaced by one "Volume" tab with four aligned
+  sections: Scan / Range, Peak Tamer, Normalise, Combined. Two control rows per
+  section so everything fits the fixed Tools area (no scroll, popups or waveform move).
+- Retained: Reduce Peaks clamp algorithm (Threshold/Ceiling semantics, -24..0 dB,
+  0.5 steps), Auto Threshold formula, normalise gain (uniform, channel-linked, clamp,
+  -6..0 dBFS step 0.1, default -0.5, silence below 0.0001 rejected).
+- Changed: Scan shares one result for tamer and normalise; Selection/Entire scope
+  (Selection disabled without a valid selection, never falls back silently);
+  Normalise and Reduce & Normalise work on the displayed scope; combined = reduce, then
+  re-measure post-reduction peak, then normalise to the displayed Target as ONE undo step
+  (previously two). Samples outside the scope stay bit-identical.
+- Scan is tied to audio revision + exact sample range; invalidated by edits, undo,
+  scope/selection changes. Changing Threshold marks spike count stale (rescan needed
+  before Reduce / Combined). Async results discarded if audio/scope moved on; a
+  single-flight latch blocks duplicate scans/actions.
+- Notes: spike analysis still counts channel 0 only (existing behaviour; reduction clamps
+  all channels). Detected-peak Seek list dropped for space; Nominal/Spikes shown in
+  the status line after Scan. Processing is synchronous after a painted busy state (no
+  worker). Playback is stopped before applying. App has no redo, so only undo is tested.
+- Checks: tsc, 95 utility tests (11 new in volumeTools.test.ts), build, native
+  scripts/check-volume-layout.cjs (scan/normalise/combined/undo/silence/geometry,
+  screenshots in build/), plus auto-split, shared-detection, loop-sample, preset-batch,
+  edit-transport and fade/import regressions. Electron packaging omitted (renderer only).
+- Not covered natively: selection-scope scan in the real UI (covered by unit tests).
+- Needs Leroy's interactive review before integration; no merge/push.

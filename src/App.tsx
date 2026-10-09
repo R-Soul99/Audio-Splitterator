@@ -876,57 +876,14 @@ export default function App() {
     [handleLoopSelection]
   );
 
-  // Peak Normalise (UK spelling)
-  const handleNormalizeAudio = (targetPeakDb: number) => {
-    const buffer = audioBufferRef.current;
-    if (!buffer) return;
-
-    let maxPeak = 0;
-    for (let c = 0; c < buffer.numberOfChannels; c++) {
-      const channelData = buffer.getChannelData(c);
-      for (let i = 0; i < channelData.length; i++) {
-        const val = Math.abs(channelData[i]);
-        if (val > maxPeak) maxPeak = val;
-      }
-    }
-
-    if (maxPeak <= 0.0001) {
-      alert('Audio signal is silent or near silent.');
-      return;
-    }
-
-    pushUndo(`Normalise (${targetPeakDb.toFixed(1)} dB)`);
-
-    const gainMultiplier = Math.pow(10, targetPeakDb / 20) / maxPeak;
-
-    const ctx = new (window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    const newBuffer = ctx.createBuffer(
-      buffer.numberOfChannels,
-      buffer.length,
-      buffer.sampleRate
-    );
-
-    for (let c = 0; c < buffer.numberOfChannels; c++) {
-      const src = buffer.getChannelData(c);
-      const dst = newBuffer.getChannelData(c);
-      for (let i = 0; i < src.length; i++) {
-        dst[i] = Math.max(-1, Math.min(1, src[i] * gainMultiplier));
-      }
-    }
-    ctx.close();
-
+  // Volume tab results: one undoable step per action, replacing the whole recording buffer.
+  const handleApplyVolume = (newBuffer: AudioBuffer, description: string) => {
+    if (!audioBufferRef.current) return;
+    stopPlayback();
+    pushUndo(description);
     audioBufferRef.current = newBuffer;
     setAudioBuffer(newBuffer);
   };
-
-  // Apply De-Pop / Vinyl scratch attenuation with full Undo support
-  const handleApplyDePop = (newBuffer: AudioBuffer, description: string) => {
-    pushUndo(description || 'De-Pop Vinyl Scratches');
-    audioBufferRef.current = newBuffer;
-    setAudioBuffer(newBuffer);
-  };
-
   // Open audio file from disk
   const handleFileOpen = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1371,8 +1328,7 @@ export default function App() {
                         onZoomChange={setZoom}
                         onViewOffsetChange={setViewOffsetSec}
                         onFadeSettingsChange={setFadeSettings}
-                        onNormalise={handleNormalizeAudio}
-                        onApplyDePop={handleApplyDePop}
+                        onApplyVolume={handleApplyVolume}
                       />
                     </div>
 

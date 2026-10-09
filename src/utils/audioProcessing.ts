@@ -332,13 +332,14 @@ export function measureNoiseFloorDb(
 export function analyzeAnomalousPeaks(
   sourceBuffer: AudioBuffer,
   thresholdDb: number,
-  scopeRange?: { startSec: number; endSec: number }
+  scopeRange?: { startSec: number; endSec: number },
+  scopeSamples?: { start: number; end: number }
 ): AnomalousPeakAnalysis {
   const channel = sourceBuffer.getChannelData(0);
-  const start = Math.max(1, Math.floor((scopeRange?.startSec ?? 0) * sourceBuffer.sampleRate));
+  const start = Math.max(1, scopeSamples?.start ?? Math.floor((scopeRange?.startSec ?? 0) * sourceBuffer.sampleRate));
   const end = Math.min(
     channel.length - 1,
-    Math.ceil((scopeRange?.endSec ?? sourceBuffer.duration) * sourceBuffer.sampleRate)
+    scopeSamples?.end ?? Math.ceil((scopeRange?.endSec ?? sourceBuffer.duration) * sourceBuffer.sampleRate)
   );
   const threshold = Math.pow(10, thresholdDb / 20);
   let maxAmplitude = 0;
@@ -373,12 +374,49 @@ export function analyzeAnomalousPeaks(
   };
 }
 
+export interface PeakReduction {
+  channels: Float32Array[];
+  peaksReducedCount: number;
+  originalMax: number;
+  newMax: number;
+}
+
+/** Pure reduction core: copies every channel and clamps only samples inside [start, end). */
+export function reducePeakChannels(
+  sourceChannels: Float32Array[],
+  thresholdDb: number,
+  targetCeilingDb: number,
+  start: number,
+  end: number
+): PeakReduction {
+  const threshold = Math.pow(10, thresholdDb / 20);
+  const ceiling = Math.pow(10, targetCeilingDb / 20);
+  let peaksReducedCount = 0;
+  let originalMax = 0;
+  let newMax = 0;
+  const channels = sourceChannels.map((source, channelIndex) => {
+    const target = new Float32Array(source);
+    for (let index = 0; index < source.length; index++) {
+      const amplitude = Math.abs(source[index]);
+      originalMax = Math.max(originalMax, amplitude);
+      if (index >= start && index < end && amplitude > threshold && amplitude > ceiling) {
+        target[index] = Math.sign(source[index]) * ceiling;
+        if (channelIndex === 0) peaksReducedCount++;
+      }
+      newMax = Math.max(newMax, Math.abs(target[index]));
+    }
+    return target;
+  });
+  return { channels, peaksReducedCount, originalMax, newMax };
+}
+
 export function reduceAnomalousPeaks(
   sourceBuffer: AudioBuffer,
   options: {
     thresholdDb: number;
     targetCeilingDb: number;
     scopeRange?: { startSec: number; endSec: number };
+    scopeSamples?: { start: number; end: number };
     kneeMs?: number;
   }
 ): {
@@ -395,28 +433,13 @@ export function reduceAnomalousPeaks(
     sourceBuffer.length,
     sourceBuffer.sampleRate
   );
-  const threshold = Math.pow(10, options.thresholdDb / 20);
-  const ceiling = Math.pow(10, options.targetCeilingDb / 20);
-  const start = Math.max(0, Math.floor((options.scopeRange?.startSec ?? 0) * sourceBuffer.sampleRate));
-  const end = Math.min(sourceBuffer.length, Math.ceil((options.scopeRange?.endSec ?? sourceBuffer.duration) * sourceBuffer.sampleRate));
-  let peaksReducedCount = 0;
-  let originalMax = 0;
-  let newMax = 0;
-
-  for (let channelIndex = 0; channelIndex < sourceBuffer.numberOfChannels; channelIndex++) {
-    const source = sourceBuffer.getChannelData(channelIndex);
-    const target = repairedBuffer.getChannelData(channelIndex);
-    target.set(source);
-    for (let index = 0; index < source.length; index++) {
-      const amplitude = Math.abs(source[index]);
-      originalMax = Math.max(originalMax, amplitude);
-      if (index >= start && index < end && amplitude > threshold && amplitude > ceiling) {
-        target[index] = Math.sign(source[index]) * ceiling;
-        if (channelIndex === 0) peaksReducedCount++;
-      }
-      newMax = Math.max(newMax, Math.abs(target[index]));
-    }
-  }
+  const start = options.scopeSamples?.start ?? Math.max(0, Math.floor((options.scopeRange?.startSec ?? 0) * sourceBuffer.sampleRate));
+  const end = options.scopeSamples?.end ?? Math.min(sourceBuffer.length, Math.ceil((options.scopeRange?.endSec ?? sourceBuffer.duration) * sourceBuffer.sampleRate));
+  const source = Array.from({ length: sourceBuffer.numberOfChannels }, (_, channel) => sourceBuffer.getChannelData(channel));
+  const { channels, peaksReducedCount, originalMax, newMax } = reducePeakChannels(
+    source, options.thresholdDb, options.targetCeilingDb, start, end
+  );
+  channels.forEach((data, channel) => repairedBuffer.getChannelData(channel).set(data));
 
   audioContext.close();
   const originalMaxPeakDb = originalMax > 0 ? 20 * Math.log10(originalMax) : -Infinity;

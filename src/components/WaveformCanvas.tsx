@@ -22,11 +22,8 @@ import {
   formatTime,
   calculateFadeGain,
   measureNoiseFloorDb,
-  analyzeAnomalousPeaks,
-  reduceAnomalousPeaks,
-  AnomalousPeakAnalysis,
-  AnomalousPeakEvent,
 } from '../utils/audioProcessing';
+import { VolumeControls } from './VolumeControls';
 import {
   Play,
   Pause,
@@ -44,8 +41,6 @@ import {
   RotateCcw,
   Repeat,
   Activity,
-  AudioWaveform,
-  UnfoldVertical,
   Volume2,
 } from 'lucide-react';
 
@@ -104,8 +99,7 @@ interface WaveformCanvasProps {
   onZoomChange: (zoom: number) => void;
   onViewOffsetChange: (offset: number) => void;
   onFadeSettingsChange: (settings: FadeSettings) => void;
-  onNormalise: (targetPeakDb: number) => void; // UK spelling!
-  onApplyDePop?: (newBuffer: AudioBuffer, description: string) => void;
+  onApplyVolume: (newBuffer: AudioBuffer, description: string) => void;
 }
 
 const RULER_HEIGHT = 18;
@@ -242,8 +236,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onZoomChange,
   onViewOffsetChange,
   onFadeSettingsChange,
-  onNormalise,
-  onApplyDePop,
+  onApplyVolume,
   processingPanelContainer,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -270,17 +263,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Popover States
   const [processingOpen, setProcessingOpen] = useState(false);
-  const [showNormalisePopover, setShowNormalisePopover] = useState<boolean>(false);
-  const [normaliseTargetDb, setNormaliseTargetDb] = useState<number>(-0.5);
-
-  // Anomalous Peak Tamer States
-  const [showPeakTamerPopover, setShowPeakTamerPopover] = useState<boolean>(false);
-  const [peakThresholdDb, setPeakThresholdDb] = useState<number>(-3.0);
-  const [peakTargetCeilingDb, setPeakTargetCeilingDb] = useState<number>(-6.0);
-  const [peakScope, setPeakScope] = useState<'selection' | 'all'>('selection');
-  const [peakAnalysis, setPeakAnalysis] = useState<AnomalousPeakAnalysis | null>(null);
-  const [isProcessingPeaks, setIsProcessingPeaks] = useState<boolean>(false);
-  const peakScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showVolume, setShowVolume] = useState<boolean>(false);
 
   // Waveform-owned detection belongs to the loaded recording, never a tool panel.
   const [detectedAudioId, setDetectedAudioId] = useState<number | null>(null);
@@ -1942,129 +1925,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
   };
 
-  // Scan for Anomalous Peaks in active scope (selection or whole audio)
-  const handleScanAnomalousPeaks = useCallback(
-    (customThresh?: number, customScope?: 'selection' | 'all') => {
-      if (!audioBuffer) return;
-      const thresh = customThresh !== undefined ? customThresh : peakThresholdDb;
-      const scope = customScope !== undefined ? customScope : (selection ? peakScope : 'all');
-
-      const range =
-        scope === 'selection' && selection
-          ? { startSec: selection.start, endSec: selection.end }
-          : undefined;
-
-      setIsProcessingPeaks(true);
-      if (peakScanTimerRef.current) clearTimeout(peakScanTimerRef.current);
-      peakScanTimerRef.current = setTimeout(() => {
-        const result = analyzeAnomalousPeaks(audioBuffer, thresh, range);
-        setPeakAnalysis(result);
-        setIsProcessingPeaks(false);
-
-        if (result.peaksCount === 0) {
-          setFeedbackToast({
-            text: `No anomalous peaks found above ${thresh.toFixed(1)} dB in ${scope === 'selection' ? 'selection' : 'track'}. (Max peak: ${result.trueMaxPeakDb.toFixed(1)} dB).`,
-            type: 'info',
-          });
-        } else {
-          setFeedbackToast({
-            text: `Detected ${result.peaksCount} anomalous peak spike${result.peaksCount > 1 ? 's' : ''} (max: ${result.trueMaxPeakDb.toFixed(1)} dB, nominal music: ${result.nominalProgramPeakDb.toFixed(1)} dB).`,
-            type: 'warning',
-          });
-        }
-        setTimeout(() => setFeedbackToast(null), 4500);
-      }, 20);
-    },
-    [audioBuffer, peakThresholdDb, peakScope, selection]
-  );
-
-  // Auto-suggest threshold based on nominal music level
-  const handleAutoSuggestThreshold = () => {
-    if (!audioBuffer) return;
-    const scope = selection ? peakScope : 'all';
-    const range =
-      scope === 'selection' && selection
-        ? { startSec: selection.start, endSec: selection.end }
-        : undefined;
-
-    const initialAnalysis = analyzeAnomalousPeaks(audioBuffer, -1.0, range);
-    let suggestedThresh = -3.0;
-    if (initialAnalysis.nominalProgramPeakDb > -50) {
-      suggestedThresh = Math.min(
-        initialAnalysis.trueMaxPeakDb - 0.5,
-        Math.max(-18.0, initialAnalysis.nominalProgramPeakDb + 2.5)
-      );
-    }
-    suggestedThresh = Math.round(suggestedThresh * 2) / 2;
-    setPeakThresholdDb(suggestedThresh);
-
-    const suggestedCeiling = Math.min(
-      suggestedThresh - 1.5,
-      Math.max(-18.0, initialAnalysis.nominalProgramPeakDb)
-    );
-    setPeakTargetCeilingDb(Math.round(suggestedCeiling * 2) / 2);
-
-    setPeakAnalysis(null);
-  };
-
-  // Execute anomalous peak reduction
-  const handleExecuteReducePeaks = (alsoNormalise = false) => {
-    if (!audioBuffer || !onApplyDePop) return;
-    setIsProcessingPeaks(true);
-
-    const scope = selection && peakScope === 'selection' ? 'selection' : 'all';
-    const range =
-      scope === 'selection' && selection
-        ? { startSec: selection.start, endSec: selection.end }
-        : undefined;
-
-    setTimeout(() => {
-      const result = reduceAnomalousPeaks(audioBuffer, {
-        thresholdDb: peakThresholdDb,
-        targetCeilingDb: peakTargetCeilingDb,
-        scopeRange: range,
-        kneeMs: 2.5,
-      });
-      setIsProcessingPeaks(false);
-
-      if (result.peaksReducedCount > 0 && result.repairedBuffer) {
-        onApplyDePop(
-          result.repairedBuffer,
-          `Reduce ${result.peaksReducedCount} Anomalous Peaks to ${peakTargetCeilingDb.toFixed(1)} dB`
-        );
-        setShowPeakTamerPopover(false);
-        setPeakAnalysis(null);
-
-        if (alsoNormalise) {
-          onNormalise(normaliseTargetDb);
-          setFeedbackToast({
-            text: `Tamed ${result.peaksReducedCount} anomalous peaks down to ${peakTargetCeilingDb.toFixed(1)} dB and normalised audio to ${normaliseTargetDb.toFixed(1)} dB (+${result.headroomGainedDb.toFixed(1)} dB headroom gained)!`,
-            type: 'success',
-          });
-        } else {
-          setFeedbackToast({
-            text: `Tamed ${result.peaksReducedCount} anomalous peaks! True peak reduced from ${result.originalMaxPeakDb.toFixed(1)} dB to ${result.newMaxPeakDb.toFixed(1)} dB (+${result.headroomGainedDb.toFixed(1)} dB headroom gained).`,
-            type: 'success',
-          });
-        }
-      } else {
-        setFeedbackToast({
-          text: `No peaks exceeded target ceiling ${peakTargetCeilingDb.toFixed(1)} dB in the selected scope.`,
-          type: 'info',
-        });
-      }
-      setTimeout(() => setFeedbackToast(null), 5500);
-    }, 25);
-  };
-
-  // Opening or changing settings invalidates results; only Scan Peaks starts a scan.
-  useEffect(() => {
-    setPeakAnalysis(null);
-    setIsProcessingPeaks(false);
-    return () => {
-      if (peakScanTimerRef.current) clearTimeout(peakScanTimerRef.current);
-    };
-  }, [showPeakTamerPopover, audioBuffer, peakThresholdDb, peakScope, selection?.start, selection?.end]);
 
   const cursorReadoutContext = hoveredElement === 'selectionStart' || hoveredElement === 'selectionEnd' ? 'Bracket' : hoveredElement === 'selectionBar' ? 'Selection' : hoveredElement === 'marker' ? 'Marker' : '';
   const cursorReadoutWidth = Math.max(64, formatTime(hoverTime ?? 0, true).length * 6 + 12) + (cursorReadoutContext ? cursorReadoutContext.length * 5 + 10 : 0);
@@ -2192,47 +2052,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               onClick={() => {
                 setProcessingOpen((open) => !open);
                 setShowLoopSample(false);
-                setShowPeakTamerPopover(false);
-                setShowNormalisePopover(false);
+                setShowVolume(false);
               }}
               aria-expanded={processingOpen}
               className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${processingOpen ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
             >
               Auto-Split
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowLoopSample(false);
-                const nextState = !showPeakTamerPopover;
-                setShowPeakTamerPopover(nextState);
-                if (nextState) {
-                  setProcessingOpen(false);
-                  setShowNormalisePopover(false);
-                }
-              }}
-              aria-expanded={showPeakTamerPopover}
-              className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${showPeakTamerPopover ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
-            >
-              Peak Tamer
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowLoopSample(false);
-                const nextState = !showNormalisePopover;
-                setShowNormalisePopover(nextState);
-                if (nextState) {
-                  setProcessingOpen(false);
-                  setShowPeakTamerPopover(false);
-                }
-              }}
-              aria-expanded={showNormalisePopover}
-              className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${showNormalisePopover ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
-            >
-              Normalise
-            </button>
-            <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); onLoopChange?.(true); setProcessingOpen(false); setShowPeakTamerPopover(false); setShowNormalisePopover(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
+            <button type="button" aria-label="Volume" aria-expanded={showVolume} onClick={() => { setShowVolume(open => !open); setShowLoopSample(false); setProcessingOpen(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${showVolume ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>Volume</button>
+            <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); onLoopChange?.(true); setProcessingOpen(false); setShowVolume(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
           </div>
           {showLoopSample && <SelectionLoopSwitch audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onLoopChange={onLoopChange} />}
           <div className="loop-save-header" ref={setLoopSaveContainer} />
@@ -2240,8 +2068,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
           <div className="loop-controls-host" hidden={!showLoopSample}><LoopSampleControls saveContainer={loopSaveContainer} loopMemory={loopMemory} onMemoryAction={onMemoryAction} customStartBeat={customStartBeat} visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} onControlsActiveChange={setLoopControlsActive} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
-          {(processingOpen || showPeakTamerPopover || showNormalisePopover) && (
-            <div aria-label="Active tool controls" className={`min-h-0 flex-1 text-xs select-none ${processingOpen ? 'auto-split-host' : 'overflow-auto custom-scrollbar'}`}>
+          <div className="volume-host" hidden={!showVolume}><VolumeControls audioBuffer={audioBuffer} selection={selection} onApply={onApplyVolume} /></div>
+          {processingOpen && (
+            <div aria-label="Active tool controls" className="min-h-0 flex-1 text-xs select-none auto-split-host">
               {processingOpen && (
                 <div id="processing-detection-controls" className="tools-detection">
                   <section className="detection-section detection-settings" aria-label="Detection">
@@ -2287,265 +2116,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 </div>
               )}
 
-              {showPeakTamerPopover && (
-                <div className="tools-peak-tamer">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                    <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
-                      <AudioWaveform className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Peak Tamer</span>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label="Close peak tamer"
-                      onClick={() => setShowPeakTamerPopover(false)}
-                      className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  {/* Scope selector if selection active */}
-                  {selection && (
-                    <div className="tools-peak-scope space-y-1">
-                      <div className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">
-                        Target Range:
-                      </div>
-                      <div className="grid grid-cols-2 gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPeakScope('selection');
-                          }}
-                          className={`py-1 px-1.5 text-center truncate rounded text-[10px] font-semibold transition cursor-pointer ${
-                            peakScope === 'selection'
-                              ? 'bg-amber-600 text-white shadow-xs'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                          title={`Selection: ${formatTime(selection.start)} - ${formatTime(selection.end)}`}
-                        >
-                          Selection ({formatTime(selection.start)} - {formatTime(selection.end)})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPeakScope('all');
-                          }}
-                          className={`py-1 px-1.5 text-center truncate rounded text-[10px] font-semibold transition cursor-pointer ${
-                            peakScope === 'all'
-                              ? 'bg-amber-600 text-white shadow-xs'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          Entire Track
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Measured Audio Peak Profile */}
-                  {peakAnalysis && (
-                    <div className="tools-peak-results p-2 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1 text-[10px]">
-                      <div className="grid grid-cols-2 gap-2 text-[10px] pb-1 border-b border-slate-800">
-                        <div>
-                          <span className="text-slate-400 block text-[9px]">Max Peak in Scope:</span>
-                          <span className="font-mono font-bold text-slate-200">
-                            {peakAnalysis.trueMaxPeakDb > -90 ? `${peakAnalysis.trueMaxPeakDb.toFixed(1)} dB` : '-∞'}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[9px]">Nominal Program (99%):</span>
-                          <span className="font-mono font-bold text-emerald-400">
-                            {peakAnalysis.nominalProgramPeakDb > -90 ? `${peakAnalysis.nominalProgramPeakDb.toFixed(1)} dB` : '-∞'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center pt-0.5">
-                        <span className="text-slate-400">Anomalous Peaks Found:</span>
-                        <span className={`font-bold font-mono ${peakAnalysis.peaksCount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          {peakAnalysis.peaksCount} {peakAnalysis.peaksCount === 1 ? 'spike' : 'spikes'}
-                        </span>
-                      </div>
-
-                      {peakAnalysis.peaksCount > 0 && (
-                        <div className="flex justify-between items-center text-emerald-400">
-                          <span>Normalisation Headroom Gain:</span>
-                          <span className="font-bold font-mono">
-                            +{Math.max(0, peakAnalysis.trueMaxPeakDb - peakTargetCeilingDb).toFixed(1)} dB
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Controls: Outlier Threshold and Reduction Target */}
-                  <div className="tools-peak-settings space-y-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
-                    {/* Threshold Slider */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between items-center text-[10px]">
-                        <span className="text-slate-300 font-medium">Threshold</span>
-                        <div className="flex items-center space-x-1.5">
-                          <button
-                            type="button"
-                            onClick={handleAutoSuggestThreshold}
-                            disabled={!audioBuffer}
-                            className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded text-[9px] font-mono cursor-pointer border border-slate-700"
-                            title="Auto-suggest threshold based on nominal music level"
-                          >
-                            Auto
-                          </button>
-                          <span className="text-amber-400 font-mono font-bold">{peakThresholdDb.toFixed(1)} dB</span>
-                        </div>
-                      </div>
-                      <input
-                        aria-label="Peak threshold in dB"
-                        type="range"
-                        min="-24"
-                        max="0"
-                        step="0.5"
-                        value={peakThresholdDb}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          setPeakThresholdDb(val);
-                        }}
-                        className="w-full accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded"
-                      />
-                    </div>
-
-                    {/* Target Ceiling Slider */}
-                    <div className="space-y-1 pt-1 border-t border-slate-800/80">
-                      <div className="flex justify-between items-center text-[10px]">
-                        <span className="text-slate-300 font-medium">Ceiling</span>
-                        <span className="text-emerald-400 font-mono font-bold">{peakTargetCeilingDb.toFixed(1)} dB</span>
-                      </div>
-                      <input
-                        aria-label="Peak ceiling in dB"
-                        type="range"
-                        min="-24"
-                        max="0"
-                        step="0.5"
-                        value={peakTargetCeilingDb}
-                        onChange={(e) => setPeakTargetCeilingDb(parseFloat(e.target.value))}
-                        className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-slate-800 rounded"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Detected Peaks List (if any) */}
-                  {peakAnalysis && peakAnalysis.detectedPeaks.length > 0 && (
-                    <div className="tools-peak-list space-y-1">
-                      <div className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider flex justify-between">
-                        <span>Detected Anomalous Peaks ({peakAnalysis.detectedPeaks.length})</span>
-                        <span>Click to seek</span>
-                      </div>
-                      <div className="max-h-24 overflow-y-auto space-y-1 pr-0.5 custom-scrollbar">
-                        {peakAnalysis.detectedPeaks.slice(0, 6).map((p, idx) => (
-                          <div
-                            key={p.id}
-                            className="flex justify-between items-center bg-slate-900/90 px-2 py-1 rounded border border-slate-800 text-[10px]"
-                          >
-                            <span className="text-slate-300">
-                              <span className="text-amber-400 font-bold mr-1">#{idx + 1}</span>
-                              <span className="font-mono">{formatTime(p.timeSec)}</span>
-                              <span className="text-slate-500 ml-1">({p.peakDb.toFixed(1)} dB)</span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => onSeek(p.timeSec)}
-                              className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[9px] cursor-pointer"
-                            >
-                              Seek
-                            </button>
-                          </div>
-                        ))}
-                        {peakAnalysis.detectedPeaks.length > 6 && (
-                          <div className="text-[9px] text-center text-slate-500">
-                            + {peakAnalysis.detectedPeaks.length - 6} more peaks detected
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="tools-peak-actions space-y-1.5 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => handleScanAnomalousPeaks()}
-                      disabled={!audioBuffer || isProcessingPeaks}
-                      className="w-full py-1.5 bg-slate-850 hover:bg-slate-800 text-slate-200 rounded font-semibold text-[10px] transition cursor-pointer border border-slate-700"
-                    >
-                      {isProcessingPeaks ? 'Scanning Peaks...' : 'Scan Peaks'}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExecuteReducePeaks(false)}
-                      disabled={isProcessingPeaks || !peakAnalysis || peakAnalysis.peaksCount === 0}
-                      className={`w-full py-1.5 rounded font-bold text-[10px] tracking-wider transition cursor-pointer border ${
-                        !peakAnalysis || peakAnalysis.peaksCount === 0
-                          ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
-                          : 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500/30'
-                      }`}
-                    >
-                      Reduce Peaks
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExecuteReducePeaks(true)}
-                      disabled={isProcessingPeaks || !peakAnalysis || peakAnalysis.peaksCount === 0}
-                      className={`w-full py-1.5 rounded font-bold text-[10px] tracking-wider transition cursor-pointer border ${
-                        !peakAnalysis || peakAnalysis.peaksCount === 0
-                          ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
-                          : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500/30'
-                      }`}
-                      title="Attenuates anomalous peaks then immediately normalises entire audio to target gain"
-                    >
-                      Reduce & Normalise ({normaliseTargetDb.toFixed(1)} dB)
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {showNormalisePopover && (
-                <div className="tools-normalise">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                    <div className="flex items-center space-x-1.5 text-slate-200 font-bold text-[11px]">
-                      <UnfoldVertical className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Normalise</span>
-                    </div>
-                    <button type="button" onClick={() => setShowNormalisePopover(false)} aria-label="Close normalise" className="text-slate-400 hover:text-white p-0.5 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div className="flex justify-between items-center text-slate-300 font-semibold text-[11px]">
-                    <span>Normalise Target:</span>
-                    <span className="text-amber-400 font-mono font-bold">{normaliseTargetDb.toFixed(1)} dB</span>
-                  </div>
-                  <input
-                    aria-label="Normalise target in dB"
-                    type="range"
-                    min="-6"
-                    max="0"
-                    step="0.1"
-                    value={normaliseTargetDb}
-                    onChange={(e) => setNormaliseTargetDb(parseFloat(e.target.value))}
-                    className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-slate-800 rounded"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onNormalise(normaliseTargetDb);
-                      setShowNormalisePopover(false);
-                    }}
-                    disabled={!audioBuffer}
-                    className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-[10px] tracking-wider transition cursor-pointer border border-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    APPLY NORMALISATION
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>,
