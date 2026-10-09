@@ -537,3 +537,35 @@ Next layout review:
     Branch feat/preset-batch-export carries the existing unmerged review work.
     Ready for Leroy's interactive review; no merge or push. Main/unrelated files
     preserved. Further 1st Beat button sizing remains a future layout note.
+
+9 October 2026 - Review pass: unified loop save list
+    Inspected feat/preset-batch-export / 64caed0 and carried its unmerged work
+    into fresh feat/unified-loop-export from the fetched main baseline.
+    One existing export overlay now lists occupied presets only, or one current
+    valid loop when memory is empty. Neither available disables Save with a
+    concise explanation. Every item has a default-selected checkbox.
+    Rows show slot, filename with extension, duration and result. Base/format
+    edits update names immediately; 0 retains _10, fallback has no slot suffix.
+    Actual written names (including automatic numbering) stay in saved results;
+    long names truncate inside fixed columns and expose their full tooltip.
+    Replace/Number include an unchecked Apply to all remaining conflicts option.
+    Chosen policy belongs to one operation, survives retry, and resets for a
+    separate save or New export. Safe ask/publication still catches late files;
+    replacement requires explicit authorisation. Retry skips completed rows.
+    Immutable raw rotated exports, saved settings, cancellation, partial results,
+    successful return to Controls and modal focus/shortcut suppression preserved.
+    Reviewed preset indicators and all waveform/playback handlers unchanged.
+    Passed TypeScript, 82 utility tests, safe-writer race/cleanup tests, build and
+    native unified batch regressions: empty/current/one/ten/subset lists, stored
+    samples after selection edits, decoded WAV/FLAC 16/24 and one-frame exports,
+    live names/slot 0/long tooltips, per-conflict/all Replace/Number, late creation,
+    actual filenames, partial/cancelled results, retry and fresh-policy reset.
+    Native loop and memory regressions pass: 234 PCM comparisons, max cursor
+    error 0.602 ms; memory 117, 0.612 ms. No overlapping playback sources.
+    Native-size screenshots inspected for current/one/ten/empty, long filenames,
+    conflict/all checkbox, progress, resolved partial results and cancellation.
+    All ten rows/collision controls fit without scrolling; device/waveform fixed.
+    Updated loopFeatures. Existing large-bundle warning remains. Renderer-only;
+    unchanged desktop IPC/writer, Electron packaging not repeated.
+    Ready for Leroy's interactive review. No merge or push; main and unrelated
+    local files preserved. Earlier mode-selector notes describe the prior pass.

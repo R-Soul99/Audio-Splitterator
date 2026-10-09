@@ -5,7 +5,13 @@ import { SampleSaveRequest } from './desktopExport';
 
 export interface ExportItem extends SampleSelection { id: number; beat: number; name: string; chunk: number }
 export interface ExportSnapshot { sampleRate: number; channels: Float32Array[][]; items: ExportItem[]; folder: string; format: 'wav' | 'flac'; depth: 16 | 24 }
-export type ItemResult = { state: 'pending' | 'saving' | 'saved' | 'failed'; path?: string; error?: string };
+export type ItemResult = { state: 'pending' | 'saving' | 'saved' | 'failed'; path?: string; name?: string; error?: string };
+export interface CollisionPolicy { mode: 'replace' | 'numbered' | null }
+export function loopExportList(presets: (LoopPreset | null)[], selection: SampleSelection | null, beat: number | null) {
+  const occupied = [1,2,3,4,5,6,7,8,9,0].filter(id => !!presets[id]);
+  return occupied.length ? occupied.map(id => ({ id, region: { ...presets[id]! } })) : selection && beat !== null ? [{ id: -1, region: { ...selection, beat } }] : [];
+}
+export function writtenFilename(path: string) { return path.split(/[\\/]/).pop()!; }
 export function presetFilename(base: string, slot: number, format: 'wav' | 'flac') {
   if (!Number.isInteger(slot) || slot < 0 || slot > 9) throw Error('Invalid preset slot.');
   const name = sampleFilename(base, format);
@@ -35,6 +41,7 @@ export function exportItemChannels(snapshot: ExportSnapshot, item: ExportItem) {
   return rotateSampleChannels({ length: channels[0].length, numberOfChannels: channels.length, getChannelData: c => channels[c] }, item, item.beat);
 }
 export async function runExport(snapshot: ExportSnapshot, results: Record<number, ItemResult>, handlers: {
+  policy?: CollisionPolicy;
   cancelled: () => boolean;
   encode: (snapshot: ExportSnapshot, item: ExportItem) => Promise<Uint8Array>;
   write: (request: SampleSaveRequest) => Promise<{ status: 'saved' | 'exists'; path: string }>;
@@ -53,12 +60,12 @@ export async function runExport(snapshot: ExportSnapshot, results: Record<number
       let result = await handlers.write(request);
       if (result.status === 'exists') {
         if (handlers.cancelled()) { update({ state: 'pending' }); break; }
-        const mode = await handlers.collision(item.name);
+        const mode = handlers.policy?.mode ?? await handlers.collision(item.name);
         if (!mode || handlers.cancelled()) { update({ state: 'pending' }); break; }
         result = await handlers.write({ ...request, mode });
       }
       if (result.status !== 'saved') throw Error('File was not saved.');
-      update({ state: 'saved', path: result.path });
+      update({ state: 'saved', path: result.path, name: writtenFilename(result.path) });
     } catch (error) { update({ state: 'failed', error: (error as Error).message }); }
   }
   return { saved: snapshot.items.filter(item => results[item.id]?.state === 'saved').length, total: snapshot.items.length, cancelled: handlers.cancelled() };

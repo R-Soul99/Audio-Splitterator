@@ -71,3 +71,25 @@ it at the current cycle's completion, beginning at that slot's 1st Beat.
   All requested native-size states visually inspected without overlay scrolling.
 - No new desktop IPC or packaging changes; existing bundle-size warning remains.
   User review required before integration. No merge/push; prior work preserved.
+
+9 October 2026 - Unified loop save list (review refinement)
+- Current Loop/Presets mode selector removed. Save always opens one checked list:
+  occupied presets only; otherwise the valid current loop; no available item
+  disables Save with an explanation. No scrolling and at most ten rows.
+- Intended filename/extension appears beside slot/duration and updates on base
+  or format edits. Presets retain _01.._10 (0 -> _10); fallback has no suffix.
+  Saved rows retain the actual returned basename, including numbering; clipped
+  long names have full tooltips and never widen the overlay.
+- Replace/Number add Apply to all remaining conflicts, default unchecked.
+  Policy is operation-scoped, retained for unfinished-item retries and reset by
+  a fresh save or New export. Late publication collisions use the same explicit
+  policy; existing safe writer still prevents unauthorised replacement.
+- Stored boundaries/1st Beat, immutable snapshots, exact rotated raw sample
+  order/count/channel alignment, preferences, cancellation/results and successful
+  return to Controls preserved. Reviewed memory strip and playback untouched.
+- Passed TypeScript, 82 utility tests, safe-write races/cleanup, production build,
+  native unified-list decoded exports/focus/collision-policy/retry/geometry and
+  existing loop/memory playback checks. All requested native-size list, long-name,
+  conflict, progress and partial-result screenshots inspected without scrolling.
+- Renderer-only; packaging not repeated. Existing bundle warning remains.
+  feat/unified-loop-export is ready for user review; no merge or push.

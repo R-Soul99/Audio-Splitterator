@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { captureExport, exportItemChannels, presetFilename, runExport, ItemResult } from './presetExport';
+import { captureExport, exportItemChannels, presetFilename, runExport, ItemResult, loopExportList, CollisionPolicy, writtenFilename } from './presetExport';
 import { presetStrip } from './presetStrip';
 const source = () => { const channels = [Float32Array.from({length: 20}, (_, i) => i), Float32Array.from({length: 20}, (_, i) => -i)]; return { length: 20, numberOfChannels: 2, sampleRate: 48000, getChannelData: (c: number) => channels[c] }; };
 const settings = { base: 'Session.wav', folder: 'C:/samples', format: 'flac' as const, depth: 16 as const };
@@ -49,4 +49,45 @@ test('three stable lanes, ten overlapping slots, clipping and short-region detai
   const zoom = presetStrip(slots,1,4,2,100);assert.deepEqual(zoom.bars.map(b=>[b.left,b.right,b.lane]),[[0,100,0],[0,100,1],[0,100,2]]);
   assert.equal(presetStrip(slots,1,8,2,100).bars.length,0);
   assert.equal(presetStrip([{...slots[0],start:4,end:5}],1,0,1000,100).bars[0].right,.5);
+});
+
+test('one save list prefers occupied slots over an edited current loop and defaults to fallback only without presets', () => {
+  const slots = Array(10).fill(null), selection = {start:5,end:9};
+  assert.deepEqual(loopExportList(slots,null,null),[]);
+  assert.deepEqual(loopExportList(slots,selection,6),[{id:-1,region:{start:5,end:9,beat:6}}]);
+  slots[0] = {start:1,end:4,beat:2,custom:true,used:1};
+  assert.deepEqual(loopExportList(slots,selection,6),[{id:0,region:slots[0]}]);
+  slots[7] = {start:11,end:13,beat:11,custom:false,used:2};
+  assert.deepEqual(loopExportList(slots,null,null).map(item=>item.id),[7,0]);
+  const captured = captureExport(source(),loopExportList(slots,selection,6),settings,true);
+  assert.deepEqual(captured.items.map(item=>item.name),['Session_07.flac','Session_10.flac']);
+  const fallback=captureExport(source(),loopExportList(Array(10).fill(null),selection,6),settings,false);
+  assert.equal(fallback.items[0].name,'Session.flac');
+});
+test('explicit per-conflict choices or operation policy handle late conflicts and retain actual resolved names', async () => {
+  for(const apply of [false,true]) for(const mode of ['replace','numbered'] as const) {
+    const snapshot=captureExport(source(),regions,settings,true),results:Record<number,ItemResult>={},policy:CollisionPolicy={mode:null};let asks=0;
+    const requests:string[]=[];
+    await runExport(snapshot,results,{policy,cancelled:()=>false,encode:async()=>new Uint8Array([1]),write:async request=>{
+      requests.push(request.mode);
+      // Exists may be discovered only at safe publication, after encoding.
+      return request.mode==='ask'?{status:'exists',path:request.name}:{status:'saved',path:'C:\\samples\\'+(mode==='numbered'?request.name.replace('.flac',' (2).flac'):request.name)};
+    },collision:async()=>{asks++;if(apply)policy.mode=mode;return mode;},update:()=>{}});
+    assert.equal(asks,apply?1:2);assert.deepEqual(requests,['ask',mode,'ask',mode]);
+    assert.equal(results[0].name,mode==='numbered'?'Session_10 (2).flac':'Session_10.flac');
+    assert.equal(writtenFilename('/samples/Session_01.flac'),'Session_01.flac');
+  }
+});
+test('collision policy survives retry, skips completed files, and a new operation starts without policy', async () => {
+  const snapshot=captureExport(source(),regions,settings,true),results:Record<number,ItemResult>={},policy:CollisionPolicy={mode:null};let asks=0,fail=true;
+  const calls:number[]=[];
+  const handlers={policy,cancelled:()=>false,encode:async()=>new Uint8Array([1]),write:async(request:any)=>{
+    const slot=request.name.includes('_10')?0:1;calls.push(slot);
+    if(slot===0&&fail)throw Error('temporary disk failure');
+    return request.mode==='ask'?{status:'exists' as const,path:request.name}:{status:'saved' as const,path:request.name.replace('.flac',' (2).flac')};
+  },collision:async()=>{asks++;policy.mode='numbered';return 'numbered' as const;},update:()=>{}};
+  await runExport(snapshot,results,handlers);assert.equal(asks,1);fail=false;
+  await runExport(snapshot,results,handlers);assert.equal(asks,1);assert.equal(calls.filter(id=>id===1).length,2);
+  assert.equal(results[0].name,'Session_10 (2).flac');
+  await runExport(snapshot,{}, {...handlers,policy:{mode:null},collision:async()=>{asks++;return 'numbered' as const;}});assert.equal(asks,3);
 });
