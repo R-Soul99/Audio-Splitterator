@@ -1143,13 +1143,18 @@ export default function App() {
       {/* Global DAW Header (Replaces Navbar and integrates Brand & 3 Workflow Tabs) */}
       <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-40 flex-shrink-0 select-none">
         <div className="max-w-7xl mx-auto relative flex flex-col sm:block">
-          {/* Brand & Logo on the Left */}
-          <div className="flex items-center space-x-3 shrink-0 sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2">
-            <div>
-              <h1 className="text-base font-bold text-slate-100 tracking-tight">
-                Audiophonic Recordinator
-              </h1>
-            </div>
+          {/* Import Button on the Left */}
+          <div className="flex items-center shrink-0 sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2">
+            <button
+              type="button"
+              disabled={!!importStatus || waveformBusy}
+              onClick={handleRequestImport}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-850 hover:bg-emerald-950/40 text-slate-300 hover:text-emerald-400 border border-slate-800 hover:border-emerald-800/40 text-xs font-bold transition cursor-pointer"
+              title="Import an audio file"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span>Import</span>
+            </button>
           </div>
 
           {/* Centered Workflow Buttons (RECORD, EDIT, EXPORT) serving as global header */}
@@ -1194,18 +1199,13 @@ export default function App() {
             </button>
           </div>
 
-          {/* Import Button on the Right (mirrors Brand on the Left) */}
-          <div className="flex items-center justify-end shrink-0 mt-2 sm:mt-0 sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
-            <button
-              type="button"
-              disabled={!!importStatus || waveformBusy}
-              onClick={handleRequestImport}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-850 hover:bg-emerald-950/40 text-slate-300 hover:text-emerald-400 border border-slate-800 hover:border-emerald-800/40 text-xs font-bold transition cursor-pointer"
-              title="Import an audio file"
-            >
-              <FolderOpen className="w-3.5 h-3.5" />
-              <span>Import</span>
-            </button>
+          {/* Brand & Logo on the Right */}
+          <div className="flex items-center justify-end space-x-3 shrink-0 mt-2 sm:mt-0 sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
+            <div>
+              <h1 className="text-base font-bold text-slate-100 tracking-tight">
+                Audiophonic Recordinator
+              </h1>
+            </div>
           </div>
         </div>
       </header>
