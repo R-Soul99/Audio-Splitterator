@@ -1,3 +1,4 @@
+import { overviewPeaks } from '../utils/waveformOverview';
 import { PlaybackPeakMeter } from '../utils/playbackPeakMeter';
 import { presetStrip, drawPresetStrip, PRESET_STRIP_HEIGHT } from '../utils/presetStrip';
 import { loopSnapshot, matchingLoopSlot } from '../utils/loopMemory';
@@ -1251,44 +1252,42 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       return;
     }
 
-    // Plot full-length mini waveform
+    // Full-recording channel envelopes use the same amplitude mapping as the main waveform.
     ctx.fillStyle = '#10b981';
-    const level = pyramidRef.current?.[0]?.levels.at(-1);
-    if (!level) return;
-    const step = Math.ceil(level.min.length / width);
-    for (let x = 0; x < width; x++) {
-      const start = x * step;
-      const end = Math.min(Math.ceil(analyzedSamples / level.blockSize), start + step);
-      if (start >= end) continue;
-      let min = 1.0;
-      let max = -1.0;
-      for (let i = start; i < end; i++) {
-        min = Math.min(min, level.min[i]);
-        max = Math.max(max, level.max[i]);
-      }
-      const t = (x / width) * duration;
-      let fadeGain = 1.0;
-      if (t < cropStart || t > cropEnd) {
-        fadeGain = 0;
-      } else {
-        if (fadeSettings.fadeInEnabled && fadeSettings.fadeInMs > 0) {
-          const fadeInSec = fadeSettings.fadeInMs / 1000;
-          if (t < cropStart + fadeInSec) {
-            const pct = Math.max(0, Math.min(1, (t - cropStart) / fadeInSec));
-            fadeGain *= calculateFadeGain(pct, fadeSettings.fadeInCurve, fadeSettings.fadeInCurveNode, fadeSettings.fadeInCurveNodePosition);
+    const pyramid = pyramidRef.current;
+    if (!pyramid) return;
+    const channelHeight = height / audioBuffer.numberOfChannels;
+    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+      const peaks = overviewPeaks(pyramid[channel], audioBuffer.length, analyzedSamples, width);
+      const centerY = channelHeight * (channel + .5);
+      const amplitudeScale = waveformAmplitudeScale(channelHeight, 1);
+      for (let x = 0; x < width; x++) {
+        const peak = peaks[x];
+        if (!peak) continue;
+        const t = (x / width) * duration;
+        let fadeGain = 1.0;
+        if (t < cropStart || t > cropEnd) {
+          fadeGain = 0;
+        } else {
+          if (fadeSettings.fadeInEnabled && fadeSettings.fadeInMs > 0) {
+            const fadeInSec = fadeSettings.fadeInMs / 1000;
+            if (t < cropStart + fadeInSec) {
+              const pct = Math.max(0, Math.min(1, (t - cropStart) / fadeInSec));
+              fadeGain *= calculateFadeGain(pct, fadeSettings.fadeInCurve, fadeSettings.fadeInCurveNode, fadeSettings.fadeInCurveNodePosition);
+            }
+          }
+          if (fadeSettings.fadeOutEnabled && fadeSettings.fadeOutMs > 0) {
+            const fadeOutSec = fadeSettings.fadeOutMs / 1000;
+            if (t > cropEnd - fadeOutSec) {
+              const pct = Math.max(0, Math.min(1, (cropEnd - t) / fadeOutSec));
+              fadeGain *= calculateFadeGain(pct, fadeSettings.fadeOutCurve, fadeSettings.fadeOutCurveNode, fadeSettings.fadeOutCurveNodePosition);
+            }
           }
         }
-        if (fadeSettings.fadeOutEnabled && fadeSettings.fadeOutMs > 0) {
-          const fadeOutSec = fadeSettings.fadeOutMs / 1000;
-          if (t > cropEnd - fadeOutSec) {
-            const pct = Math.max(0, Math.min(1, (cropEnd - t) / fadeOutSec));
-            fadeGain *= calculateFadeGain(pct, fadeSettings.fadeOutCurve, fadeSettings.fadeOutCurveNode, fadeSettings.fadeOutCurveNodePosition);
-          }
-        }
+        const top = Math.max(channel * channelHeight, centerY - peak.max * fadeGain * amplitudeScale);
+        const bottom = Math.min((channel + 1) * channelHeight, centerY - peak.min * fadeGain * amplitudeScale);
+        ctx.fillRect(x, top, 1, Math.max(1, bottom - top));
       }
-      const yMin = (0.5 - min * fadeGain * 0.8) * height;
-      const yMax = (0.5 - max * fadeGain * 0.8) * height;
-      ctx.fillRect(x, yMin, 1.2, Math.max(1, yMax - yMin));
     }
 
     // Viewport window
