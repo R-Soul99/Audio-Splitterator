@@ -27,8 +27,6 @@ import {
   Volume2,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
-  StickyNote,
 } from 'lucide-react';
 
 export default function App() {
@@ -114,8 +112,6 @@ export default function App() {
   // Pre-Record metadata cache
   const [preRecordArtist, setPreRecordArtist] = useState<string>('');
   const [preRecordAlbum, setPreRecordAlbum] = useState<string>('');
-  // Collapses the Recording Info fields into a small post-it style tag to free up waveform space.
-  const [recordingInfoCollapsed, setRecordingInfoCollapsed] = useState<boolean>(true);
 
   // Per-split track names (maps split ID to user-entered track name)
   const [trackNames, setTrackNames] = useState<{ [splitId: string]: string }>({});
@@ -1342,25 +1338,28 @@ export default function App() {
 
                     {/* Tracks span waveform and Tools, with only as many fixed-height slots as fit. */}
                     <div className="col-start-2 row-start-1 row-span-2 min-w-0 bg-slate-900/60 border border-slate-700/70 px-2 py-2 rounded-xl flex flex-col h-full min-h-0 select-none overflow-hidden shadow-[inset_0_1px_0_rgba(148,163,184,0.04)]">
-                      {/* Header: relative so the Recording Info note can overlay downward into the
-                          track list below without ever resizing this panel or the waveform. */}
-                      <div className="relative flex items-center justify-between border-b border-slate-800 pb-2 px-1 flex-shrink-0">
-                        <div className="flex items-center gap-2 text-slate-100 font-semibold text-base">
-                          <h2>Tracks</h2>
-                          {!recordingInfoCollapsed ? null : (
-                            <button
-                              type="button"
-                              onClick={() => setRecordingInfoCollapsed(false)}
-                              className="flex items-center gap-1 -rotate-1 rounded-sm border border-amber-900/30 bg-amber-200 px-2 py-1 text-slate-900 shadow-md transition hover:rotate-0 hover:bg-amber-100 cursor-pointer"
-                              title="Edit Recording Info"
-                              aria-label="Expand Recording Info"
-                            >
-                              <StickyNote className="w-3 h-3 shrink-0 text-amber-700" />
-                              <span className="max-w-[120px] truncate text-[10px] font-bold tracking-tight">Info</span>
-                            </button>
-                          )}
+                      {/* The recording name shares the fixed header without covering track rows. */}
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2 px-1 flex-shrink-0">
+                        <div className="flex flex-1 min-w-0 items-center gap-2 text-slate-100 font-semibold text-base">
+                          <h2 className="shrink-0">Tracks</h2>
+                          <input
+                            id="recording-name"
+                            type="text"
+                            aria-label="Recording name"
+                            value={mainFileName}
+                            onChange={(event) => setMainFileName(event.target.value)}
+                            onKeyDown={(event) => {
+                              event.stopPropagation();
+                              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                                event.preventDefault();
+                                event.currentTarget.blur();
+                              }
+                            }}
+                            className="flex-1 min-w-0 h-6 bg-slate-950 border border-slate-700 rounded px-2 text-[11px] font-medium tracking-tight text-slate-200 focus:outline-none focus:border-amber-500"
+                            title="Recording name used for default split names; press Enter to finish editing"
+                          />
                         </div>
-                        <div className="flex items-center space-x-1.5">
+                        <div className="flex shrink-0 items-center space-x-1.5">
                           <span className="text-[11px] font-mono text-sky-300 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/20">
                             {splits.length} {splits.length === 1 ? 'track' : 'tracks'}
                           </span>
@@ -1386,56 +1385,6 @@ export default function App() {
                           </button>
                         </div>
 
-                        {/* Expanded Recording Info overlays downward into the track list; it is taken
-                            out of flow so it can never resize this panel or the waveform. Nested inside
-                            this relatively-positioned header so top-full anchors correctly. */}
-                        {!recordingInfoCollapsed && (
-                          <div className="absolute top-full left-0 right-0 z-20 flex flex-col gap-1.5 rounded-b-xl border border-t-0 border-amber-500/30 bg-slate-900/97 p-3 shadow-2xl backdrop-blur-sm">
-                            <div className="flex items-center justify-between">
-                              <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Recording Info</h2>
-                              <button
-                                type="button"
-                                onClick={() => setRecordingInfoCollapsed(true)}
-                                className="flex w-5 h-5 items-center justify-center rounded text-slate-500 transition hover:bg-slate-800 hover:text-amber-300 cursor-pointer"
-                                title="Collapse to a note tag"
-                                aria-label="Collapse Recording Info"
-                              >
-                                <ChevronUp className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <label htmlFor="recording-name" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Recording name:</label>
-                              <input
-                                id="recording-name"
-                                type="text"
-                                value={mainFileName}
-                                onChange={(e) => setMainFileName(e.target.value)}
-                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-amber-500"
-                                title="Recording name used for default split names"
-                              />
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <label htmlFor="recording-artist" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Artist:</label>
-                              <input
-                                id="recording-artist"
-                                type="text"
-                                value={preRecordArtist}
-                                onChange={(e) => setPreRecordArtist(e.target.value)}
-                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-emerald-500"
-                              />
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <label htmlFor="recording-album" className="w-[88px] shrink-0 text-[10px] font-semibold text-slate-400">Album:</label>
-                              <input
-                                id="recording-album"
-                                type="text"
-                                value={preRecordAlbum}
-                                onChange={(e) => setPreRecordAlbum(e.target.value)}
-                                className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[11px] font-medium tracking-tight text-slate-200 placeholder:text-[10px] placeholder:tracking-tight focus:outline-none focus:border-sky-500"
-                              />
-                            </div>
-                          </div>
-                        )}
                       </div>
 
                       {/* Consistent columns keep names and timing readable at every track count. */}
