@@ -38,7 +38,7 @@ app.whenReady().then(async () => {
         const start=node.start.bind(node),stop=node.stop.bind(node),connect=node.connect.bind(node);
         node.start=(...args)=>{entry.active=true;entry.when=args[0]||ctx.currentTime;entry.offset=args[1];entry.duration=args[2];return start(...args)};
         node.stop=(...args)=>{entry.until=Math.min(entry.until??Infinity,args[0]||ctx.currentTime);return stop(...args)};
-        node.connect=(...args)=>{if(window.tap)connect(window.tap);return connect(...args)};
+        node.connect=(...args)=>{if(window.tap&&args[0]===ctx.destination)connect(window.tap);return connect(...args)};
         node.addEventListener('ended',()=>{entry.active=false});window.audioClock=ctx;return node;
       };
       const timestamp=AudioContext.prototype.getOutputTimestamp;
@@ -232,9 +232,14 @@ app.whenReady().then(async () => {
     })()`);
     let observed=0,maxError=0;
     const repeats = async () => {
+      const meterMode=process.argv.includes('--volume-metering');
+      const starts=await run('sources.length');
+      if(meterMode) { await click('Volume');assert.equal(await run('sources.length'),starts,'Opening meters does not restart'); }
+
       for (let i=0;i<12;i++) { await new Promise(r=>setTimeout(r,80)); const state=await run(`new Promise(resolve=>setTimeout(()=>resolve({playing:component().memoizedProps.isPlaying, looping:component().memoizedProps.isLooping, time:component().memoizedProps.currentTime, selection:currentSelection(), active:sources.filter(s=>s.active&&s.when<=s.ctx.currentTime&&(!s.until||s.until>s.ctx.currentTime)).length,alignment:alignment()}),5))`); assert.equal(state.playing,true); assert.equal(state.looping,true); assert.equal(state.active,1);
         if(state.alignment){const error=Math.abs(state.alignment.cursor-state.alignment.pcm);maxError=Math.max(maxError,error);observed++;assert.ok(error<.004,'Cursor vs actual PCM '+JSON.stringify(state.alignment));}
       }
+      if(meterMode) { await click('Loop / Sample');assert.equal(await run('sources.length'),starts,'Closing meters does not restart'); }
     };
     await repeats();
 
@@ -259,7 +264,7 @@ app.whenReady().then(async () => {
     await click('Loop and play the selected region');await new Promise(r=>setTimeout(r,200));await click('Decrease Start');await new Promise(r=>setTimeout(r,450));
     const stalled=await run('alignment()');assert.ok(stalled&&Math.abs(stalled.cursor-stalled.pcm)<.004,JSON.stringify(stalled));
     await run('window.requestAnimationFrame=originalRAF;void 0');
-    for (const label of ['Auto-Split','Peak Tamer','Normalise','Loop / Sample']) { await click(label); assert.deepEqual(await run('wave().getBoundingClientRect().toJSON()'), rect); assert.equal(await run('component().memoizedProps.isLooping'),true); }
+    for (const label of ['Auto-Split','Volume','Loop / Sample']) { await click(label); assert.deepEqual(await run('wave().getBoundingClientRect().toJSON()'), rect); assert.equal(await run('component().memoizedProps.isLooping'),true); }
     await repeats();
     const geometry = await run(`(() => { const p=document.querySelector('[aria-label="Tools"]'), r=p.getBoundingClientRect(); return {panel:r.toJSON(), controls:[...document.querySelectorAll('[aria-label="Tools"] > div:first-child button, .loop-sample-controls button, .loop-sample-controls input, .loop-sample-controls select, .loop-sample-controls output, .slide-control, .loop-hint')].filter(e=>e.getClientRects().length).map(e=>({label:e.getAttribute('aria-label')||e.textContent, rect:e.getBoundingClientRect().toJSON()})), bodyScroll:document.documentElement.scrollHeight>innerHeight}; })()`);
 
@@ -268,7 +273,7 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(__dirname, '../build/loop-sample-review.png'), (await win.webContents.capturePage()).toPNG());
     await snapshot('playing');
     const overlap=await run(`sources.some((a,i)=>sources.slice(i+1).some(b=>Math.max(a.when,b.when)<Math.min(a.until??(a.when+(a.duration??Infinity)),b.until??(b.when+(b.duration??Infinity)))-1e-8))`);assert.equal(overlap,false,'Source schedule intervals never overlap');
-    assert.ok(observed>60);console.log('PCM alignment checks',observed,'maximum error ms',maxError*1000);
+    assert.ok(observed>60);console.log('Volume metering during PCM regression',process.argv.includes('--volume-metering'));console.log('PCM alignment checks',observed,'maximum error ms',maxError*1000);
     console.log('Fixed layout: 980x650; Tools controls contained; no document scrolling');
     await click('Selection loop'); assert.equal(await run('component().memoizedProps.isLooping'),false);
     await new Promise(r=>setTimeout(r,1200));assert.equal(await run('component().memoizedProps.isPlaying'),false,'Non-loop playback completes');

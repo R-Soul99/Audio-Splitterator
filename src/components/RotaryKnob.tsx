@@ -10,6 +10,8 @@ interface RotaryKnobProps {
   size?: number;
   step?: number;
   fineStep?: number;
+  disabled?: boolean;
+  showDragValue?: boolean;
   title: string;
   formatValue?: (value: number) => string;
 }
@@ -22,10 +24,12 @@ export const RotaryKnob: React.FC<RotaryKnobProps> = ({
   size = 26,
   step,
   fineStep,
+  disabled = false,
+  showDragValue = true,
   title,
   formatValue = (v) => v.toFixed(2),
 }) => {
-  const { dragging, fineAdjusting, ...dragHandlers } = useKnobDrag({ value, min, max, onChange, sensitivity: (max - min) / 120, step, fineStep });
+  const { dragging, fineAdjusting, ...dragHandlers } = useKnobDrag({ value, min, max, onChange, sensitivity: (max - min) / 120, step, fineStep, disabled });
   const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
   const angle = -135 + pct * 270;
 
@@ -33,13 +37,15 @@ export const RotaryKnob: React.FC<RotaryKnobProps> = ({
     <div className="relative flex items-center justify-center">
       <div
         role="slider"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled}
         aria-label={title}
         aria-valuemin={min}
         aria-valuemax={max}
         aria-valuenow={value}
         aria-valuetext={formatValue(value)}
         onKeyDown={(e) => {
+          if (disabled) return;
           const increment = e.shiftKey ? (fineStep ?? (step ? step / 10 : (max - min) / 1000)) : (step ?? (max - min) / 100);
           if (['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'Home', 'End'].includes(e.key)) {
             e.preventDefault();
@@ -63,7 +69,7 @@ export const RotaryKnob: React.FC<RotaryKnobProps> = ({
         />
         <div className="absolute inset-0 rounded-full pointer-events-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]" />
       </div>
-      {dragging && (
+      {dragging && showDragValue && (
         <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[9px] font-mono text-sky-400 whitespace-nowrap z-50 pointer-events-none">
           {formatValue(value)}
         </div>

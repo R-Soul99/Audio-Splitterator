@@ -1,3 +1,4 @@
+import { PlaybackPeakMeter } from '../utils/playbackPeakMeter';
 import { presetStrip, drawPresetStrip, PRESET_STRIP_HEIGHT } from '../utils/presetStrip';
 import { loopSnapshot, matchingLoopSlot } from '../utils/loopMemory';
 import { LoopPreset, MemoryAction } from '../utils/loopMemory';
@@ -99,6 +100,7 @@ interface WaveformCanvasProps {
   onZoomChange: (zoom: number) => void;
   onViewOffsetChange: (offset: number) => void;
   onFadeSettingsChange: (settings: FadeSettings) => void;
+  playbackPeakMeter: PlaybackPeakMeter;
   onApplyVolume: (newBuffer: AudioBuffer, description: string) => void;
 }
 
@@ -237,6 +239,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onViewOffsetChange,
   onFadeSettingsChange,
   onApplyVolume,
+  playbackPeakMeter,
   processingPanelContainer,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -2038,7 +2041,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {processingPanelContainer && createPortal(
-        <div aria-label="Tools" className={`tools-panel ${showLoopSample ? 'loop-tools-open' : ''} absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1`}>
+        <div aria-label="Tools" className={`tools-panel ${showLoopSample ? 'loop-tools-open' : showVolume ? 'volume-tools-open' : ''} absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1`}>
           <div className="tools-selector-row flex shrink-0 items-center gap-2">
           <span className="shrink-0 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto custom-scrollbar">
@@ -2068,7 +2071,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
           <div className="loop-controls-host" hidden={!showLoopSample}><LoopSampleControls saveContainer={loopSaveContainer} loopMemory={loopMemory} onMemoryAction={onMemoryAction} customStartBeat={customStartBeat} visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} onControlsActiveChange={setLoopControlsActive} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
-          <div className="volume-host" hidden={!showVolume}><VolumeControls audioBuffer={audioBuffer} selection={selection} onApply={onApplyVolume} /></div>
+          <div className="volume-host" hidden={!showVolume}><VolumeControls active={showVolume} meter={playbackPeakMeter} audioBuffer={audioBuffer} selection={selection} onApply={onApplyVolume} /></div>
           {processingOpen && (
             <div aria-label="Active tool controls" className="min-h-0 flex-1 text-xs select-none auto-split-host">
               {processingOpen && (

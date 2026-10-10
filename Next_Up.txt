@@ -640,3 +640,61 @@ Next layout review:
   edit-transport and fade/import regressions. Electron packaging omitted (renderer only).
 - Not covered natively: selection-scope scan in the real UI (covered by unit tests).
 - Needs Leroy's interactive review before integration; no merge/push.
+
+2026-10-10 - Volume layout / analysis / playback peaks (ready for Leroy review)
+- Branch: feat/volume-analysis-meters, fresh worktree from fetched main 49f3e9a.
+  Explicit prerequisite 5e398fe was cherry-picked as 19c4eba; the original
+  feat/volume-tab checkout and unrelated local files were preserved.
+- Supersedes the preceding Volume entry: five aligned sections, left to right:
+  Detect / Range, Playback peaks, Normalise, Peak Tamer, Combined. Horizontal
+  Selection / Entire Recording flip switch, Detect with highest-peak dBFS below,
+  short L/R discrete-dot meters, rotary Target / Threshold / Ceiling and compact
+  actions. Auto Threshold removed from this interface. Reserved feedback row.
+- Selection remains disabled when invalid, with no implicit whole-recording fallback.
+  Knobs use existing capture / Shift sensitivity / keyboard interaction; parameters
+  stay on 0.1 or 0.5 dB increments. Validated Enter/blur entry and Escape cancellation.
+  Readouts accommodate -24.0 and keep units visible; no drag-value popup in Volume.
+- Old scan measured all-channel peak separately, collected and copied channel-0
+  amplitudes, sorted them for nominal level, then rescanned for local maxima.
+  It blocked the UI and missed right-only peaks. Removed that work from the UI path.
+- New read-only analysis uses one channel-linked pass and a 49-level count cache.
+  Counts mean affected SAMPLE FRAMES above both Threshold and Ceiling: either
+  channel qualifies, coincident stereo changes count once. Highest sample peak
+  remains independent. Threshold / Ceiling updates coalesce for 100 ms without
+  rescanning audio; stale counts cannot enable Reduce or Combined.
+- Analysis is tagged with buffer identity, scope and exact exclusive sample range.
+  Incompatible edits / scope changes cancel pending work and hide stale results.
+  Compatible original-buffer analysis can safely survive internally for undo.
+  Single-flight processing writes a fresh buffer in bounded yielding chunks.
+  Normalise retains one-click fresh analysis; Combined clamps, measures the fresh
+  result and applies linked gain as one undo step. Source / outside samples intact.
+- Playback meters use render-thread sample peaks on a silent monitoring branch;
+  the original audible route and native source timing stay intact. Peak timestamps
+  follow the existing output clock. Pause/stop clears live only; Reset clears held
+  only; different recordings clear held. Epoch guards discard old messages;
+  natural completion retains final-sample peaks. Tabs / unmount release resources.
+- Measurements: synthetic stereo 48 kHz fixtures, single paired Chromium runs:
+  30-second entire: 1902 -> 301 ms; 180-second entire: 11027 -> 1459 ms.
+  Ten-second selections: 406 -> 90 ms and 297 -> 84 ms respectively.
+  New scans delivered 20-362 UI heartbeat callbacks, largest gap 25 ms;
+  1000 cached count updates <= 0.7 ms. Right-only frame counts now 30 / 180,
+  versus old channel-0 count zero. No claim for untested real-world recording sizes.
+  Initial pre-change tsx/Node baseline: 1939 / 17670 ms entire, 467 / 510 ms
+  selections; new yielding Node path: 541 / 4289 ms entire, 219 / 236 ms selections.
+  Reproduce paired Chromium measurements: scripts/benchmark-volume-native.cjs.
+- TypeScript, 101 utility tests, production build and diff checks passed.
+  Native Volume checks cover selection / entire UI detection, cached refresh,
+  stale cancellation, typed values, minimum values, coarse/fine release/cancel/blur,
+  scoped processing / undo, stereo live/held/Reset/pause/stop/tab/replacement and
+  final-sample peaks. Three-minute actual UI detection stayed responsive.
+  Native loop PCM regression WITH Volume metering: 232 comparisons, maximum
+  cursor discrepancy 0.665 ms, one active source, no overlapping schedule intervals.
+  Preset batch / rotated exports and shared detection / radar regressions passed.
+- Actual 980x650 screenshots inspected: no audio, valid selection / entire,
+  playing / paused, detecting / processing, error, focus and Shift-pressed states.
+  No control scrolling / clipping; fixed waveform and Tools outer geometry.
+- Packaging validation: production renderer and worklet loaded from a test ASAR
+  archive and native Volume workflow passed. Full Windows installers not rebuilt;
+  Electron main / preload / packaging configuration are unchanged.
+  Existing Vite bundle-size warning remains. Physical output devices and long
+  real vinyl captures need Leroy's interactive review. No merge or push.

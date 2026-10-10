@@ -1,3 +1,4 @@
+import { PlaybackPeakMeter } from './utils/playbackPeakMeter';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AudioRecorder } from './components/AudioRecorder';
 import { WaveformCanvas } from './components/WaveformCanvas';
@@ -179,6 +180,9 @@ export default function App() {
   const [canUndo, setCanUndo] = useState<boolean>(false);
 
   // Audio Context & Playback nodes
+  const playbackPeakMeter = useRef(new PlaybackPeakMeter()).current;
+  useEffect(() => { playbackPeakMeter.recordingChanged(); }, [loadedAudioId, playbackPeakMeter]);
+  useEffect(() => () => playbackPeakMeter.dispose(), [playbackPeakMeter]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const playbackSourcesRef = useRef(new Set<AudioBufferSourceNode>());
@@ -258,6 +262,7 @@ export default function App() {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    playbackPeakMeter.stop();
     isPlayingRef.current = false;
     setIsPlaying(false);
 
@@ -302,6 +307,7 @@ export default function App() {
 
   // Stop active playback safely
   const stopPlayback = useCallback((preserveLoop = false, preserveTimeline = false) => {
+    playbackPeakMeter.stop();
     isPlayingRef.current = false;
     sourceNodeRef.current = null;
     for (const node of playbackSourcesRef.current) {
@@ -435,7 +441,8 @@ export default function App() {
       if (sourceNodeRef.current) sourceNodeRef.current.stop(when);
       else stopPlayback(true, true);
       playbackSourcesRef.current.add(source);
-      source.onended = () => { playbackSourcesRef.current.delete(source); source.disconnect(); };
+      playbackPeakMeter.track(source, ctx);
+      source.onended = () => { playbackPeakMeter.untrack(source); playbackSourcesRef.current.delete(source); source.disconnect(); };
       // Visual completion follows the output clock after queued audio is heard.
       if (source.loop) source.start(when, safeStart);
       else source.start(when, safeStart, Math.max(0, effectiveEnd - safeStart));
@@ -1258,6 +1265,7 @@ export default function App() {
                         importError={importError}
                         onAnalysisBusyChange={setWaveformBusy}
                         processingPanelContainer={processingPanelContainer}
+                        playbackPeakMeter={playbackPeakMeter}
                         loadedAudioId={loadedAudioId}
                         audioBuffer={audioBuffer}
                         currentTime={currentTime}
