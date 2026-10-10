@@ -2316,7 +2316,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {/* 2. Minimap Overview & Navigation Bar */}
-      <div className="order-5 relative w-full bg-slate-900 p-0 rounded-lg border border-slate-800 flex-shrink-0 overflow-hidden">
+      <div className="order-5 relative mr-9 bg-slate-900 p-0 rounded-lg border border-slate-800 flex-shrink-0 overflow-hidden">
         <canvas
           ref={minimapRef}
           width={800}
