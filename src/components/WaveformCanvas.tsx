@@ -2331,9 +2331,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           style={{ cursor: minimapCursor }}
           title="Double-click to reset to 1.0x • Drag edges to zoom • Drag inside to slide • Scroll waveform to zoom at cursor • Shift+scroll to adjust height"
         />
-        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-400 bg-slate-950/75 px-1.5 py-0.5 rounded">
-          {zoom.toFixed(1)}x zoom • {formatTime(visibleDuration)} visible
-        </div>
       </div>
 
     </div>
