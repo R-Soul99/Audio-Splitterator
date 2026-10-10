@@ -149,7 +149,7 @@
 .volume-button { height: 36px; padding: 0 5px; font-size: 9px; line-height: 10px; border: 1px solid #475569; border-radius: 3px; background: #1e293b; color: #e2e8f0; flex: none; }
 .volume-primary { border-color: #b45309; background: #78350f; color: #fcd34d; }
 .volume-button:hover:not(:disabled) { background: #92400e; }
-.volume-button:active:not(:disabled), .volume-reset:active:not(:disabled) { background: #334155; box-shadow: inset 0 1px 3px #000; }
+.volume-button:active:not(:disabled), .volume-peak-readout:active:not(:disabled) { background: #334155; box-shadow: inset 0 1px 3px #000; }
 .tools-volume button:disabled, .tools-volume input:disabled, .tools-volume [aria-disabled=true] { opacity: .4; cursor: not-allowed; }
 .tools-volume button:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
 .volume-detect-controls { display: flex; gap: 9px; align-items: center; flex: 1; }
@@ -175,20 +175,18 @@
 .volume-normalise .volume-button { padding: 0 3px; font-size: 8px; }
 .volume-tamer .volume-button { height: 38px; padding: 0 4px; }
 .volume-combined .volume-button { margin: auto 0; height: 40px; font-size: 8px; padding: 0 3px; }
-.volume-meter-footer { display: flex; align-items: center; justify-content: space-between; align-self: stretch; height: 20px; }
-.volume-reset { height: 20px; font-size: 8px; color: #cbd5e1; border: 1px solid #475569; border-radius: 2px; padding: 0 4px; }
-.volume-meter-row { flex: 1; display: flex; gap: 3px; align-items: center; height: 16px; }
+.volume-meter-row { flex: 1; align-self: stretch; display: flex; gap: 3px; align-items: center; min-height: 0; }
 .volume-meter-row b { font: 8px/10px monospace; color: #94a3b8; }
-.volume-dots { display: flex; gap: 2px; width: 70px; }
-.volume-dots i { width: 4px; height: 5px; border-radius: 1px; background: #163324; }
+.volume-dots { flex: 1; min-width: 0; display: flex; gap: 2px; }
+.volume-dots i { flex: 1; min-width: 0; height: 8px; border-radius: 1px; background: #163324; }
 .volume-dots .yellow { background: #3d3611; }
 .volume-dots .red { background: #3b171c; }
 .volume-dots .green.lit { background: #4ade80; box-shadow: 0 0 2px #4ade80; }
 .volume-dots .yellow.lit { background: #facc15; box-shadow: 0 0 2px #facc15; }
 .volume-dots .red.lit { background: #f87171; box-shadow: 0 0 2px #f87171; }
 .volume-dots .held { outline: 1px solid #cbd5e1; }
-.volume-meter-row output { width: 27px; font: 9px/10px monospace; color: #cbd5e1; text-align: right; }
-.volume-meter-unit { height: 9px; font-size: 7px; color: #64748b; }
+.volume-peak-readout { flex: none; width: 27px; padding: 0; border: 0; background: transparent; font: 9px/10px monospace; color: #cbd5e1; text-align: right; cursor: pointer; }
+.volume-meter-unit { align-self: flex-end; height: 9px; font-size: 7px; color: #64748b; }
 .volume-status { position: absolute; right: 0; top: -23px; width: 270px; height: 20px; display: flex; justify-content: flex-end; align-items: center; font-size: 8px; line-height: 10px; text-align: right; color: #94a3b8; pointer-events: auto; }
 .volume-status-error { color: #fca5a5; }
 @keyframes flash-once {

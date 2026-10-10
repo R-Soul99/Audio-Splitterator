@@ -40,10 +40,10 @@ function Meters({ meter, active, disabled }: { meter: PlaybackPeakMeter; active:
       return <div className="volume-meter-row" key={c} title={`${c ? 'Right' : 'Left'} live ${formatDbfs(live)} dBFS; held ${formatDbfs(held)} dBFS`}><b>{c ? 'R' : 'L'}</b>
         <div role="meter" aria-label={`${c ? 'Right' : 'Left'} live sample peak`} aria-valuemin={-60} aria-valuemax={0} aria-valuenow={Math.max(-60, Math.min(0, live))} className="volume-dots">
           {Array.from({ length: 12 }, (_, i) => { const db = -55 + i * 5; return <i key={i} className={`${i >= 10 ? 'red' : i >= 8 ? 'yellow' : 'green'} ${live >= db ? 'lit' : ''} ${held >= db && held < db + 5 ? 'held' : ''}`} />; })}
-        </div><output aria-label={`${c ? 'Right' : 'Left'} held sample peak`}>{formatDbfs(held)}</output>
+        </div><button className="volume-peak-readout" disabled={disabled} aria-label={`${c ? 'Right' : 'Left'} held sample peak; reset held peaks`} onClick={() => meter.reset()}>{formatDbfs(held)}</button>
       </div>;
     })}
-    <div className="volume-meter-footer"><button className="volume-reset" disabled={disabled} onClick={() => meter.reset()} title="Reset held sample peaks only">Reset</button><small className="volume-meter-unit" title={levels.error}>{levels.error ? 'Unavailable' : 'held dBFS'}</small></div>
+    <small className="volume-meter-unit" title={levels.error}>{levels.error ? 'Unavailable' : 'dBFS'}</small>
   </section>;
 }
 export function VolumeControls({ audioBuffer, selection, onApply, active, meter }: Props) {
@@ -98,8 +98,8 @@ export function VolumeControls({ audioBuffer, selection, onApply, active, meter 
   const feedback = busy || (!audioBuffer ? '' : !range ? 'Select a region first' : shownStatus?.text ?? '');
   const analysisDetails = `Affected frames: ${count ?? '\u2014'}. Either channel counts; coincident stereo samples count once. Counts update with Threshold / Ceiling.`;
   return <div className="tools-volume" aria-label="Volume controls">
-    <section className="volume-section volume-detect" aria-label="Detect and range">
-      <h3>Detect / Range</h3>
+    <section className="volume-section volume-detect" aria-label="Scan Peaks">
+      <h3>Scan Peaks</h3>
       <div className="volume-detect-controls"><div className="volume-range" role="group" aria-label="Analysis range">
         <button aria-pressed={scope === 'selection'} disabled={!hasSelection || !!busy} onClick={() => setScope('selection')} title={hasSelection ? 'Analyse and process selection only' : 'Make a valid selection first'}>Selection</button>
         <button role="switch" aria-label="Selection / All range" aria-checked={scope === 'all'} disabled={!audioBuffer || !!busy || (!hasSelection && scope === 'all')} onClick={() => setScope(scope === 'all' ? 'selection' : 'all')} className={`volume-flip ${scope === 'all' ? 'entire' : ''}`} title="Selection / All"><i /></button>
