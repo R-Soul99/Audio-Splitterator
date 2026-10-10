@@ -698,3 +698,26 @@ Next layout review:
   Electron main / preload / packaging configuration are unchanged.
   Existing Vite bundle-size warning remains. Physical output devices and long
   real vinyl captures need Leroy's interactive review. No merge or push.
+
+
+VOLUME LAYOUT REFINEMENT - 10 October 2026 (awaiting interactive review)
+- Fresh feat/volume-layout-refinement branch from fetched main 49f3e9a; carried
+  forward the two unmerged Volume commits as prerequisites. Original checkouts
+  and unrelated files preserved. No merge or push.
+- Removed the permanent bottom feedback/count row. Analysis explanations and
+  affected stereo-frame counts now live in Detect / Reduce tooltips. Essential
+  busy, error and completion feedback uses spare space beside the Tools tabs.
+- Selection / All vertical flip switch sits left of square 40px Detect; selected
+  scope stays explicit. Highest peak is centred beneath Detect. No scope fallback.
+- Titles sit in panel top borders; reclaimed height gives 32px knobs, larger
+  action buttons and Reset more space. Fixed outer Tools / waveform geometry.
+- TypeScript, 101 utility tests, production build and native Volume layout /
+  workflow regressions passed: scope invalidation, cached counts, entry validation,
+  coarse/fine interaction cleanup, stereo live/held peaks, pause/Reset, scoped
+  reduction, Normalise, Combined, undo and final-sample meter lifecycle.
+- Actual-size 980x650 screenshots inspected for no audio, Selection, All, playback,
+  detection / processing, errors, focus and Shift-pressed states. No scrolling;
+  aligned panel edges, square Detect, no title/control overlap or footer count row.
+  Automated geometry checks cover feedback/header separation and panel bounds.
+- Analysis / metering / audio-processing code unchanged. Existing Vite bundle-size
+  warning remains. Leroy's interactive review is still required.

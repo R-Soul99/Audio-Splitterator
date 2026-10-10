@@ -21,7 +21,7 @@ function Parameter({ label, title, value, min, step, disabled, onChange, units =
   };
   return <div className="volume-parameter">
     <span>{label}</span>
-    <RotaryKnob value={value} min={min} max={0} step={step} fineStep={step} size={26} disabled={disabled} showDragValue={false} title={title} formatValue={v => `${v.toFixed(1)} ${units}; Shift: finer drag`} onChange={v => onChange(Number(v.toFixed(1)))} />
+    <RotaryKnob value={value} min={min} max={0} step={step} fineStep={step} size={32} disabled={disabled} showDragValue={false} title={title} formatValue={v => `${v.toFixed(1)} ${units}; Shift: finer drag`} onChange={v => onChange(Number(v.toFixed(1)))} />
     <label className="volume-digital" data-units={units} title={`${title}. Enter/blur commits; Escape cancels`}><input aria-label={`${label} value in ${units}`} value={text} disabled={disabled} inputMode="decimal" onFocus={() => { editing.current = true; }} onChange={e => setText(e.target.value)} onBlur={commit} onKeyDown={e => {
       e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); commit(); e.currentTarget.blur(); }
@@ -85,7 +85,7 @@ export function VolumeControls({ audioBuffer, selection, onApply, active, meter 
       const analysis = action && current ? current : await analyseVolume(buffer, startScope, scoped, controller.signal);
       if (!valid()) return;
       setCache(analysis);
-      if (!action) { setStatus({ buffer, key, text: analysis.peak > 0 ? 'Detected. Affected frames update with Threshold / Ceiling.' : 'Silent range.' }); return; }
+      if (!action) { setStatus({ buffer, key, text: analysis.peak > 0 ? 'Detected.' : 'Silent range.' }); return; }
       const result = await processVolume(analysis, action, { thresholdDb, ceilingDb, targetDb }, controller.signal);
       if (!valid()) return;
       if (isFailure(result)) { reportError(result.reason === 'silent' ? 'Too quiet to normalise (below -80 dBFS).' : result.reason === 'nothing-to-reduce' ? 'No affected peaks. Audio unchanged.' : 'Invalid value. Audio unchanged.'); return; }
@@ -95,28 +95,27 @@ export function VolumeControls({ audioBuffer, selection, onApply, active, meter 
     finally { if (operation.current === controller) { operation.current = null; if (mounted.current) setBusy(null); } }
   };
   const param = (label: string, title: string, value: number, min: number, step: number, onChange: (v: number) => void, units?: string) => <Parameter {...{ label, title, value, min, step, onChange, units }} disabled={!!busy && busy !== 'Detecting\u2026'} onError={reportError} />;
+  const feedback = busy || (!audioBuffer ? '' : !range ? 'Select a region first' : shownStatus?.text ?? '');
+  const analysisDetails = `Affected frames: ${count ?? '\u2014'}. Either channel counts; coincident stereo samples count once. Counts update with Threshold / Ceiling.`;
   return <div className="tools-volume" aria-label="Volume controls">
     <section className="volume-section volume-detect" aria-label="Detect and range">
       <h3>Detect / Range</h3>
-      <div className="volume-range" role="group" aria-label="Analysis range">
+      <div className="volume-detect-controls"><div className="volume-range" role="group" aria-label="Analysis range">
         <button aria-pressed={scope === 'selection'} disabled={!hasSelection || !!busy} onClick={() => setScope('selection')} title={hasSelection ? 'Analyse and process selection only' : 'Make a valid selection first'}>Selection</button>
-        <button role="switch" aria-label="Entire recording range" aria-checked={scope === 'all'} disabled={!audioBuffer || !!busy || (!hasSelection && scope === 'all')} onClick={() => setScope(scope === 'all' ? 'selection' : 'all')} className={`volume-flip ${scope === 'all' ? 'entire' : ''}`} title="Selection / Entire Recording"><i /></button>
-        <button aria-pressed={scope === 'all'} disabled={!audioBuffer || !!busy} onClick={() => setScope('all')}>Entire Recording</button>
+        <button role="switch" aria-label="Selection / All range" aria-checked={scope === 'all'} disabled={!audioBuffer || !!busy || (!hasSelection && scope === 'all')} onClick={() => setScope(scope === 'all' ? 'selection' : 'all')} className={`volume-flip ${scope === 'all' ? 'entire' : ''}`} title="Selection / All"><i /></button>
+        <button aria-pressed={scope === 'all'} disabled={!audioBuffer || !!busy} onClick={() => setScope('all')} title="Analyse and process all audio">All</button>
       </div>
-      <button className="volume-button volume-primary" disabled={!idle} onClick={() => void run()} title="Detect highest audio sample peak and affected frames in this range; unlike Auto-Split Detect, this does not measure the noise floor">Detect</button>
-      <output className="volume-highest" aria-label="Highest peak in dBFS" title="Highest absolute sample in either channel, independent of Threshold">Peak <strong>{current ? formatDbfs(linearToDb(current.peak)) : '\u2014'}</strong><small>dBFS</small></output>
+      <div className="volume-detect-result"><button className="volume-button volume-primary" disabled={!idle} onClick={() => void run()} title={`${!audioBuffer ? 'Load audio first. ' : !range ? 'Make a valid selection first. ' : ''}Detect highest audio sample peak in this range; unlike Auto-Split Detect, this does not measure the noise floor. ${analysisDetails}`}>Detect</button>
+      <output className="volume-highest" aria-label="Highest peak in dBFS" title="Highest absolute sample in either channel, independent of Threshold">Peak <strong>{current ? formatDbfs(linearToDb(current.peak)) : '\u2014'}</strong><small>dBFS</small></output></div></div>
     </section>
     <Meters meter={meter} active={active} disabled={!audioBuffer} />
     <section className="volume-section volume-normalise" aria-label="Normalise"><h3>Normalise</h3><div className="volume-knob-action">{param('Target', 'Normalise target peak', targetDb, -6, .1, setTargetDb, 'dBFS')}<button className="volume-button volume-primary" disabled={!idle} onClick={() => void run('normalise')} title="Uniform channel-linked gain to Target, inside the displayed range">Normalise</button></div></section>
     <section className="volume-section volume-tamer" aria-label="Peak Tamer"><h3>Peak Tamer</h3><div className="volume-knob-action">
       {param('Threshold', 'Threshold: only samples above this level can be reduced', thresholdDb, -24, .5, setThresholdDb)}
       {param('Ceiling', 'Ceiling: clamp affected samples to this level', ceilingDb, -24, .5, setCeilingDb)}
-      <button className="volume-button volume-primary" disabled={!canReduce} onClick={() => void run('reduce')} title="Clamp samples above both Threshold and Ceiling; affected frames count once across stereo">Reduce{' '}<br />Peaks</button>
+      <button className="volume-button volume-primary" disabled={!canReduce} onClick={() => void run('reduce')} title={`Clamp samples above both Threshold and Ceiling. ${analysisDetails}`}>Reduce{' '}<br />Peaks</button>
     </div></section>
     <section className="volume-section volume-combined" aria-label="Combined"><h3>Combined</h3><button className="volume-button volume-primary" disabled={!canReduce} onClick={() => void run('combined')} title="Reduce with displayed Threshold / Ceiling, then measure and normalise to Target; one undo">Reduce &amp;{' '}<br />Normalise</button></section>
-    <div role="status" aria-live="polite" aria-busy={!!busy || refreshing} className={`volume-status ${shownStatus?.error ? 'volume-status-error' : ''}`}>
-      {busy || (!audioBuffer ? 'Load audio to begin' : !range ? 'Select a region first' : refreshing && current ? 'Updating affected frames\u2026' : shownStatus?.text ?? '')}
-      <output title="Sample frames reduced at current Threshold and Ceiling; either channel counts, coincident stereo samples count once">Affected frames: {count ?? '\u2014'}</output>
-    </div>
+    <div role="status" aria-live="polite" aria-busy={!!busy || refreshing} title={feedback} className={`volume-status ${shownStatus?.error ? 'volume-status-error' : ''}`}>{feedback}</div>
   </div>;
 }

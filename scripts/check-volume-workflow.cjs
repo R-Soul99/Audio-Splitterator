@@ -39,14 +39,14 @@ app.whenReady().then(async () => {
     await run(`button('Selection').click()`);await pause();await run(`button('Detect').click()`);
     await wait(`!button('Detect').disabled&&peak().includes('-0.9')`);
     await shot('selection');
-    assert.equal(await run(`vstatus().endsWith('1')`), true, 'right-channel-only affected frame');
+    assert.equal(await run(`button('Detect').title.includes('Affected frames: 1.')`), true, 'right-channel-only affected frame');
     await run(`window.originalBuffer=props().audioBuffer`);for(let i=0;i<8;i++){await run(`knob('Threshold').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))`);await pause(5);}
     assert.equal(await run(`button('Reduce Peaks').disabled`), true, 'count marked stale immediately');
     await pause(180);
     assert.equal(await run(`button('Reduce Peaks').disabled`), false, 'automatic cached refresh, no Detect needed');
     assert.equal(await run('props().audioBuffer===originalBuffer'), true, 'knob changes never process');
     assert.equal(await run(`knob('Threshold').getAttribute('aria-valuenow')`), '-7');
-    assert.equal(await run(`vstatus().endsWith('1')`), true, 'ceiling excludes unchanged frames');
+    assert.equal(await run(`button('Detect').title.includes('Affected frames: 1.')`), true, 'ceiling excludes unchanged frames');
     // Validated entry, unchanged blur, invalid value and Escape cancellation.
     const entry = async (label, text, key = 'Enter') => {
       await run(`window.edit=document.querySelector('[aria-label="${label}"]');edit.focus();edit.select()`);
@@ -59,7 +59,7 @@ app.whenReady().then(async () => {
     await entry('Threshold value in dB','-12','Escape'); assert.equal(await run(`knob('Threshold').getAttribute('aria-valuenow')`), '-7');
     await entry('Threshold value in dB','-24');await entry('Ceiling value in dB','-24');await shot('minimum-values');assert.equal(await run(`document.querySelector('[aria-label="Threshold value in dB"]').value`),'-24.0');
     await entry('Ceiling value in dB','-12'); await entry('Threshold value in dB','-9');
-    assert.equal(await run(`vstatus().endsWith('9600')`), true, 'one frame per sample even when stereo both exceed threshold');
+    assert.equal(await run(`button('Detect').title.includes('Affected frames: 9600.')`), true, 'one frame per sample even when stereo both exceed threshold');
     await run(`window.before=props().audioBuffer;button('Reduce Peaks').click()`);await shot('processing');
     await wait(`props().audioBuffer!==before&&!button('Detect').disabled`);
     assert.equal(await run(`props().audioBuffer.getChannelData(1)[9600]===before.getChannelData(1)[9600]`), true, 'exclusive selection end and outside exact');
@@ -70,7 +70,7 @@ app.whenReady().then(async () => {
     await run(`props().onSelectionChange({start:.2,end:.4})`);await pause();assert.equal(await run(`button('Reduce Peaks').disabled`),true);assert.match(await run('peak()'), /—/);
     await run(`button('Detect').click();props().onSelectionChange({start:.4,end:.6})`);await wait(`!button('Detect').disabled`);assert.match(await run('peak()'), /—/, 'stale scan not shown');
     await run(`props().onSelectionChange(null)`);await pause();assert.equal(await run(`button('Detect').disabled`),true);assert.equal(await run(`button('Normalise').disabled`),true);assert.match(await run('vstatus()'),/Select a region/);
-    await run(`button('Entire Recording').click()`);await pause();await run(`button('Detect').click()`);await shot('detecting');await wait(`!button('Detect').disabled&&peak().includes('-0.9')`);await shot('entire');
+    await run(`button('All').click()`);await pause();await run(`button('Detect').click()`);await shot('detecting');await wait(`!button('Detect').disabled&&peak().includes('-0.9')`);await shot('entire');
     // Pointer capture / Shift fine / release / cancellation / blur.
     const rect = await run(`knob('Normalise target').getBoundingClientRect().toJSON()`);
     await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
@@ -109,5 +109,5 @@ app.whenReady().then(async () => {
     await run(`document.querySelector('[aria-label="Undo last audio edit"]').click()`);await wait(`props().audioBuffer===longBefore`);
     console.log('PASS selection / stereo frame counts / cached refresh / entry / stale cancellation / scoped reduction / undo / knob cleanup / actual playback peaks / pause / Reset / tab lifecycle / replacement / fixed geometry');
     win.destroy();app.quit();
-  } catch(e) { console.error(e);try{console.log(await run(`({peak:peak(),status:vstatus(),scope:document.querySelector('[role=switch][aria-label="Entire recording range"]').getAttribute('aria-checked')})`));}catch{} try { await shot('failure'); } catch {} win.destroy();app.exit(1); }
+  } catch(e) { console.error(e);try{console.log(await run(`({peak:peak(),status:vstatus(),scope:document.querySelector('[role=switch][aria-label="Selection / All range"]').getAttribute('aria-checked')})`));}catch{} try { await shot('failure'); } catch {} win.destroy();app.exit(1); }
 });
