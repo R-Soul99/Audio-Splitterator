@@ -186,7 +186,8 @@
 .volume-dots .red.lit { background: #f87171; box-shadow: 0 0 2px #f87171; }
 .volume-dots .held { outline: 1px solid #cbd5e1; }
 .volume-peak-readout { flex: none; width: 27px; padding: 0; border: 0; background: transparent; font: 9px/10px monospace; color: #cbd5e1; text-align: right; cursor: pointer; }
-.volume-meter-unit { align-self: flex-end; height: 9px; font-size: 7px; color: #64748b; }
+.volume-meters { padding-bottom: 12px; }
+.volume-meter-unit { position: absolute; right: 3px; top: calc(50% - 2px); transform: translateY(-50%); height: 9px; font-size: 7px; color: #64748b; }
 .volume-status { position: absolute; right: 0; top: -23px; width: 270px; height: 20px; display: flex; justify-content: flex-end; align-items: center; font-size: 8px; line-height: 10px; text-align: right; color: #94a3b8; pointer-events: auto; }
 .volume-status-error { color: #fca5a5; }
 @keyframes flash-once {
