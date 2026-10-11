@@ -1,0 +1,8 @@
+Ramblings:
+
+loop related
+- when start beat is set, sliding the loop brace shouldn't move the 1st beat marker, unless the brace moves past the marker, in which case the brace should jump in that direction by the loop size value (like when pressing the jump button)
+- the jump buttons shouldn't be next to the 1st beat controls, too easy to confuse with marker movement arrows.
+- loop presets (not sure about this one as it might not work with the hardware aesthetic): when a keypad button is pressed, it should leave a trace on the waveform when selecting another area, so it's easy to see what's already been stored on the waveform itself.  my issue with it not working with the hardware look is that these should probably be coloured to reflect the same colour on the key so it's easier to understand, but hardware wouldn't do colours.
+- presets should be 'playable' by pressing the corresponding number key on the keyboard.
+- if playing with different presets, there should be some kind of quantisation option so loops keep playing in time (this needs to be optional as sometimes you might want to play the loops from the start freeform, not on a grid.

@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 *.exe
+
+# Local development checkouts and personal audio fixtures
+.worktrees/
+test_audio_files/

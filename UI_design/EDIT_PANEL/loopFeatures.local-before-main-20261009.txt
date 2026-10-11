@@ -1,0 +1,79 @@
+Implement stage 1 of loop memory presets in Audiophonic Splitterator.
+
+Read repository instructions and inspect the current implementation. Preserve all unmerged Loop / Sample work and unrelated files. Follow the repository’s branch workflow without losing existing changes.
+
+Playback synchronisation has passed the user’s listening checks. Preserve it.
+
+Scope
+Add ten numbered loop memory buttons, 1–10, along the bottom of the existing Loop / Sample Controls panel.
+
+Keep the fixed device dimensions, waveform position and size. Fit the buttons within the existing panel, using compact styling suitable for the planned vintage aesthetic. No pop-ups.
+
+This pass implements storing and immediate recall. Queued “At Loop End” switching remains a later pass.
+
+Slot behaviour
+- Click an empty slot to store the current selection Start, End and Start Beat.
+- Disable storing when there is no valid selection.
+- Click a filled slot to recall its stored loop.
+- Shift-click a filled slot to replace it with the current valid loop.
+- Right-click a filled slot to clear it, suppressing the browser context menu.
+- Provide an accessible keyboard method to clear a focused slot, such as Delete.
+- Clearing a slot must not clear the current waveform selection or stop playback.
+- Show concise tooltips explaining these actions and each stored loop’s times.
+
+Store sample indices, preserving exact selection length and Start Beat position. Also preserve whether Start Beat has a custom marker, so recall restores its existing visual behaviour.
+
+Recall and playback
+- Recall restores the existing waveform selection and Start Beat; do not introduce a separate loop region.
+- Enable selection looping on recall.
+- If playback is running, switch immediately to the recalled loop, starting at its Start Beat.
+- If playback is stopped or paused, restore the loop without starting playback. The next explicit playback start begins at Start Beat.
+- Use the existing safe playback handover implementation.
+- Avoid overlapping sources, stale cursor offsets and unintended playback of the whole recording.
+- Preserve audio-clock cursor synchronisation through rapid repeated recalls.
+- Cancel any pending Start Beat placement when recalling a slot.
+- Sample export must use the recalled selection and Start Beat through the existing rotated-export pipeline.
+
+Slot appearance
+- Empty, filled and active slots must be visually distinct.
+- Illuminate the slot whose stored values match the current loop.
+- If the user edits that loop, remove the active indication unless its values still match.
+- Editing a recalled loop must not automatically modify its stored preset.
+- Shift-click explicitly replaces it.
+- If multiple slots match, prefer the most recently stored or recalled matching slot.
+- Pressed and Shift states must clear on release, pointer cancellation and window blur.
+- Keep keyboard focus visible and distinct from active illumination.
+
+Recording ownership
+Presets belong only to the currently loaded recording.
+- Keep them while switching Tools tabs or between Controls and Save.
+- Clear all slots when another recording is loaded or the recording is replaced.
+- Do not recall positions from a previous recording.
+- This pass uses session memory only; cross-restart persistence and project saving are out of scope.
+
+Preserve existing behaviour
+- Compact readouts and their coarse/fine arrows.
+- Slide encoder and arrows, Jump and length controls.
+- Start Beat Set/Clear and placement behaviour.
+- Successful sample saving returns to Controls.
+- Remembered export preferences and overwrite protection.
+- Cursor readout in the time ruler.
+- Fixed layout in all states.
+
+Verification
+Run the repository’s required checks and focused regressions covering:
+- Storing, recalling, replacing and clearing slots.
+- Exact sample boundaries and custom/default Start Beat restoration.
+- Recall while stopped, paused and playing.
+- Rapid switching without overlapping sources or cursor drift.
+- Edits leaving stored presets unchanged and updating active indication.
+- Recording changes clearing all slots.
+- Export after recall preserving exact rotated sample order and count.
+- Keyboard access, modifier release and stable layout.
+
+Update Next_Up and loopFeatures.txt, if present, to record this stage as implemented and awaiting user review.
+
+Keep the following future stage pending:
+Immediate / At Loop End switching. At Loop End will queue and flash a selected slot, then recall it at the current cycle’s completion, beginning at its Start Beat. Do not implement this yet.
+
+Commit locally and report the branch, commit, changes and validation results. Do not merge or push.

@@ -1,0 +1,83 @@
+The current EDIT panel is working well overall. Make two focused usability fixes to the main waveform display. Do not redesign unrelated controls.
+
+## 1. Move dynamic cursor readout
+
+The dynamic time/readout currently displayed near the top of the waveform cursor can still interfere visually with fade handles and waveform editing.
+
+Move this readout so it is **vertically centred on the cursor, in the gap between the left and right waveform channels**.
+
+Requirements:
+
+- Keep it horizontally attached to/following the cursor as it does now.
+- Position it in the central gap between the L/R channels.
+- It should not obscure either waveform unnecessarily.
+- The readout itself must not capture pointer/mouse events (`pointer-events: none` or equivalent).
+- Do not change the cursor's existing time calculation or behaviour.
+- Do not change fade-handle behaviour.
+
+This is an initial UI experiment; do not create a separate permanent readout elsewhere in the panel.
+
+## 2. Investigate/fix selection near the end of the waveform
+
+It is currently noticeably difficult to create or extend a selection over the **trailing/end portion of the waveform**.
+
+Do not assume the cause before inspecting the implementation.
+
+In particular, investigate:
+
+- pointer hit-testing near the right-hand edge;
+- selection drag/clamping calculations;
+- waveform width versus drawable/audio width;
+- any overlays positioned over the waveform;
+- the vertical zoom controls and their container/hit area;
+- whether controls or transparent elements are intercepting pointer events;
+- behaviour when dragging beyond the final audio pixel/right boundary.
+
+The vertical zoom controls are suspected because they occupy this area, but confirm the actual cause.
+
+### Desired behaviour
+
+Selecting the final part of a recording should feel exactly as easy as selecting audio elsewhere.
+
+The user must be able to:
+
+- start a selection near the end;
+- drag an existing selection towards the end;
+- select all the way to the final sample/end of the recording;
+- reach the end even if the pointer moves slightly beyond the waveform while dragging.
+
+Waveform controls must not create an unexpected dead zone that prevents selection.
+
+Do not break the vertical zoom controls themselves.
+
+## Scope
+
+Keep this targeted.
+
+Do not alter:
+
+- noise detection/radar;
+- Chop;
+- Auto-Split;
+- split markers;
+- Snap Sensitivity;
+- fade calculations;
+- audio processing;
+- export;
+- REC panel.
+
+Add/update regression tests where practical, particularly for selection reaching the exact end of the audio.
+
+Run the relevant tests, TypeScript check and production build.
+
+Do not push or merge.
+
+Report:
+
+1. what caused the difficult end-selection behaviour;
+2. what was changed;
+3. files changed;
+4. test/build results;
+5. anything requiring manual UI verification.
+
+Leave the changes local for manual review.
