@@ -39,14 +39,14 @@ app.whenReady().then(async () => {
     await run(`button('Selection').click()`);await pause();await run(`button('Detect').click()`);
     await wait(`!button('Detect').disabled&&peak().includes('-0.9')`);
     await shot('selection');
-    assert.equal(await run(`button('Detect').title.includes('Affected frames: 1.')`), true, 'right-channel-only affected frame');
+    assert.equal(await run(`button('Reduce Peaks').title.includes('Affected frames: 1.')`), true, 'right-channel-only affected frame');
     await run(`window.originalBuffer=props().audioBuffer`);for(let i=0;i<8;i++){await run(`knob('Threshold').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))`);await pause(5);}
     assert.equal(await run(`button('Reduce Peaks').disabled`), true, 'count marked stale immediately');
     await pause(180);
     assert.equal(await run(`button('Reduce Peaks').disabled`), false, 'automatic cached refresh, no Detect needed');
     assert.equal(await run('props().audioBuffer===originalBuffer'), true, 'knob changes never process');
     assert.equal(await run(`knob('Threshold').getAttribute('aria-valuenow')`), '-7');
-    assert.equal(await run(`button('Detect').title.includes('Affected frames: 1.')`), true, 'ceiling excludes unchanged frames');
+    assert.equal(await run(`button('Reduce Peaks').title.includes('Affected frames: 1.')`), true, 'ceiling excludes unchanged frames');
     // Validated entry, unchanged blur, invalid value and Escape cancellation.
     const entry = async (label, text, key = 'Enter') => {
       await run(`window.edit=document.querySelector('[aria-label="${label}"]');edit.focus();edit.select()`);
@@ -59,7 +59,7 @@ app.whenReady().then(async () => {
     await entry('Threshold value in dB','-12','Escape'); assert.equal(await run(`knob('Threshold').getAttribute('aria-valuenow')`), '-7');
     await entry('Threshold value in dB','-24');await entry('Ceiling value in dB','-24');await shot('minimum-values');assert.equal(await run(`document.querySelector('[aria-label="Threshold value in dB"]').value`),'-24.0');
     await entry('Ceiling value in dB','-12'); await entry('Threshold value in dB','-9');
-    assert.equal(await run(`button('Detect').title.includes('Affected frames: 9600.')`), true, 'one frame per sample even when stereo both exceed threshold');
+    assert.equal(await run(`button('Reduce Peaks').title.includes('Affected frames: 9600.')`), true, 'one frame per sample even when stereo both exceed threshold');
     await run(`window.before=props().audioBuffer;button('Reduce Peaks').click()`);await shot('processing');
     await wait(`props().audioBuffer!==before&&!button('Detect').disabled`);
     assert.equal(await run(`props().audioBuffer.getChannelData(1)[9600]===before.getChannelData(1)[9600]`), true, 'exclusive selection end and outside exact');

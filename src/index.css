@@ -1,7 +1,146 @@
 @import "tailwindcss";
 
-/* Tools occupy the existing Transport row without contributing to its height. */
-.tools-panel > div:first-child button {
+/* The contextual display is a screen; the surrounding hardware is unchanged. */
+.tool-display {
+  --display-green: #69ed9a;
+  --display-border: #236a40;
+  background: #000;
+  border-color: var(--display-border);
+}
+.tool-display .tools-panel, .tool-display .tools-panel.volume-tools-open { top: 4px; bottom: 7.5px; gap: 4px; color: var(--display-green); }
+.tool-display .tools-panel * {
+  color: var(--display-green) !important;
+  border-color: var(--display-border) !important;
+  outline-color: var(--display-green) !important;
+  box-shadow: none !important;
+  text-shadow: none;
+}
+.tool-display .tools-panel [class*="bg-"],
+.tool-display .volume-section h3, .tool-display .volume-digital { background: #000 !important; }
+.tool-display .tools-panel button,
+.tool-display .tools-panel [role="slider"] {
+  background: #03150a !important;
+  border-radius: 3px;
+}
+.tool-display .tools-panel button:hover:not(:disabled) { background: #0b2e18 !important; }
+.tool-display .tools-panel button:active:not(:disabled),
+.tool-display .tools-panel button[aria-pressed="true"] { background: #194c2c !important; }
+.tool-display .tools-panel :is(button, input):disabled,
+.tool-display .tools-panel [aria-disabled="true"] { opacity: .35; cursor: not-allowed; }
+.tool-display .tools-panel :focus-visible { outline: 1px solid var(--display-green); outline-offset: 1px; }
+.tool-display .tools-panel [role="slider"] { border-radius: 50%; border-color: #439c64 !important; }
+.tool-display .tools-panel [role="slider"] > div:first-child { background: var(--display-green) !important; }
+.tool-display .tools-panel [role="slider"] > div:last-child { background: transparent !important; }
+.tool-display .tools-panel [role="slider"]:active { background: #194c2c !important; }
+/* Smaller screen graphics inside the unchanged interactive slider boxes. */
+.tool-display .tools-panel :is(.tools-detection, .tools-volume) [role="slider"] {
+  --face-inset: 1px;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+.tool-display .tools-panel .tools-volume [role="slider"] { --face-inset: 2px; }
+.tool-display .tools-panel :is(.tools-detection, .tools-volume) [role="slider"]::before {
+  content: "";
+  position: absolute;
+  inset: var(--face-inset);
+  border: 1px solid #439c64;
+  border-radius: 50%;
+  background: #03150a;
+  pointer-events: none;
+}
+.tool-display .tools-panel :is(.tools-detection, .tools-volume) [role="slider"]:active::before { background: #194c2c; }
+.tool-display .tools-panel :is(.tools-detection, .tools-volume) [role="slider"] > div:first-child {
+  height: calc((100% - 2 * var(--face-inset)) * .38) !important;
+}
+.tool-display .volume-flip i { background: var(--display-green); box-shadow: none; }
+.tool-display .volume-dots i { background: #092b15; }
+.tool-display .volume-dots i.lit { background: var(--display-green); box-shadow: none; }
+.tool-display .volume-dots i.held { outline: 1px solid var(--display-green); }
+.tool-display .tools-panel .volume-peak-readout { width: 36px; background: transparent !important; }
+.tool-display .tools-panel input { background: transparent; }
+
+/* Common heading, control and readout tracks prevent values moving controls. */
+.tool-display .volume-section {
+  padding: 1px 2px;
+  display: grid;
+  grid-template-rows: 10px 52px;
+  align-content: center;
+  align-items: stretch;
+  row-gap: 1px;
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+}
+.tool-display .volume-section:first-child { border-left: 0; }
+.tool-display .volume-section h3 {
+  position: static; margin: 0; padding: 0;
+  text-align: center; white-space: nowrap; font-size: 9px; line-height: 10px;
+}
+.tool-display .volume-detect-controls { display: grid; grid-template-columns: 44px minmax(0, 1fr); grid-template-rows: 40px 12px; gap: 0 3px; }
+.tool-display .volume-range { grid-row: 1 / 3; display: grid; grid-template-rows: 8px 32px 12px; gap: 0; justify-items: center; }
+.tool-display .volume-range > button:not(.volume-flip) { line-height: 8px; background: transparent !important; }
+.tool-display .volume-flip { height: 24px; align-self: center; }
+.tool-display .volume-flip.entire i { top: 10px; }
+.tool-display .volume-detect-result { display: contents; }
+.tool-display .volume-detect-result > .volume-button { grid-column: 2; grid-row: 1; height: 32px; width: 50px; align-self: end; justify-self: center; }
+.tool-display .volume-highest { grid-column: 2; grid-row: 2; height: 12px; line-height: 12px; gap: 2px; justify-content: center; white-space: nowrap; }
+.tool-display .volume-highest strong { min-width: 4ch; font-size: 9px; }
+.tool-display .volume-knob-action { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 3px; align-items: start; }
+.tool-display .volume-parameter { display: grid; grid-template-rows: 8px 32px 12px; gap: 0; height: 52px; justify-items: center; }
+.tool-display .volume-parameter > span { line-height: 8px; }
+.tool-display .volume-parameter > div { align-self: center; }
+.tool-display .volume-digital { height: 12px; align-self: start; }
+.tool-display .volume-button { height: 32px; padding: 0 3px; }
+.tool-display .volume-knob-action > .volume-button { margin-top: 8px; height: 32px; }
+.tool-display .volume-normalise .volume-button { width: 50px; justify-self: center; }
+.tool-display .volume-tamer .volume-knob-action { grid-template-columns: 44px 44px minmax(0, 1fr); }
+.tool-display .volume-tamer .volume-button { padding: 0 1px; font-size: 8px; }
+.tool-display .volume-combined > .volume-button { margin: 8px 0 12px; height: 32px; align-self: start; }
+.tool-display .volume-meters { grid-template-rows: 10px 9px 16px 16px 12px; row-gap: 0; }
+.tool-display .volume-meters h3 { grid-row: 1; }
+.tool-display .volume-meter-row { align-self: stretch; width: 100%; gap: 2px; }
+.tool-display .volume-meter-row:nth-child(2) { grid-row: 3; }
+.tool-display .volume-meter-row:nth-child(3) { grid-row: 4; }
+.tool-display .volume-meter-unit { position: static; transform: none; grid-row: 5; height: 12px; line-height: 12px; justify-self: end; }
+.tool-display .volume-status { top: 0; height: 14px; width: 225px; display: block; line-height: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Reclaim heading slack as a group; keep controls and readouts on their own rows. */
+.tool-display .volume-section h3,
+.tool-display .volume-detect-controls,
+.tool-display .volume-knob-action,
+.tool-display .volume-meter-row,
+.tool-display .volume-combined > .volume-button { transform: translateY(-4px); }
+.tool-display .volume-digital,
+.tool-display .volume-highest,
+.tool-display .volume-range > button:last-child { transform: translateY(5px); }
+.tool-display .volume-meter-unit { transform: translateY(1px); }
+.tool-display .detection-section { display: grid; grid-template-rows: 10px 32px 12px; row-gap: 4px; padding: 0 5px; align-content: center; }
+.tool-display .detection-noise, .tool-display .detection-duration,
+.tool-display .detection-noise > div, .tool-display .detection-duration > span:last-child { display: contents; }
+.tool-display .detection-noise > span { grid-column: 2; grid-row: 1; text-align: center; }
+.tool-display .detection-duration > span:first-child { grid-column: 3; grid-row: 1; text-align: center; }
+.tool-display .detection-noise > div > div { grid-column: 2; grid-row: 2; justify-self: center; align-self: center; }
+.tool-display .detection-duration > span > div { grid-column: 3; grid-row: 2; justify-self: center; align-self: center; }
+.tool-display .detection-noise output { grid-column: 2; grid-row: 3; }
+.tool-display .detection-duration output { grid-column: 3; grid-row: 3; }
+.tool-display .detection-value { justify-self: center; transform: translateY(-2px); }
+/* Use the cleared header space for labels without moving controls or readouts. */
+.tool-display .detection-section h3,
+.tool-display .detection-noise > span,
+.tool-display .detection-duration > span:first-child { transform: translateY(-5px); }
+.tool-display .volume-section h3 { transform: translateY(-4px); }
+.tool-display .volume-section { align-content: start; padding-top: 18px; }
+.tool-display .volume-parameter > span,
+.tool-display .volume-range > button:first-child { transform: translateY(-4px); }
+.tool-display .detection-detect { height: 32px; }
+.tool-display .detection-counts { align-self: center; }
+.tool-display .detection-feedback { overflow: hidden; text-overflow: ellipsis; }
+.tool-display .detection-buttons { align-self: center; }
+.tool-display .detection-buttons > button { height: 32px; }
+.tool-display .chop-guidance { flex: 1; min-height: 0; font-size: 9px; line-height: 12px; }
+.tool-display .chop-guidance h3 { margin: 0 0 3px; font-size: 11px; line-height: 13px; font-weight: 600; }
+.tool-display .chop-guidance p { margin: 0; }
+
+/* Mode selectors fit the existing slim waveform control row. */
+.waveform-mode-selectors button {
   white-space: nowrap;
 }
 
@@ -255,7 +394,34 @@
 }
 
 .tools-panel > div:first-child { gap: 4px; }
-.tools-panel > div:first-child button { font-size: 9px; padding: 2px 4px; }
-.tools-panel > div:first-child > div { overflow: visible; gap: 3px; }
+.waveform-mode-selectors button { height: 16px; font-size: 9px; line-height: 10px; padding: 0 4px; }
+.waveform-mode-selectors { gap: 3px; }
 .ruler-cursor-readout { position: absolute; top: 1px; height: 15px; max-width: 100%; padding: 0 3px; border: 1px solid #334155; border-radius: 3px; background: #0f172a; color: #34d399; font: bold 9px/13px monospace; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
 .ruler-cursor-context { margin-left: 4px; color: #7dd3fc; font: 8px/11px sans-serif; }
+
+/* Compact edit controls fund the external label without reducing waveform space. */
+.edit-bottom-controls { height: 42px; padding-top: 3px; padding-bottom: 3px; }
+.edit-bottom-controls [aria-label="Playback timing"] { gap: 0 8px; padding: 0 6px; line-height: 14px; }
+
+/* Volume uses the freed title space for separate heading, label and readout rows. */
+.tool-display .volume-section { padding: 2px 2px 1px; row-gap: 12px; grid-template-rows: 10px 52px; }
+.tool-display .volume-section h3 { transform: none; }
+.tool-display .volume-detect-controls,
+.tool-display .volume-knob-action,
+.tool-display .volume-meter-row,
+.tool-display .volume-combined > .volume-button,
+.tool-display .volume-parameter > span,
+.tool-display .volume-range > button:first-child { transform: none; }
+.tool-display .volume-meters { grid-template-rows: 10px 20px 16px 16px 12px; row-gap: 0; }
+.tool-display .volume-dots { position: relative; }
+/* Each 5 dB segment starts at its labelled threshold; the final segment is 0 dB. */
+.tool-display .volume-zero-reference { position: absolute; right: 0; top: 0; width: calc((100% - 22px) / 12); height: 1px; background: #8bffaf !important; z-index: 1; pointer-events: none; }
+.tool-display .volume-zero-reference > span { position: absolute; right: 0; bottom: 1px; white-space: nowrap; font: 5px/6px monospace; color: #8bffaf !important; }
+
+/* Titles anchor the display; the remaining height separates controls and values. */
+.tool-display .volume-status { top: auto; bottom: 0; width: 65px; height: 10px; line-height: 10px; font-size: 7px; }
+.tool-display .detection-section { align-content: start; padding-top: 2px; grid-template-rows: 10px 44px 12px; }
+.tool-display .detection-section h3,
+.tool-display .detection-noise > span,
+.tool-display .detection-duration > span:first-child { transform: none; }
+.tool-display .detection-value { transform: translateY(-8px); }

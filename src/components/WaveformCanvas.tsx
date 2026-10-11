@@ -241,19 +241,20 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const verticalZoomRef = useRef(1);
 
 
-  // Popover States
-  const [processingOpen, setProcessingOpen] = useState(false);
-  const [showVolume, setShowVolume] = useState<boolean>(false);
+  // One selected tool owns both the panel and waveform interaction.
+  const [editTool, setEditTool] = useState<'chop' | 'auto-chop' | 'volume' | null>(null);
+  const processingOpen = editTool === 'auto-chop';
+  const showVolume = editTool === 'volume';
+  const chopEnabled = editTool === 'chop';
 
   // Waveform-owned detection belongs to the loaded recording, never a tool panel.
   const [detectedAudioId, setDetectedAudioId] = useState<number | null>(null);
   const radarReady = detectedAudioId === loadedAudioId && !!audioBuffer;
 
-  // Noise Floor & Auto-Split States
+  // Noise Floor & Auto-Chop States
   const [noiseFloorDb, setNoiseFloorDb] = useState<number>(-45.0);
   // No saved Snap-distance preference exists; use the established default.
   const [silenceDurationSec, setSilenceDurationSec] = useState<number>(1.0);
-  const [chopEnabled, setChopEnabled] = useState(false);
   const [sensitivity, setSensitivity] = useState(100);
   const [showDetectedPreview, setShowDetectedPreview] = useState(true);
   const candidatePolicy = quietCandidatePolicy(noiseFloorDb, sensitivity);
@@ -1180,7 +1181,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setAutoSplitPreview(null);
     setHoverTime(null);
     setHoverPosition(null);
-    setChopEnabled(false);
+    setEditTool(tool => tool === 'chop' ? null : tool);
     snapTracesRef.current = [];
     radarAcquisitionRef.current.reset();
   }, [loadedAudioId]);
@@ -1305,7 +1306,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setHoverTime(time);
     setHoverPosition({ x, y });
 
-    // Live radar acquisition is independent of Auto-Split's Gap setting.
+    // Live radar acquisition is independent of Auto-Chop's Gap setting.
     // Hover/edit positions stay raw; guidance can show a quiet target independently.
     const markerContext = radarReady && (!activeDrag || activeDrag.type === 'marker' || activeDrag.type === 'chop');
     if (markerContext) {
@@ -1538,19 +1539,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   };
 
   // Zoom handlers
-  const handleZoomIn = () => {
-    const nextZ = Math.min(40, zoom + 1.5);
-    onZoomChange(nextZ);
-  };
-
-  const handleZoomOut = () => {
-    const nextZ = Math.max(1, zoom - 1.5);
-    onZoomChange(nextZ);
-    if (nextZ === 1) {
-      onViewOffsetChange(0);
-    }
-  };
-
   const handleZoomFit = () => {
     onZoomChange(1);
     onViewOffsetChange(0);
@@ -1733,6 +1721,31 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     handleZoomFit();
   };
 
+  const selectEditTool = (tool: NonNullable<typeof editTool>) => {
+    setEditTool(current => current === tool ? null : tool);
+    // Cancel a pending gesture so it cannot complete under the previous tool.
+    setActiveDrag(null);
+    pointerDownPositionRef.current = null;
+    setHoveredElement(null);
+    setHoveredMarkerId(null);
+  };
+
+  useEffect(() => {
+    if (!chopEnabled) return;
+    const leaveChop = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]') ||
+          target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      setEditTool(null);
+      setActiveDrag(null);
+      pointerDownPositionRef.current = null;
+      setHoveredElement(null);
+      setHoveredMarkerId(null);
+    };
+    window.addEventListener('keydown', leaveChop);
+    return () => window.removeEventListener('keydown', leaveChop);
+  }, [chopEnabled]);
+
   const cursorStyle = activeDrag
     ? 'cursor-grabbing'
     : hoveredElement === 'marker'
@@ -1798,7 +1811,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
   };
 
-  // Run Auto-Split using sampled noise floor and drop duration
+  // Run Auto-Chop using sampled noise floor and drop duration
   const handleTriggerAutoSplit = () => {
     if (!onAutoSplit) return;
     const count = onAutoSplit(candidateThresholdDb, autoSplitDurationSec, candidateTimes);
@@ -1809,7 +1822,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (typeof count === 'number') {
       if (count > 0) {
         setFeedbackToast({
-          text: `Auto-Split created ${count} split ${count === 1 ? 'marker' : 'markers'} (${count + 1} tracks) at detected silence gaps!`,
+          text: `Auto-Chop created ${count} split ${count === 1 ? 'marker' : 'markers'} (${count + 1} tracks) at detected silence gaps!`,
           type: 'success',
         });
       } else {
@@ -1828,10 +1841,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   return (
     <div className="gap-2 select-none flex flex-col h-full min-w-0 min-h-0 overflow-hidden" ref={containerRef}>
       {/* Editing controls and compact timing readouts share the toolbar. */}
-      <div aria-label="Waveform editing toolbar" className="order-2 flex flex-nowrap items-end gap-2 bg-slate-900/60 border border-slate-700/70 px-2 py-1 rounded-xl text-xs shrink-0">
-          <div aria-label="Edit transport" className="flex shrink-0 flex-col items-start gap-1.5 px-2 py-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Transport</span>
-            <div className="flex h-9 items-center gap-1">
+      <div aria-label="Waveform editing toolbar" className="edit-bottom-controls order-6 flex flex-nowrap items-center gap-4 bg-slate-900/60 border border-slate-700/70 px-2 py-1 rounded-xl text-xs shrink-0">
+          <div aria-label="Edit transport" className="flex shrink-0 items-center">
+            <div className="flex items-center gap-1">
               <TooltipButton compact onClick={() => onPlayPause?.()} disabled={!audioBuffer}
                 accessibleName={isPlaying ? 'Pause' : 'Play'} label={isPlaying ? 'Pause (Space)' : 'Play (Space)'} pressed={isPlaying}
                 isActive={isPlaying} activeClass="bg-emerald-600 text-white border-emerald-500 shadow-sm"
@@ -1843,27 +1855,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             </div>
           </div>
           {/* Selection actions */}
-          <div className="flex flex-col items-start gap-1.5 px-2 py-1 shrink-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400">Selection</span>
+          <div className="flex items-center shrink-0">
             <div className="flex items-center gap-1">
-              <TooltipButton
-                onClick={() => {
-                  if (onPlaySelection) onPlaySelection(selS, selE);
-                }}
-                disabled={!hasSelection}
-                isActive={hasSelection && isPlaying}
-                activeClass="bg-emerald-500/25 text-emerald-300 border-emerald-500/50"
-                icon={<Play className="w-3.5 h-3.5 text-emerald-400" />}
-                label="Play the selected region once"
-              />
-              <TooltipButton
+              <TooltipButton compact
                 onClick={() => onCropToSelection?.(selS, selE)}
                 disabled={!hasSelection}
                 activeClass="bg-sky-600 text-white border-sky-500"
                 icon={<Crop className="w-3.5 h-3.5" />}
                 label="Crop to Selection (Ctrl+T): Keep the selected region and discard everything outside it"
               />
-              <TooltipButton
+              <TooltipButton compact
                 onClick={() => onCutSelection?.(selS, selE)}
                 disabled={!hasSelection}
                 activeClass="bg-rose-600 text-white border-rose-500"
@@ -1874,7 +1875,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 accessibleName="Clear selection" label="Clear selection; keep the recording."
                 icon={<span aria-hidden="true" className="text-sm leading-none">{'\u00d7'}</span>} />
               {onUndo && (
-                <TooltipButton
+                <TooltipButton compact
                   onClick={onUndo}
                   disabled={!canUndo}
                   icon={<RotateCcw className="w-3.5 h-3.5 text-slate-300" />}
@@ -1885,10 +1886,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           </div>
 
           {/* View toggles */}
-          <div className="flex flex-col items-start gap-1.5 px-2 py-1 shrink-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">View</span>
+          <div className="flex items-center shrink-0">
             <div className="flex items-center gap-1">
-              <TooltipButton
+              <TooltipButton compact
                 onClick={() => onFollowPlayheadChange(!followPlayhead)}
                 isActive={followPlayhead}
                 icon={(
@@ -1900,7 +1900,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 )}
                 label={`Auto-Scroll Follow Playhead (${followPlayhead ? 'ON' : 'OFF'})`}
               />
-              <TooltipButton
+              <TooltipButton compact
                 onClick={() => onFadeSettingsChange({ ...fadeSettings, zeroCrossing: !fadeSettings.zeroCrossing })}
                 isActive={fadeSettings.zeroCrossing}
                 icon={(
@@ -1911,7 +1911,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 )}
                 label={`Zero-Crossing Snapping (${fadeSettings.zeroCrossing ? 'Active' : 'OFF'})`}
               />
-              <TooltipButton
+              <TooltipButton compact
                 onClick={() => onAutoPreviewOnClickChange(!autoPreviewOnClick)}
                 isActive={autoPreviewOnClick}
                 icon={<Volume2 className="w-3.5 h-3.5" />}
@@ -1935,29 +1935,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
       {processingPanelContainer && createPortal(
         <div aria-label="Tools" className={`tools-panel ${showVolume ? 'volume-tools-open' : ''} absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1`}>
-          <div className="tools-selector-row flex shrink-0 items-center gap-2">
-          <span className="shrink-0 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
-          <div className="flex min-w-0 items-center gap-1 overflow-x-auto custom-scrollbar">
-            <button type="button" aria-label="Chop" title="Chop: click the waveform to split" aria-pressed={chopEnabled}
-              onClick={() => setChopEnabled(enabled => !enabled)} disabled={!audioBuffer}
-              className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${chopEnabled ? 'bg-purple-600 text-white border-purple-500' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>
-              <Slice aria-hidden="true" className="w-3 h-3" />Chop
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setProcessingOpen((open) => !open);
-
-                setShowVolume(false);
-              }}
-              aria-expanded={processingOpen}
-              className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${processingOpen ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
-            >
-              Auto-Split
-            </button>
-            <button type="button" aria-label="Volume" aria-expanded={showVolume} onClick={() => { setShowVolume(open => !open); setProcessingOpen(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${showVolume ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>Volume</button>
-          </div>
-          </div>
+          {chopEnabled && (
+            <section aria-label="Chop guidance" className="chop-guidance">
+              <h3>CHOP MODE</h3>
+              <p>Select a quiet section, then click the ear button to detect the noise floor.</p>
+              <p>Adjust Sensitivity to control snapping to detected split points.</p>
+              <p>Left-click to add a split; right-click a split to remove it.</p>
+              <p>Choose another mode or press Esc to leave Chop mode.</p>
+            </section>
+          )}
 
           {/* Category controls stay inside the fixed Tools panel. */}
           <div className="volume-host" hidden={!showVolume}><VolumeControls active={showVolume} meter={playbackPeakMeter} audioBuffer={audioBuffer} selection={selection} onApply={onApplyVolume} /></div>
@@ -1967,7 +1953,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 <div id="processing-detection-controls" className="tools-detection">
                   <section className="detection-section detection-settings" aria-label="Detection">
                     <h3>Detection</h3>
-                    <button type="button" aria-label="Detect noise floor in Auto-Split" aria-busy={detectingNoiseFloor}
+                    <button type="button" aria-label="Detect noise floor in Auto-Chop" aria-busy={detectingNoiseFloor}
                       title="Detect recalculates and replaces Noise Floor from the selected quiet section."
                       onClick={handleSampleNoiseFloor} disabled={detectDisabled} className="detection-detect rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Detect</button>
                     <div className="detection-knobs">
@@ -1989,7 +1975,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                   </section>
                   <section className="detection-section detection-results" aria-label="Results">
                     <h3>Results</h3>
-                    <output aria-label="Auto-split preview" aria-live="polite" aria-busy={!!audioBuffer && previewTimes === null} title="Predicted auto-split count. Press Apply to create split markers." className="detection-counts">
+                    <output aria-label="Auto-chop preview" aria-live="polite" aria-busy={!!audioBuffer && previewTimes === null} title="Predicted Auto-Chop count. Press Apply to create split markers." className="detection-counts">
                       <span><span>Detected splits</span><strong className="text-amber-300">{previewTimes === null ? '\u2014' : previewTimes.length}</strong></span>
                       <span><span>Resulting slices</span><strong className="text-sky-300">{previewSliceCount ?? '\u2014'}</strong></span>
                     </output>
@@ -2018,41 +2004,23 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       <div className="order-4 flex flex-col flex-1 min-h-0 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner">
         {/* Slim readout strip keeps the waveform itself unobstructed. */}
         <div aria-label="Waveform readouts" className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800/70 bg-slate-900/40 px-2 py-0.5 text-[10px] leading-4 select-none">
-          <div className="flex min-w-0 items-baseline gap-1.5">
-            <span className="text-[8px] uppercase tracking-wider text-slate-500">Region</span>
-            <span className="truncate font-mono tabular-nums text-sky-400">
-              {hasSelection ? `${formatTime(selS, true)} – ${formatTime(selE, true)}` : 'None'}
-            </span>
-          </div>
-          {/* Time zoom controls sit outside the selectable audio. */}
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={handleZoomIn}
-              className="w-5 h-4 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-              title="Zoom horizontal in"
-              aria-label="Zoom horizontal in"
-            >
-              <ZoomIn className="w-3 h-3" />
+          <div className="waveform-mode-selectors flex min-w-0 items-center gap-1">
+            <button type="button" aria-label="Chop" title="Chop: click the waveform to split" aria-pressed={chopEnabled}
+              onClick={() => selectEditTool('chop')} disabled={!audioBuffer}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${chopEnabled ? 'bg-purple-600 text-white border-purple-500' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>
+              <Slice aria-hidden="true" className="w-3 h-3" />Chop
             </button>
             <button
               type="button"
-              onClick={handleZoomFit}
-              className="w-5 h-4 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-              title="Reset horizontal zoom to fit the full track"
-              aria-label="Reset horizontal zoom"
+              onClick={() => selectEditTool('auto-chop')}
+              aria-label="Auto-Chop"
+              aria-pressed={processingOpen}
+              aria-expanded={processingOpen}
+              className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${processingOpen ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
             >
-              <RotateCcw className="w-3 h-3" />
+              Auto-Chop
             </button>
-            <button
-              type="button"
-              onClick={handleZoomOut}
-              className="w-5 h-4 flex items-center justify-center rounded bg-slate-950/75 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-              title="Zoom horizontal out"
-              aria-label="Zoom horizontal out"
-            >
-              <ZoomOut className="w-3 h-3" />
-            </button>
+            <button type="button" aria-label="Volume" aria-pressed={showVolume} aria-expanded={showVolume} onClick={() => selectEditTool('volume')} className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${showVolume ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>Volume</button>
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5">
@@ -2061,7 +2029,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               className="flex h-4 w-5 items-center justify-center rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
               <Ear aria-hidden="true" className="h-3 w-3" />
             </button>
-            <div className="waveform-sensitivity" title="Sensitivity adjusts detection dots used by Chop and Auto-Split."><span>Sensitivity</span><RotaryKnob size={16} value={sensitivity} min={0} max={100} step={1} fineStep={0.1}
+            <div className="waveform-sensitivity" title="Sensitivity adjusts detection dots used by Chop and Auto-Chop."><span>Sensitivity</span><RotaryKnob size={16} value={sensitivity} min={0} max={100} step={1} fineStep={0.1}
               onChange={setSensitivity} title="Sensitivity" formatValue={value => `${Math.round(value)}%`} /></div>
             <button type="button" aria-label="Show detected split preview" title="Show detected split preview" aria-pressed={showDetectedPreview}
               onClick={() => setShowDetectedPreview(show => !show)}
@@ -2183,6 +2151,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       <div className="order-5 relative mr-9 bg-slate-900 p-0 rounded-lg border border-slate-800 flex-shrink-0 overflow-hidden">
         <canvas
           ref={minimapRef}
+          aria-label="Waveform overview"
           width={800}
           height={26}
           onPointerDown={handleMinimapPointerDown}

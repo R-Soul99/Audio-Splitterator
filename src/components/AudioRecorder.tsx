@@ -894,9 +894,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     if (leftPeakDb < 0 && rightPeakDb < 0) setClipped(false);
   };
 
-  const startRecording = async (confirmedReplacement = false) => {
+  const startRecording = async () => {
     if (startingRef.current || finalisingRef.current || isRecordingRef.current) return;
-    if (hasLoadedAudio && !confirmedReplacement) {
+    if (hasLoadedAudio) {
       setShowReplaceRecordingDialog(true);
       return;
     }
@@ -1401,11 +1401,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                 type="button"
                 onClick={() => {
                   setShowReplaceRecordingDialog(false);
-                  startRecording(true);
+                  onClearRecording?.();
                 }}
                 className="rounded-md border border-red-500/50 bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-500"
               >
-                Replace
+                Discard
               </button>
             </div>
           </div>

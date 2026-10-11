@@ -34,16 +34,17 @@ function Meters({ meter, active, disabled }: { meter: PlaybackPeakMeter; active:
   useEffect(() => meter.subscribe(setLevels), [meter]);
   useEffect(() => { meter.setActive(active); return () => meter.setActive(false); }, [meter, active]);
   return <section className="volume-section volume-meters" aria-label="Playback sample peaks">
-    <h3>Playback peaks</h3>
+    <h3>Playback Peaks</h3>
     {[0, 1].map(c => {
       const live = linearToDb(levels.live[c]), held = linearToDb(levels.held[c]);
       return <div className="volume-meter-row" key={c} title={`${c ? 'Right' : 'Left'} live ${formatDbfs(live)} dBFS; held ${formatDbfs(held)} dBFS`}><b>{c ? 'R' : 'L'}</b>
         <div role="meter" aria-label={`${c ? 'Right' : 'Left'} live sample peak`} aria-valuemin={-60} aria-valuemax={0} aria-valuenow={Math.max(-60, Math.min(0, live))} className="volume-dots">
-          {Array.from({ length: 12 }, (_, i) => { const db = -55 + i * 5; return <i key={i} className={`${i >= 10 ? 'red' : i >= 8 ? 'yellow' : 'green'} ${live >= db ? 'lit' : ''} ${held >= db && held < db + 5 ? 'held' : ''}`} />; })}
+          {Array.from({ length: 12 }, (_, i) => { const db = -55 + i * 5; return <i key={i} data-db={db} className={`${i >= 10 ? 'red' : i >= 8 ? 'yellow' : 'green'} ${live >= db ? 'lit' : ''} ${held >= db && held < db + 5 ? 'held' : ''}`} />; })}
+                  <span className="volume-zero-reference" aria-hidden="true"><span>0 dB</span></span>
         </div><button className="volume-peak-readout" disabled={disabled} aria-label={`${c ? 'Right' : 'Left'} held sample peak; reset held peaks`} onClick={() => meter.reset()}>{formatDbfs(held)}</button>
       </div>;
     })}
-    <small className="volume-meter-unit" title={levels.error}>{levels.error ? 'Unavailable' : 'dBFS'}</small>
+    <small className="volume-meter-unit" title={levels.error}>{levels.error ? 'Unavailable' : ''}</small>
   </section>;
 }
 export function VolumeControls({ audioBuffer, selection, onApply, active, meter }: Props) {
@@ -105,7 +106,7 @@ export function VolumeControls({ audioBuffer, selection, onApply, active, meter 
         <button role="switch" aria-label="Selection / All range" aria-checked={scope === 'all'} disabled={!audioBuffer || !!busy || (!hasSelection && scope === 'all')} onClick={() => setScope(scope === 'all' ? 'selection' : 'all')} className={`volume-flip ${scope === 'all' ? 'entire' : ''}`} title="Selection / All"><i /></button>
         <button aria-pressed={scope === 'all'} disabled={!audioBuffer || !!busy} onClick={() => setScope('all')} title="Analyse and process all audio">All</button>
       </div>
-      <div className="volume-detect-result"><button className="volume-button volume-primary" disabled={!idle} onClick={() => void run()} title={`${!audioBuffer ? 'Load audio first. ' : !range ? 'Make a valid selection first. ' : ''}Detect highest audio sample peak in this range; unlike Auto-Split Detect, this does not measure the noise floor. ${analysisDetails}`}>Detect</button>
+      <div className="volume-detect-result"><button className="volume-button volume-primary" disabled={!idle} onClick={() => void run()} title="Detect noise level.">Detect</button>
       <output className="volume-highest" aria-label="Highest peak in dBFS" title="Highest absolute sample in either channel, independent of Threshold">Peak <strong>{current ? formatDbfs(linearToDb(current.peak)) : '\u2014'}</strong><small>dBFS</small></output></div></div>
     </section>
     <Meters meter={meter} active={active} disabled={!audioBuffer} />

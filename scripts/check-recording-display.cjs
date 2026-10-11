@@ -163,6 +163,28 @@ app.whenReady().then(async () => {
       assert.deepEqual(await run('geometry()'),ready);
       assert.equal(await run('elapsed()'),'0:00.000','successful take resets idle readout');
       assert.equal(await run(`document.querySelector('[aria-label="Add recording marker"]').textContent.includes('(1)')`),false);
+      if(scenario==='direct') {
+        await run(`window.editProps=()=>{const e=document.querySelector('[aria-label="Edit waveform"]');let f=e[Object.keys(e).find(k=>k.startsWith('__reactFiber'))];while(f.return)f=f.return;const q=[f.stateNode.current];while(q.length){const n=q.shift();if(n.memoizedProps?.onAutoSplit&&n.memoizedProps?.onSelectionChange)return n.memoizedProps;if(n.child)q.push(n.child);if(n.sibling)q.push(n.sibling);}};window.recProps=()=>{const e=document.querySelector('[aria-label="Recording controls"]');let f=e[Object.keys(e).find(k=>k.startsWith('__reactFiber'))];while(f.return)f=f.return;const q=[f.stateNode.current];while(q.length){const n=q.shift();if(n.memoizedProps?.onRecordingComplete)return n.memoizedProps;if(n.child)q.push(n.child);if(n.sibling)q.push(n.sibling);}};window.saved=editProps().audioBuffer;window.pcm=[...Array(saved.numberOfChannels)].map((_,c)=>Array.from(saved.getChannelData(c)));window.captureCount=()=>processors.filter(p=>p.size===4096).length;window.beforeCapture=captureCount();window.clickText=t=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===t).click();void 0;`);
+        await run(`document.querySelector('[aria-label="Start recording"]').click()`);
+        await wait(`document.body.textContent.includes('Replace existing recording?')`);
+        assert.equal(await run(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Discard')`),true);
+        await run(`clickText('Cancel')`);
+        await wait(`!document.body.textContent.includes('Replace existing recording?')`);
+        assert.equal(await run('editProps().audioBuffer===saved&&captureCount()===beforeCapture'),true,'Cancel preserves loaded audio and never starts capture');
+        await wait(`!document.querySelector('[aria-label="Detect preamp level"]').disabled`);
+        await run(`var d=document.querySelector('[aria-label="Detect preamp level"]');d.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));void 0;`);
+        await wait(`document.querySelector('[aria-label="Detect preamp level"]').getAttribute('aria-pressed')==='true'`);
+        await run(`processors.filter(p=>p.size===2048).at(-1).onaudioprocess({inputBuffer:{numberOfChannels:2,getChannelData:()=>new Float32Array(2048).fill(.1)},outputBuffer:{getChannelData:()=>new Float32Array(2048)}});document.querySelector('[aria-label="Detect preamp level"]').dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));void 0;`);
+        await wait(`document.body.textContent.includes('SET +')`);
+        assert.equal(await run('editProps().audioBuffer===saved&&pcm.every((a,c)=>a.every((v,i)=>v===saved.getChannelData(c)[i]))&&captureCount()===beforeCapture'),true,'Preamp detection with loaded recording preserves every sample');
+        await run(`document.querySelector('[aria-label="Start recording"]').click()`);await wait(`document.body.textContent.includes('Replace existing recording?')`);await run(`clickText('Discard')`);
+        await wait('recProps().hasLoadedAudio===false');
+        assert.equal(await run(`captureCount()===beforeCapture&&!document.querySelector('[aria-label="Stop recording"]')&&!!document.querySelector('[aria-label="Start recording"]')`),true,'Discard clears audio and leaves recording ready');
+        await run(`document.querySelector('[aria-label="Start recording"]').click()`);await wait(`!!document.querySelector('[aria-label="Stop recording"]')`);
+        assert.equal(await run('captureCount()'),await run('beforeCapture+1'),'Second explicit Record starts new capture');
+        await run(`processors.filter(p=>p.size===4096).at(-1).onaudioprocess({inputBuffer:{getChannelData:()=>new Float32Array(4096).fill(.2)},outputBuffer:{getChannelData:()=>new Float32Array(4096)}});document.querySelector('[aria-label="Stop recording"]').click();void 0;`);await wait('recProps().hasLoadedAudio===true');
+        console.log('PASS: Cancel preserves loaded recording; loaded Preamp Detect preserves PCM; Discard clears without capture; explicit second Record starts capture');
+      }
       console.log('PASS recording lifecycle:',scenario);
     }
     win.destroy();app.exit(0);

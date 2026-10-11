@@ -18,8 +18,8 @@ app.whenReady().then(async () => {
    window.AudioContext=class { currentTime=0;state='running';destination={};createBufferSource(){return {connect(){},start(){},stop(){},disconnect(){}};}resume(){return Promise.resolve();} decodeAudioData(){const b=new AudioBuffer({length:48000*20,numberOfChannels:2,sampleRate:48000});for(let c=0;c<2;c++){const a=b.getChannelData(c);a.fill(.1);a.fill(.001,48000*5,48000*7);for(const t of [5.6,5.8,6,6.2])a.fill(.1,Math.round(48000*t),Math.round(48000*(t+.02)));a.fill(.001,48000*12,48000*14);}return Promise.resolve(b);}close(){return Promise.resolve();} };
    window.move=t=>{const c=wave(),r=c.getBoundingClientRect();props(c).onPointerMove({clientX:r.left+t/20*r.width,clientY:r.top+r.height/2});};
    window.detect=()=>document.querySelector('[aria-label="Detect noise floor"]');
-   window.splitter=()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Auto-Split');
-   window.readout=()=>document.querySelector('[aria-label="Waveform readouts"]');
+   window.splitter=()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Auto-Chop');
+   window.readout=()=>({get textContent(){return document.querySelector('[aria-label="Waveform readouts"]').textContent+document.querySelector('[aria-label="Tools"]').textContent;}});
    window.floorOutput=()=>document.querySelector('[aria-label="Noise floor in dB"]');
    window.closeSplitter=()=>splitter();
    window.detectControls=()=>document.querySelectorAll('[aria-label="Detect noise floor"]');
@@ -30,7 +30,7 @@ app.whenReady().then(async () => {
   await run(`let h=component().memoizedState;while(h){const v=h.memoizedState?.current;if(typeof v?.update==='function' && typeof v?.reset==='function'){const update=v.update.bind(v);v.update=t=>{const acquired=update(t);if(acquired)pings++;radarTrace.push({runStart:t?.runStart??null,zone:t?.zone??null,acquired});return acquired;};break;}h=h.next;} void 0;`);
   await run('move(5.5)');assert.equal(await run('pings'),0);
   await run('component().memoizedProps.onSelectionChange({start:5.2,end:5.4})');
-  await wait('readout().textContent.includes("0:05")');
+  await wait('component().memoizedProps.selection?.start===5.2');
   await run('detect().click()');
   await wait('readout().textContent.includes("-57.0")');
   await run('move(5.5);move(6.5)');assert.equal(await run('pings'),1,'closed Splitter acquires once');
@@ -53,7 +53,7 @@ app.whenReady().then(async () => {
   await run('move(6)');assert.equal(await run('pings'),3,'new recording requires detection');
   assert.equal(await run('detectControls().length'),1);
   await run('component().memoizedProps.onSelectionChange({start:12.2,end:13.8})');
-  await wait('readout().textContent.includes("0:12")');
+  await wait('component().memoizedProps.selection?.start===12.2');
   await run('detect().click()');await wait('readout().textContent.includes("-57.0")');
   await run('move(12.5)');assert.equal(await run('pings'),4,'same target in new audio acquires afresh');
   // Real handlers: candidate rendering, hidden-preview snapping, sensitivity and Chop.
@@ -140,17 +140,17 @@ app.whenReady().then(async () => {
   assert.equal(await run('candidateStrokes.length'),0,'low sensitivity removes marginal candidates');
   assert.ok((await run('readout().textContent')).includes('-57.0'),'detected floor reference is unchanged');
   await run('preview().click();sensitivity(100)');await wait('preview().getAttribute("aria-pressed")==="false"');
-  await run('splitter().click()');await wait(`!!document.querySelector('[aria-label="Auto-split preview"]')`);
-  await wait(`document.querySelector('[aria-label="Auto-split preview"]').getAttribute('aria-busy')==='false'`);
-  assert.equal(await run(`document.querySelector('[aria-label="Auto-split preview"] strong').textContent`),'2','underlying Auto-Split predictions exist');
+  await run('splitter().click()');await wait(`!!document.querySelector('[aria-label="Auto-chop preview"]')`);
+  await wait(`document.querySelector('[aria-label="Auto-chop preview"]').getAttribute('aria-busy')==='false'`);
+  assert.equal(await run(`document.querySelector('[aria-label="Auto-chop preview"] strong').textContent`),'2','underlying Auto-Chop predictions exist');
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="true"');
   await run('orangePreviewStrokes=0;candidateStrokes=[];move(13.2)');await wait('candidateStrokes.length>0');
   assert.equal(await run('orangePreviewStrokes'),0,'Preview On draws radar indicators without orange prediction lines');
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="false"');
   await run('[...document.querySelectorAll("button")].find(button=>button.textContent.trim()==="Apply").click()');
   await wait('markers().length>=3');
-  assert.equal(await run('markers().filter(marker=>marker.id.startsWith("marker-auto-")).length'),1,'Auto-Split adds the other gap with Preview Off and preserves the existing Chop candidate');
-  assert.equal(await run('markers().filter(marker=>Math.abs(marker.time-13)<1e-9).length'),1,'Auto-Split does not duplicate the manual Chop marker at the candidate');
+  assert.equal(await run('markers().filter(marker=>marker.id.startsWith("marker-auto-")).length'),1,'Auto-Chop adds the other gap with Preview Off and preserves the existing Chop candidate');
+  assert.equal(await run('markers().filter(marker=>Math.abs(marker.time-13)<1e-9).length'),1,'Auto-Chop does not duplicate the manual Chop marker at the candidate');
   await run('preview().click()');await wait('preview().getAttribute("aria-pressed")==="true"');
   await run('candidateStrokes=[];move(13.1)');await wait('candidateStrokes.length>0');
   assert.equal(await run('detectControls().length'),1,'Preview restores current candidates without detection');

@@ -99,7 +99,7 @@ app.whenReady().then(async () => {
     const zoomRect = await bounds();
     await drag(zoomRect.right - 40, zoomRect.right + 10, zoomRect.top + zoomRect.height * 0.7);
     assert.equal((await run('currentSelection()')).end, duration);
-    await run(`document.querySelector('[aria-label="Reset horizontal zoom"]').click(); clearSelection()`); await wait('component().memoizedProps.zoom === 1');
+    await run(`document.querySelector('[aria-label="Waveform overview"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); clearSelection()`); await wait('component().memoizedProps.zoom === 1');
     const before = await run('wave().toDataURL()');
     await run(`document.querySelector('[aria-label="Zoom waveform vertically in"]').click()`); await pause();
     assert.notEqual(await run('wave().toDataURL()'), before, 'Vertical zoom still works');

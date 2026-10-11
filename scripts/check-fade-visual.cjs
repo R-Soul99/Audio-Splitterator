@@ -59,7 +59,7 @@ app.whenReady().then(async () => {
  const radarPath=path.join(app.getPath('temp'),'quiet-radar-check.wav');fs.writeFileSync(radarPath,radarWav);
  await win.webContents.debugger.sendCommand('DOM.setFileInputFiles',{nodeId,files:[radarPath]});
  await win.webContents.executeJavaScript(`(async()=>{const end=Date.now()+20000;while(document.querySelector('main').inert||document.body.textContent.includes('Building waveform')){if(Date.now()>end)throw Error('Radar fixture not ready');await new Promise(r=>setTimeout(r,50));}})()`);
- await win.webContents.executeJavaScript(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Auto-Split').click()`);
+ await win.webContents.executeJavaScript(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Auto-Chop').click()`);
  await new Promise(r=>setTimeout(r,100));
  const radarRect=await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector('canvas[title]').getBoundingClientRect();return {left:r.left,top:r.top,width:r.width}})()`);
  for(const [type,time] of [['mouseMoved',5.2],['mousePressed',5.2],['mouseMoved',5.4],['mouseReleased',5.4]]){
@@ -75,7 +75,7 @@ app.whenReady().then(async () => {
  let fiber=wave[Object.keys(wave).find(key=>key.startsWith('__reactFiber'))];while(fiber&&!fiber.memoizedProps?.onAutoSplit)fiber=fiber.return;fiber.memoizedProps.onSelectionChange({start:5.2,end:5.4});await wait(60);
  document.querySelector('[aria-label="Detect noise floor"]').click();await wait(500);
  const threshold=document.querySelector('[aria-label="Noise floor in dB"]').textContent;
- const preview=document.querySelector('[aria-label="Auto-split preview"]').textContent;
+ const preview=document.querySelector('[aria-label="Auto-chop preview"]').textContent;
  const scale=overlay.width/rect.width; const x=Math.floor(rect.width*13/20*scale);
  const brightness=()=>{const data=overlay.getContext('2d').getImageData(x,Math.floor(overlay.height/2),Math.ceil(2*scale),1).data;return Math.max(...Array.from(data).filter((_,index)=>index%4===3));};
  const baseline=brightness();

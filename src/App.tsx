@@ -1097,9 +1097,9 @@ export default function App() {
 
             {/* WORKFLOW VIEW 2: WAVEFORM EDITOR & SPLIT REGIONS */}
             {(workflowTab === 'edit' || waveformBusy || importStatus) && (
-                <div style={{ display: workflowTab === 'edit' ? undefined : 'none' }} className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,480px)] grid-rows-[minmax(0,1fr)_auto] gap-2.5">
+                <div style={{ display: workflowTab === 'edit' ? undefined : 'none' }} className="h-full min-h-0 grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,480px)] grid-rows-[auto_minmax(0,1fr)] gap-2.5">
                     {/* Left, top: Waveform canvas & toolbar (Full dynamic height) */}
-                    <div className="col-start-1 row-start-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+                    <div className="col-start-1 row-start-2 min-w-0 min-h-0 flex flex-col overflow-hidden">
                       <WaveformCanvas
                         importStatus={importStatus}
                         importError={importError}
@@ -1308,9 +1308,10 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Preserve the former transport row height while Tools fills its width. */}
-                    <div className="col-start-1 row-start-2 h-[98px] min-w-0 flex items-stretch text-xs">
-                      <div ref={setProcessingPanelContainer} className="relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] pt-1 pb-[7.5px]" />
+                    {/* Keep the Tools display in a fixed-height slot above the waveform. */}
+                    <div className="col-start-1 row-start-1 h-[129.328125px] min-w-0 flex flex-col text-xs">
+                      <span className="h-[31.328125px] shrink-0 flex items-end pb-1 pl-[9px] text-[10px] font-bold uppercase tracking-wider text-slate-400">Tools</span>
+                      <div ref={setProcessingPanelContainer} className="tool-display relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] pt-1 pb-[7.5px]" />
                     </div>
 
                   {/* Confirm Dialog: Discard / Import Overwrite */}

@@ -122,7 +122,7 @@ export const TransportControls: React.FC<TransportControlsProps> = ({
             title="Automatically detect pauses & insert split markers"
           >
             <Wand2 className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Auto-Split Silence</span>
+            <span className="hidden sm:inline">Auto-Chop Silence</span>
           </button>
 
           <button

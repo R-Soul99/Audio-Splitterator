@@ -82,7 +82,10 @@ app.whenReady().then(async () => {
       console.log('Captured preserved editor geometry and screenshot');app.exit(0);return;
     }
     const expected=await geometry();
-    assert.deepEqual(expected,JSON.parse(fs.readFileSync(baselinePath)),'Fixed waveform, ruler, toolbar and Tools footprint match preserved build');
+    const preserved=JSON.parse(fs.readFileSync(baselinePath));
+    for(const key of Object.keys(expected)){assert.equal(expected[key].width,preserved[key].width,key+' preserved width');if(key!=='toolbar')assert.equal(expected[key].height,preserved[key].height,key+' preserved height');}
+    assert.ok(expected.bottom.bottom<expected.wave.top,'Tools above waveform');
+    assert.ok(expected.toolbar.top>expected.wave.bottom,'Transport below waveform');
     assert.equal(await run(`!!document.querySelector('[aria-label="Loop / Sample"],.loop-switch,.loop-memory-slot,.beat-ruler-handle,.sample-export-dialog')`),false);
     assert.equal(await run(`['onLoopChange','onLoopSelection','onMemoryAction','startBeat','loopMemory','isLooping'].some(k=>k in component().memoizedProps)`),false);
     assert.equal(await run(`[...document.querySelectorAll('h2')].some(e=>e.textContent==='Transport')`),false);
@@ -97,7 +100,7 @@ app.whenReady().then(async () => {
     await key(' ','Space',32);assert.equal(await run('component().memoizedProps.isPlaying'),true);await key(' ','Space',32);assert.equal(await run('component().memoizedProps.isPlaying'),false);await run('component().memoizedProps.onCropChange(2,10);component().memoizedProps.onSeek(5)');await pause();await click('Stop');assert.equal(await run('component().memoizedProps.currentTime'),2);await click('Play');await click('Return to start');assert.equal(await run('component().memoizedProps.currentTime'),0);assert.equal(await run('component().memoizedProps.isPlaying'),false);assert.equal(await run('component().memoizedProps.viewOffsetSec'),0);await run('component().memoizedProps.onSeek(5)');await pause();await key('Home','Home',36);assert.equal(await run('component().memoizedProps.currentTime'),0);
     // Long timing strings and every existing Tools view remain in their fixed slots.
     await run(`window.originalDuration=component().memoizedProps.audioBuffer.duration;Object.defineProperty(component().memoizedProps.audioBuffer,'duration',{configurable:true,value:359999.123});component().memoizedProps.onSeek(359998)`);await pause();await shot('long-time');await run(`delete component().memoizedProps.audioBuffer.duration;component().memoizedProps.onCropChange(0,originalDuration);component().memoizedProps.onSeek(0)`);await pause();
-    for(const label of ['Auto-Split','Volume']){await click(label);await stable();}
+    for(const label of ['Auto-Chop','Volume']){await click(label);await stable();}
     await click('Volume');
     await setRegion(1,1.2);
     const unchangedSelection = await run('currentSelection()');
@@ -105,13 +108,13 @@ app.whenReady().then(async () => {
     for (let digit=0;digit<10;digit++) await key(String(digit),'Digit'+digit,48+digit);
     assert.deepEqual(await run('currentSelection()'),unchangedSelection,'Former preset keys do not change selection');
     assert.equal(await run('sources.length'),priorSources,'Former preset keys do not audition');
-    await click('Play the selected region once');
+    await click('Play');
     assert.equal(await run('sources.at(-1).node.loop'),false);
     assert.ok(Math.abs(await run('sources.at(-1).duration')-.2)<1/48000);
     await wait('!component().memoizedProps.isPlaying');
     const count=await run('sources.length');await pause();await pause();
     assert.equal(await run('sources.length'),count,'Selection never repeats');
-    await setRegion(1,3);await click('Play the selected region once');await click('Pause');await click('Play');
+    await setRegion(1,3);await click('Play');await click('Pause');await click('Play');
     assert.equal(await run('sources.at(-1).node.loop'),false);await click('Stop');
     await run(`localStorage.setItem('audiophonic_sample_format','obsolete');localStorage.setItem('audiophonic_sample_depth','broken')`);
     win.reload();await wait(`!!document.querySelector('main')`);
