@@ -3,7 +3,6 @@ import {
   Play,
   Pause,
   Square,
-  Repeat,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -17,7 +16,6 @@ import { formatTime } from '../utils/audioProcessing';
 
 interface TransportControlsProps {
   isPlaying: boolean;
-  isLooping: boolean;
   currentTime: number;
   totalDuration: number;
   cropStart: number;
@@ -25,7 +23,6 @@ interface TransportControlsProps {
   zoom: number;
   onPlayPause: () => void;
   onStop: () => void;
-  onToggleLoop: () => void;
   onZoomChange: (zoom: number) => void;
   onZoomFit: () => void;
   onSetInToPlayhead: () => void;
@@ -40,7 +37,6 @@ interface TransportControlsProps {
 
 export const TransportControls: React.FC<TransportControlsProps> = ({
   isPlaying,
-  isLooping,
   currentTime,
   totalDuration,
   cropStart,
@@ -48,7 +44,6 @@ export const TransportControls: React.FC<TransportControlsProps> = ({
   zoom,
   onPlayPause,
   onStop,
-  onToggleLoop,
   onZoomChange,
   onZoomFit,
   onSetInToPlayhead,
@@ -64,7 +59,7 @@ export const TransportControls: React.FC<TransportControlsProps> = ({
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md space-y-3">
       {/* Top row: Transport buttons, Time counter, Zoom */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Play / Pause / Stop / Loop */}
+        {/* Play / Pause / Stop */}
         <div className="flex items-center space-x-2">
           <button
             type="button"
@@ -94,18 +89,7 @@ export const TransportControls: React.FC<TransportControlsProps> = ({
             <Square className="w-4 h-4 fill-current" />
           </button>
 
-          <button
-            type="button"
-            onClick={onToggleLoop}
-            className={`p-2 rounded-lg border transition cursor-pointer ${
-              isLooping
-                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'
-            }`}
-            title="Toggle Loop Playback"
-          >
-            <Repeat className="w-4 h-4" />
-          </button>
+
 
           {/* Time Counter */}
           <div className="flex items-baseline space-x-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 font-mono">

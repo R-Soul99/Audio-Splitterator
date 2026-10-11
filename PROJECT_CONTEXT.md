@@ -27,7 +27,7 @@ Responsible for incoming audio capture: input selection, stereo/mono selection, 
 
 ### EDIT
 
-The main waveform editing/splitting workspace. Important concepts include waveform navigation, selections, split markers, vinyl noise-floor detection, gap detection, marker snapping, zero-crossing assistance, looping/audition and non-destructive editing where possible.
+The main waveform editing/splitting workspace. Important concepts include waveform navigation, selections, split markers, vinyl noise-floor detection, gap detection, marker snapping, zero-crossing assistance, single-pass selection audition and non-destructive editing where possible.
 
 The waveform is the central working area and should retain as much screen space as possible. Opening tools, information panels or controls must not unexpectedly resize or move it.
 

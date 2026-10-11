@@ -1,6 +1,8 @@
 # Audiophonic Splitterator
 
-High-fidelity audio recording, soundcard line-in capture, waveform slicing with zero-crossing detection, micro-crossfade editing, and FLAC / WAV / MP3 batch export.
+Record or import long audio, split it into individual tracks, and export tagged FLAC / WAV / MP3 files. Selection, fades, markers and volume processing remain available; selection audition plays once.
+
+Loop/Sample tools are preserved separately for a future sampler app. See [preservation and recovery instructions](LOOP_SAMPLE_PRESERVATION.md).
 
 ---
 

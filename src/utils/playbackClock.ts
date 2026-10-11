@@ -4,13 +4,10 @@ export interface PlaybackSegment {
   offset: number;
   start: number;
   end: number;
-  loop: boolean;
 }
 export function playbackPosition(segment: PlaybackSegment, clock: number): number {
   const position = segment.offset + Math.max(0, clock - segment.when);
-  if (!segment.loop) return Math.min(segment.end, position);
-  // The first pass starts at the audition offset; subsequent passes start at Loop Start.
-  return position < segment.end ? position : segment.start + (position - segment.end) % (segment.end - segment.start);
+  return Math.min(segment.end, position);
 }
 export function timelinePosition(segments: PlaybackSegment[], clock: number): number | null {
   if (!segments.length) return null;

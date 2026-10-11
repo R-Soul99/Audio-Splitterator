@@ -2,21 +2,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PlaybackSegment, playbackPosition, timelinePosition, outputClock } from './playbackClock';
 
-const first: PlaybackSegment = { when: 10, offset: 1.25, start: 1, end: 1.5, loop: true };
-test('audition offset and repeated wraps use source boundaries without frame accumulation', () => {
+const first: PlaybackSegment = { when: 10, offset: 1.25, start: 1, end: 1.5 };
+test('single-pass audition clamps at the exclusive end without wrapping', () => {
+  assert.equal(playbackPosition(first, 9), 1.25);
   assert.equal(playbackPosition(first, 10), 1.25);
-  assert.equal(playbackPosition(first, 10.25), 1);
-  assert.equal(playbackPosition(first, 510.375), 1.125);
+  assert.equal(playbackPosition(first, 10.25), 1.5);
+  assert.equal(playbackPosition(first, 510.375), 1.5);
 });
-test('live edits rebase from render clock, retaining old audio through output latency', () => {
-  const when = 10.125;
-  const second = { ...first, when, offset: playbackPosition(first, when), start: 1.1, end: 1.4 };
+test('seek handover retains heard position until the scheduled source starts', () => {
+  const second = { when: 10.125, offset: 2, start: 2, end: 3 };
   assert.equal(timelinePosition([first, second], 10.1), playbackPosition(first, 10.1));
-  assert.equal(timelinePosition([first, second], when), 1.375);
-  assert.ok(Math.abs(timelinePosition([first, second], 10.2)! - 1.15) < 1e-12);
-  const jump = { ...first, when: 10.3, offset: 2, start: 2, end: 2.5 };
-  assert.equal(timelinePosition([first, second, jump], 10.3), 2);
-  assert.equal(timelinePosition([first, second, jump], 10.8), 2);
+  assert.equal(timelinePosition([first, second], 10.125), 2);
+  assert.equal(timelinePosition([first, second], 11.5), 3);
+  assert.equal(timelinePosition([], 11), null);
 });
 test('output timestamp tracks heard audio; fallback accounts for latency and suspension never advances', () => {
   const ctx = { currentTime: 11, state: 'running', baseLatency: .01, outputLatency: .02, getOutputTimestamp: () => ({ contextTime: 10.9, performanceTime: 1000 }) } as AudioContext;

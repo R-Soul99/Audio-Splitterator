@@ -1,3 +1,11 @@
+Current scope (11 October 2026): RECORD -> EDIT -> SAVE long recordings and tracks.
+Loop/Sample removal on simplify/record-split-export-20261011 passed Leroy's
+hands-on review; approved for integration on 11 October 2026.
+See LOOP_SAMPLE_PRESERVATION.md for the recoverable tag/archive and inventory.
+Historical Loop/Sample notes below are superseded for Splitterator; retain as
+future sampler reference only. No sampler app or vintage redesign is authorised.
+Review single-pass selection audition, recording/import, fades, volume and export.
+
 Work through these one at a time, stopping for me to check after each edit.
 
 Git workflow: automatically create a fresh branch from up-to-date main for each
@@ -13,7 +21,7 @@ Done: Processing & Detection opens upward over the editor from its fixed bottom 
 3. Done: restored immediate single-click selection/loop clearing and
    seeking on the waveform. Audition on Click controls whether stopped audio starts.
    Double-click the bottom zoom bar to reset to 1.0x and show the full recording.
-   Keep the Selection loop playback fix so it repeats beyond the first pass.
+   Superseded: selection audition now plays once; looping is preserved separately.
 4. Done: time ruler along the top of the waveform.
 5. Done: Recording panel Mark button now flashes on drop, shows a running count, and
    draws an amber flag + timestamp line on the scrolling waveform at the marker's position

@@ -1,4 +1,4 @@
-import { SampleSelection } from './loopSelection';
+import { SampleSelection } from './sampleSelection';
 import { VolumeScope, VolumeAction, VolumeActionResult, SILENT_PEAK, sameRange } from './volumeTools';
 
 const levels = Array.from({ length: 49 }, (_, i) => Math.pow(10, (-24 + i * 0.5) / 20));

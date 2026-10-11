@@ -22,7 +22,13 @@ const root = path.resolve(__dirname, '..');
     ipcRenderer: { invoke: (name, ...args) => handlers.get(name)({},...args) },
   };
   const evaluate = async fileName => vm.runInNewContext(await fs.readFile(path.join(root,'electron',fileName),'utf8'), { require: name => name==='electron' ? electron : require(name), __dirname:path.join(root,'electron'), process, console, Uint8Array });
+  // Obsolete sample settings can be malformed: neither startup nor track export reads them.
+  const obsolete = path.join(profile, 'sample-export-settings.json');
+  await fs.writeFile(obsolete, '{obsolete invalid json');
   await evaluate('main.cjs'); await evaluate('preload.cjs');
+  assert.equal([...handlers.keys()].some(name => name.startsWith('sample:')), false);
+  assert.equal(['getSampleFolder', 'setSampleFolder', 'chooseSampleFolder', 'saveSample'].some(name => name in bridge), false);
+  assert.equal(await fs.readFile(obsolete, 'utf8'), '{obsolete invalid json');
   assert.equal(await bridge.setExportFolder(typed),typed);
   assert.equal(await bridge.getExportFolder(),typed);
   // A fresh main-process module must read the same persisted path.

@@ -1,5 +1,5 @@
 import { TimeSelection } from '../types';
-import { SampleSelection, sampleSelection } from './loopSelection';
+import { SampleSelection, sampleSelection } from './sampleSelection';
 import { analyzeAnomalousPeaks, AnomalousPeakAnalysis, reducePeakChannels } from './audioProcessing';
 
 export type VolumeScope = 'selection' | 'all';

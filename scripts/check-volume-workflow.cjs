@@ -91,7 +91,7 @@ app.whenReady().then(async () => {
     assert.ok(await run(`sources.every(e=>e.connections.filter(n=>n instanceof AudioWorkletNode).length<=1)`),'one meter connection per source');
     assert.equal(await run(`sources.filter(e=>e.active).length`),1);await shot('playing');
     await run(`document.querySelector('[aria-label="Pause"]').click()`);await pause(150);assert.deepEqual(await run('meter().levels.live'),[0,0]);assert.ok(await run('meter().levels.held[1]>.89'));await shot('paused');
-    await run(`button('Reset').click()`);assert.deepEqual(await run('meter().levels.held'),[0,0]);
+    await run(`document.querySelector('[aria-label="Left held sample peak; reset held peaks"]').click()`);assert.deepEqual(await run('meter().levels.held'),[0,0]);
     await run(`document.querySelector('[aria-label="Play"]').click()`);await wait(`meter().levels.held[1]>.49`);
     const starts=await run('sources.length');await run(`document.querySelector('[aria-label="Volume"]').click()`);await pause();assert.equal(await run('meter().node'),null);assert.equal(await run('props().isPlaying'),true);
     await run(`document.querySelector('[aria-label="Volume"]').click()`);await wait(`!!meter().node&&meter().attached.size===1`);assert.equal(await run('sources.length'),starts,'tab navigation never restarts');
@@ -100,7 +100,7 @@ app.whenReady().then(async () => {
     await run('load()');await wait(`!document.querySelector('main').inert&&meter().levels.held[1]===0`);assert.deepEqual(await run('meter().levels.live'),[0,0]);
     // Natural completion still holds the final included sample, before visual stop cleanup.
     await run('window.fixtureSeconds=.25;window.finalSpike=true;load()');await wait(`!document.querySelector('main').inert&&props().audioBuffer.length===12000`);await pause(250);
-    await run(`props().onLoopChange(false)`);await pause();await run(`document.querySelector('[aria-label="Play"]').click()`);await wait(`!props().isPlaying&&meter().levels.held[1]>.98`);assert.deepEqual(await run('meter().levels.live'),[0,0]);
+    await run(`document.querySelector('[aria-label="Play"]').click()`);await wait(`!props().isPlaying&&meter().levels.held[1]>.98`);assert.deepEqual(await run('meter().levels.live'),[0,0]);
     assert.equal(await run('JSON.stringify(wave().getBoundingClientRect().toJSON())'),await run('originalGeometry'));
     // Long fixture keeps genuine detection/processing feedback visible for actual-size capture.
     await run('window.fixtureSeconds=180;load()');await wait(`!document.querySelector('main').inert&&props().audioBuffer.length===8640000&&!document.body.textContent.includes('Building waveform')`);await pause(150);

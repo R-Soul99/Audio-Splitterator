@@ -1,16 +1,11 @@
 import { overviewPeaks } from '../utils/waveformOverview';
 import { PlaybackPeakMeter } from '../utils/playbackPeakMeter';
-import { presetStrip, drawPresetStrip, PRESET_STRIP_HEIGHT } from '../utils/presetStrip';
-import { loopSnapshot, matchingLoopSlot } from '../utils/loopMemory';
-import { LoopPreset, MemoryAction } from '../utils/loopMemory';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { waveformAmplitudeScale } from '../utils/waveformDisplay';
 import { selectionEndpoint } from '../utils/waveformSelection';
 import { buildWaveformPeaks } from '../utils/waveformPeaks';
 import { createPortal } from 'react-dom';
-import { LoopSampleControls, SelectionLoopSwitch } from './LoopSampleControls';
-import { placementSample, SelectionEdit } from '../utils/startBeat';
-import { sampleSelection } from '../utils/loopSelection';
+import { sampleSelection } from '../utils/sampleSelection';
 import { RotaryKnob } from './RotaryKnob';
 import { analyzeSilenceLevels, analyzeSilenceLevelsChunked } from '../utils/silenceAnalysis';
 import { detectionCandidates, CHOP_CAPTURE_SECONDS, quietCandidatePolicy, acquireQuietTarget, QuietRadarAcquisition, QuietTarget } from '../utils/quietRadar';
@@ -41,7 +36,6 @@ import {
   Scissors,
   X,
   RotateCcw,
-  Repeat,
   Activity,
   Volume2,
 } from 'lucide-react';
@@ -62,7 +56,6 @@ interface WaveformCanvasProps {
   viewOffsetSec: number;
   fadeSettings: FadeSettings;
   isPlaying: boolean;
-  isLooping?: boolean;
   canUndo?: boolean;
   canUndoMarkers?: boolean;
   onMarkerUndo?: () => void;
@@ -75,16 +68,7 @@ interface WaveformCanvasProps {
   onStop?: () => void;
   onSeek: (time: number) => void;
   onWaveformClick: (time: number) => void;
-  loopMemory: (LoopPreset | null)[];
-  onMemoryAction: (index: number, action: MemoryAction) => void;
-  startBeat?: number | null;
-  customStartBeat?: boolean;
-  placingStartBeat?: boolean;
-  onPlacementChange?: (active: boolean) => void;
-  onStartBeatChange?: (sample: number | null) => void;
-  onSelectionChange?: (selection: TimeSelection | null, edit?: SelectionEdit) => void;
-  onLoopChange?: (enabled: boolean) => void;
-  onLoopSelection?: (start: number, end: number) => void;
+  onSelectionChange?: (selection: TimeSelection | null, edit?: 'new' | 'move' | 'edge') => void;
   onCropToSelection?: (start: number, end: number) => void;
   onCutSelection?: (start: number, end: number) => void;
   onPlaySelection?: (start: number, end: number) => void;
@@ -206,7 +190,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   viewOffsetSec,
   fadeSettings,
   isPlaying,
-  isLooping = false,
   canUndo = false,
   canUndoMarkers = false,
   onMarkerUndo,
@@ -220,9 +203,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onSeek,
   onWaveformClick,
   onSelectionChange,
-  loopMemory, onMemoryAction, startBeat = null, customStartBeat = false, placingStartBeat = false, onPlacementChange, onStartBeatChange,
-  onLoopSelection,
-  onLoopChange,
   onCropToSelection,
   onCutSelection,
   onPlaySelection,
@@ -249,7 +229,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rulerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
-  const placementPointerRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   // Radar-style "ping" when the cursor crosses onto a detected noise-floor snap point
@@ -261,9 +240,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const [verticalZoom, setVerticalZoom] = useState(1);
   const verticalZoomRef = useRef(1);
 
-  const [showLoopSample, setShowLoopSample] = useState(false);
-  const [loopSaveContainer, setLoopSaveContainer] = useState<HTMLDivElement | null>(null);
-  const [loopControlsActive, setLoopControlsActive] = useState(false);
 
   // Popover States
   const [processingOpen, setProcessingOpen] = useState(false);
@@ -299,7 +275,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Dragging States
   const [activeDrag, setActiveDrag] = useState<{
-    type: 'startBeat' | 'chop' | 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
+    type: 'chop' | 'playhead' | 'marker' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'selectionStart' | 'selectionEnd' | 'selectionMove' | 'selectionCreate';
     id?: string;
     startX?: number;
     startTime?: number;
@@ -317,7 +293,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
-  const [hoveredElement, setHoveredElement] = useState<'startBeat' | 'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
+  const [hoveredElement, setHoveredElement] = useState<'fadeIn' | 'fadeOut' | 'fadeInCurve' | 'fadeOutCurve' | 'cropStart' | 'cropEnd' | 'selectionStart' | 'selectionEnd' | 'selectionBar' | 'marker' | null>(null);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
 
 
@@ -852,26 +828,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.fillRect(selXEnd, height / 2 - 12, 2, 24);
     }
 
-    if (showLoopSample) {
-      const samples = sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
-      drawPresetStrip(ctx, presetStrip(loopMemory, audioBuffer.sampleRate, currentOffset, visibleDuration, width), width,
-        matchingLoopSlot(loopMemory, loopSnapshot(samples, startBeat, customStartBeat, audioBuffer.length)));
-    }
-
-    // Start Beat has a lower drag handle, separate from selection braces and fades.
-    if (audioBuffer && customStartBeat && startBeat !== null && selection) {
-      const x = timeToX(startBeat / audioBuffer.sampleRate, width);
-      if (x >= 0 && x <= width) {
-        ctx.save(); ctx.strokeStyle = '#e879f9'; ctx.fillStyle = '#e879f9'; ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); ctx.setLineDash([]);
-        ctx.beginPath(); ctx.arc(x, height - 26, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.font = 'bold 10px monospace';
-        const labelX = Math.max(3, Math.min(width - 66, x + 5));
-        ctx.fillStyle = '#020617'; ctx.fillRect(labelX - 2, height - 19, 66, 16);
-        ctx.fillStyle = '#e879f9'; ctx.fillText('1st Beat', labelX, height - 7); ctx.restore();
-      }
-    }
-
     // 3. Draggable Volume Fade Envelopes (Visual overlays)
     if (fadeSettings.fadeInEnabled && cropXStart <= width && timeToX(cropStart + fadeSettings.fadeInMs / 1000, width) >= 0) {
       const fadeMs = fadeSettings.fadeInMs;
@@ -1167,7 +1123,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
     }
-  }, [showLoopSample, loopMemory, currentOffset, visibleDuration, canvasDimensions, cropStart, cropEnd, selection, startBeat, customStartBeat, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, CHOP_CAPTURE_SECONDS, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
+  }, [currentOffset, visibleDuration, canvasDimensions, cropStart, cropEnd, selection, markers, currentTime, hoverPosition, hoverTime, hoveredElement, activeDrag, hoveredMarkerId, fadeSettings, timeToX, getChopSplitTime, CHOP_CAPTURE_SECONDS, audioBuffer, processingOpen, previewTimes, autoSplitEnd, chopEnabled, showDetectedPreview, quietRuns, radarReady]);
 
   const drawOverlayRef = useRef(drawOverlay);
 
@@ -1336,37 +1292,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     return () => cancelAnimationFrame(frame);
   }, [audioBuffer, analyzedSamples, analysisBusy, silenceBusy, importStatus, onAnalysisBusyChange]);
 
-  const beatHandleRef = useRef<HTMLDivElement>(null);
-  const beatPointerRef = useRef<number | null>(null);
-  const stopBeatDrag = useCallback(() => {
-    const pointer = beatPointerRef.current;
-    beatPointerRef.current = null;
-    if (pointer !== null && beatHandleRef.current?.hasPointerCapture(pointer)) beatHandleRef.current.releasePointerCapture(pointer);
-  }, []);
-  useEffect(() => {
-    window.addEventListener('blur', stopBeatDrag);
-    return () => { window.removeEventListener('blur', stopBeatDrag); stopBeatDrag(); };
-  }, [stopBeatDrag]);
-  useEffect(() => { if (!placingStartBeat || !loopControlsActive || !selection) stopBeatDrag(); }, [placingStartBeat, loopControlsActive, selection, audioBuffer, stopBeatDrag]);
-  const dragBeat = (clientX: number) => {
-    const ruler = rulerCanvasRef.current;
-    const samples = audioBuffer ? sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) : null;
-    if (!ruler || !audioBuffer || !samples) return;
-    const rect = ruler.getBoundingClientRect();
-    const sample = Math.round(xToTime(clientX - rect.left, rect.width) * audioBuffer.sampleRate);
-    onStartBeatChange?.(Math.max(samples.start, Math.min(samples.end - 1, sample)));
-  };
-  const beatHandleX = audioBuffer && startBeat !== null && sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) ? timeToX(startBeat / audioBuffer.sampleRate, canvasDimensions.width) : null;
-
-  const hitStartBeat = (x: number, y: number) => {
-    if (!audioBuffer || !customStartBeat || startBeat === null || !selection) return false;
-    const markerX = timeToX(startBeat / audioBuffer.sampleRate, canvasDimensions.width);
-    if (markerX < 0 || markerX > canvasDimensions.width) return false;
-    const labelX = Math.max(3, Math.min(canvasDimensions.width - 66, markerX + 5));
-    return (Math.abs(x - markerX) <= 7 && y >= canvasDimensions.height - 34) ||
-      (x >= labelX - 2 && x <= labelX + 64 && y >= canvasDimensions.height - 19);
-  };
-
   // Pointer move handler (computes hover hit tests)
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1394,12 +1319,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const selectionTime = xToTime(x, rect.width);
 
     // Dragging active element logic
-    if (placementPointerRef.current) return;
     if (activeDrag) {
-      if (activeDrag.type === 'startBeat' && audioBuffer) {
-        const samples = sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
-        if (samples) onStartBeatChange?.(Math.max(samples.start, Math.min(samples.end - 1, Math.round(selectionTime * audioBuffer.sampleRate))));
-      } else if (activeDrag.type === 'playhead') {
+      if (activeDrag.type === 'playhead') {
         const nextTime = Math.max(cropStart, Math.min(cropEnd, selectionTime));
         onSeek(nextTime);
       } else if (activeDrag.type === 'marker' && activeDrag.id) {
@@ -1465,7 +1386,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     setHoveredElement(null);
     setHoveredMarkerId(null);
 
-    if (hitStartBeat(x, y)) { setHoveredElement('startBeat'); return; }
 
     const fadeTarget = hitTestFadeControls(x, y, fadeControls);
     if (fadeTarget) { setHoveredElement(fadeTarget); return; }
@@ -1517,7 +1437,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     pointerDownPositionRef.current = { x, y };
 
-    if (hitStartBeat(x, y)) { e.preventDefault(); if (loopControlsActive) onPlacementChange?.(true); setActiveDrag({ type: 'startBeat' }); return; }
 
     const fadeTarget = hitTestFadeControls(x, y, fadeControls);
     if (fadeTarget) { setActiveDrag({ type: fadeTarget }); return; }
@@ -1527,16 +1446,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       if (Math.abs(x - timeToX(selection.start, canvasDimensions.width)) < 7) { setActiveDrag({ type: 'selectionStart' }); return; }
       if (Math.abs(x - timeToX(selection.end, canvasDimensions.width)) < 7) { setActiveDrag({ type: 'selectionEnd' }); return; }
     }
-    if (placingStartBeat) {
-      e.preventDefault(); e.stopPropagation();
-      placementPointerRef.current = true;
-      pointerDownPositionRef.current = null;
-      const samples = audioBuffer ? sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) : null;
-      const sample = audioBuffer ? placementSample(xToTime(x, rect.width), audioBuffer.sampleRate, samples) : null;
-      if (sample !== null) onStartBeatChange?.(sample);
-      return;
-    }
-
     // Other waveform interactions retain their existing priority.
     if (hoveredElement === 'selectionStart') {
       setActiveDrag({ type: 'selectionStart' });
@@ -1562,7 +1471,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       } catch {}
     }
 
-    if (placementPointerRef.current) { placementPointerRef.current = false; setActiveDrag(null); return; }
     const rect = canvas?.getBoundingClientRect();
     const downPosition = pointerDownPositionRef.current;
     pointerDownPositionRef.current = null;
@@ -1588,14 +1496,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const timeDiff = Math.abs(endTime - activeDrag.startTime);
 
       if (pixelDiff <= 5 || timeDiff < 0.05) {
-        const samples = audioBuffer ? sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length) : null;
-        const inside = samples && audioBuffer && activeDrag.startTime >= samples.start / audioBuffer.sampleRate && activeDrag.startTime < samples.end / audioBuffer.sampleRate;
-        if (showLoopSample && inside && samples && audioBuffer) {
-          // Seek without auto-audition or clearing the loop; the transport owns
-          // running/paused state and the existing audio-clock handover.
-          const sample = Math.max(samples.start, Math.min(samples.end - 1, Math.round(activeDrag.startTime * audioBuffer.sampleRate)));
-          onSeek(sample / audioBuffer.sampleRate);
-        } else onWaveformClick(activeDrag.startTime);
+        onWaveformClick(activeDrag.startTime);
       } else {
         // Drag selection complete!
         const selStart = Math.min(activeDrag.startTime, endTime);
@@ -1603,22 +1504,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         onSelectionChange?.({ start: selStart, end: selEnd }, 'new');
 
         // Detection selections are measured directly from the buffer, without auditioning.
-        if (!processingOpen && !showLoopSample && !isLooping && onLoopSelection) {
-          onLoopSelection(selStart, selEnd);
-        } else if (!processingOpen && !showLoopSample && !isLooping && onPlaySelection) {
+        if (!processingOpen && onPlaySelection) {
           onPlaySelection(selStart, selEnd);
         }
       }
     } else if (
       (activeDrag?.type === 'selectionStart' || activeDrag?.type === 'selectionEnd' || activeDrag?.type === 'selectionMove') &&
-      selection && moved && !processingOpen && !showLoopSample && !isLooping
+      selection && moved && !processingOpen
     ) {
       if (Math.abs(selection.end - selection.start) > 0.05) {
         const s = Math.min(selection.start, selection.end);
         const e = Math.max(selection.start, selection.end);
-        if (onLoopSelection) {
-          onLoopSelection(s, e);
-        } else if (onPlaySelection) {
+        if (onPlaySelection) {
           onPlaySelection(s, e);
         }
       }
@@ -1838,8 +1735,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const cursorStyle = activeDrag
     ? 'cursor-grabbing'
-    : hoveredElement === 'startBeat'
-    ? 'cursor-grab'
     : hoveredElement === 'marker'
     ? 'cursor-ew-resize'
     : hoveredElement === 'fadeIn' || hoveredElement === 'fadeOut'
@@ -1953,14 +1848,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             <div className="flex items-center gap-1">
               <TooltipButton
                 onClick={() => {
-                  if (onLoopSelection) onLoopSelection(selS, selE);
-                  else if (onPlaySelection) onPlaySelection(selS, selE);
+                  if (onPlaySelection) onPlaySelection(selS, selE);
                 }}
                 disabled={!hasSelection}
-                isActive={isLooping && isPlaying}
+                isActive={hasSelection && isPlaying}
                 activeClass="bg-emerald-500/25 text-emerald-300 border-emerald-500/50"
-                icon={<Repeat className="w-3.5 h-3.5 text-emerald-400" />}
-                label="Loop and play the selected region"
+                icon={<Play className="w-3.5 h-3.5 text-emerald-400" />}
+                label="Play the selected region once"
               />
               <TooltipButton
                 onClick={() => onCropToSelection?.(selS, selE)}
@@ -1977,7 +1871,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                 label="Cut Selection (Del / Backspace): Remove the selected region and splice the remaining audio"
               />
               <TooltipButton compact onClick={() => onSelectionChange?.(null)} disabled={!hasSelection}
-                accessibleName="Clear selection" label="Clear selection and loop brace; keep the recording. Does not clear only 1st Beat."
+                accessibleName="Clear selection" label="Clear selection; keep the recording."
                 icon={<span aria-hidden="true" className="text-sm leading-none">{'\u00d7'}</span>} />
               {onUndo && (
                 <TooltipButton
@@ -2040,7 +1934,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       </div>
 
       {processingPanelContainer && createPortal(
-        <div aria-label="Tools" className={`tools-panel ${showLoopSample ? 'loop-tools-open' : showVolume ? 'volume-tools-open' : ''} absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1`}>
+        <div aria-label="Tools" className={`tools-panel ${showVolume ? 'volume-tools-open' : ''} absolute inset-x-[9px] top-1 bottom-[7.5px] flex min-w-0 flex-col gap-1`}>
           <div className="tools-selector-row flex shrink-0 items-center gap-2">
           <span className="shrink-0 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tools</span>
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto custom-scrollbar">
@@ -2053,7 +1947,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               type="button"
               onClick={() => {
                 setProcessingOpen((open) => !open);
-                setShowLoopSample(false);
+
                 setShowVolume(false);
               }}
               aria-expanded={processingOpen}
@@ -2061,14 +1955,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             >
               Auto-Split
             </button>
-            <button type="button" aria-label="Volume" aria-expanded={showVolume} onClick={() => { setShowVolume(open => !open); setShowLoopSample(false); setProcessingOpen(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${showVolume ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>Volume</button>
-            <button type="button" aria-label="Loop / Sample" aria-expanded={showLoopSample} onClick={() => { setShowLoopSample(true); onLoopChange?.(true); setProcessingOpen(false); setShowVolume(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${showLoopSample ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-950 text-slate-300 border-slate-800'}`}>Loop / Sample</button>
+            <button type="button" aria-label="Volume" aria-expanded={showVolume} onClick={() => { setShowVolume(open => !open); setProcessingOpen(false); }} className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${showVolume ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>Volume</button>
           </div>
-          {showLoopSample && <SelectionLoopSwitch audioBuffer={audioBuffer} selection={selection} isLooping={isLooping} onLoopChange={onLoopChange} />}
-          <div className="loop-save-header" ref={setLoopSaveContainer} />
           </div>
 
-          <div className="loop-controls-host" hidden={!showLoopSample}><LoopSampleControls saveContainer={loopSaveContainer} loopMemory={loopMemory} onMemoryAction={onMemoryAction} customStartBeat={customStartBeat} visibleDuration={visibleDuration} waveformWidth={canvasDimensions.width} active={showLoopSample} onControlsActiveChange={setLoopControlsActive} audioBuffer={audioBuffer} selection={selection} onSelectionChange={onSelectionChange} startBeat={startBeat} placingStartBeat={placingStartBeat} onPlacementChange={onPlacementChange} onStartBeatChange={onStartBeatChange} /></div>
           {/* Category controls stay inside the fixed Tools panel. */}
           <div className="volume-host" hidden={!showVolume}><VolumeControls active={showVolume} meter={playbackPeakMeter} audioBuffer={audioBuffer} selection={selection} onApply={onApplyVolume} /></div>
           {processingOpen && (
@@ -2190,24 +2080,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             className="block w-full h-full select-none pointer-events-none"
             style={{ height: `${RULER_HEIGHT}px` }}
           />
-          {loopControlsActive && beatHandleX !== null && beatHandleX >= 0 && beatHandleX <= canvasDimensions.width && (
-            <div ref={beatHandleRef} role="slider" tabIndex={0} aria-orientation="horizontal" aria-valuemin={selection && audioBuffer ? Math.round(selection.start * audioBuffer.sampleRate) : 0} aria-valuemax={selection && audioBuffer ? Math.round(selection.end * audioBuffer.sampleRate) - 1 : 0} aria-valuenow={startBeat ?? 0} aria-valuetext={`${startBeat !== null && audioBuffer ? (startBeat / audioBuffer.sampleRate).toFixed(3) : '--'} seconds`} aria-label="Drag 1st Beat" title="Drag 1st Beat inside the loop. Left/Right: 10 ms; Shift: 1 ms. Playback continues."
-              className="beat-ruler-handle" style={{ left: `${beatHandleX}px` }}
-              onPointerDown={event => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.focus(); beatPointerRef.current = event.pointerId; event.currentTarget.setPointerCapture(event.pointerId); onPlacementChange?.(true); }}
-              onPointerMove={event => { if (beatPointerRef.current === event.pointerId) { event.preventDefault(); event.stopPropagation(); dragBeat(event.clientX); } }}
-              onPointerUp={event => { event.preventDefault(); event.stopPropagation(); stopBeatDrag(); }}
-              onPointerCancel={stopBeatDrag} onLostPointerCapture={stopBeatDrag}
-              onClick={event => { event.preventDefault(); event.stopPropagation(); }}
-              onKeyDown={event => {
-                if (!audioBuffer || !selection || startBeat === null || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-                event.preventDefault(); event.stopPropagation();
-                const samples = sampleSelection(selection, audioBuffer.sampleRate, audioBuffer.length);
-                if (!samples) return;
-                const delta = Math.max(1, Math.round(audioBuffer.sampleRate * (event.shiftKey ? .001 : .01))) * (event.key === 'ArrowLeft' ? -1 : 1);
-                const sample = Math.max(samples.start, Math.min(samples.end - 1, startBeat + delta));
-                if (sample !== startBeat) { onStartBeatChange?.(sample); onPlacementChange?.(true); }
-              }}>{'\u25c6'}</div>
-          )}
           {hoverTime !== null && hoverPosition && (
             <div aria-label="Cursor time readout" className="ruler-cursor-readout" style={{ width: `${cursorReadoutWidth}px`, left: `${Math.max(0, Math.min(hoverPosition.x - cursorReadoutWidth / 2, canvasDimensions.width - cursorReadoutWidth))}px` }}>
               {formatTime(hoverTime, true)}
@@ -2225,13 +2097,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             {(importStatus?.progress === undefined && importStatus) && <span className="ml-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" />}
           </div>
         )}
-        {showLoopSample && audioBuffer && hoverPosition && hoverPosition.y < PRESET_STRIP_HEIGHT && hoverTime !== null && (() => {
-          const pointerTime = currentOffset + hoverPosition.x / Math.max(1, canvasDimensions.width) * visibleDuration;
-          const slots = loopMemory.map((p, slot) => ({ p, slot })).filter(({ p }) => p && pointerTime >= p.start / audioBuffer.sampleRate && pointerTime < p.end / audioBuffer.sampleRate);
-          const layout = presetStrip(loopMemory, audioBuffer.sampleRate, currentOffset, visibleDuration, canvasDimensions.width);
-          const details = hoverPosition.x > canvasDimensions.width - 25 && layout.overflow.length ? layout.overflow.map(slot => ({ p: loopMemory[slot], slot })) : slots;
-          return details.length ? <div role="tooltip" className="preset-strip-tooltip">{details.map(({ p, slot }) => <div key={slot}>Slot {slot === 0 ? '0 (10)' : slot}: Start {(p!.start / audioBuffer.sampleRate).toFixed(3)} s; End {(p!.end / audioBuffer.sampleRate).toFixed(3)} s; {((p!.end - p!.start) / audioBuffer.sampleRate).toFixed(3)} s</div>)}</div> : null;
-        })()}
         {/* Feedback Notification Toast (floats over the canvas; never shifts layout) */}
         {feedbackToast && (
           <div
@@ -2268,7 +2133,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onContextMenu={handleContextMenu}
           className={`w-full block touch-none ${cursorStyle} ${audioBuffer ? '' : 'pointer-events-none'}`}
           style={{ height: `${canvasDimensions.height}px` }}
-          title={placingStartBeat ? "Click inside the loop to place 1st Beat; Set or Escape exits." : showLoopSample && hasSelection ? "Click inside the loop to seek without clearing it; use Clear selection to remove the brace. Drag to edit the selection." : chopEnabled ? "Chop: click to add a split marker; right-click a marker to remove it; drag markers to adjust" : "Click to clear selection and seek; scroll to zoom at cursor; Shift+scroll to adjust waveform height"}
+          title={chopEnabled ? "Chop: click to add a split marker; right-click a marker to remove it; drag markers to adjust" : "Click to clear selection and seek; scroll to zoom at cursor; Shift+scroll to adjust waveform height"}
         />
         <canvas
           ref={overlayCanvasRef}
