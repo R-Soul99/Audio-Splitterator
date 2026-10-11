@@ -2058,7 +2058,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         <div className="flex flex-1 min-h-0">
         <div className="relative flex-1 min-w-0 min-h-0" ref={canvasContainerRef}>
         {(importStatus || analysisBusy || importError || analysisError) && (
-          <div role="status" className="pointer-events-none absolute left-3 right-3 top-3 z-30 rounded border border-slate-700 bg-slate-950/90 px-3 py-2 text-xs text-slate-200 shadow">
+          <div role="status" aria-label="Audio import status" className="pointer-events-none absolute left-3 right-3 top-3 z-30 rounded border border-slate-700 bg-slate-950/90 px-3 py-2 text-xs text-slate-200 shadow">
             {importStatus ? `${importStatus.stage} ${importStatus.name}...${importStatus.progress !== undefined ? ` ${Math.floor(importStatus.progress * 100)}%` : ''}`
               : analysisBusy ? `Building waveform... ${Math.floor(analyzedSamples / Math.max(1, audioBuffer?.length ?? 1) * 100)}%`
               : importError || analysisError}

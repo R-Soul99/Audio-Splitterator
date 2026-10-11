@@ -755,6 +755,8 @@ export default function App() {
         reader.readAsArrayBuffer(file);
       });
       setImportStatus({ name: file.name, stage: 'Decoding' });
+      // Paint the status before decoding can finish or occupy the renderer.
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       decodeContext = new (window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       const decoded = await decodeContext.decodeAudioData(arrayBuffer);
@@ -916,7 +918,7 @@ export default function App() {
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.querySelector('dialog[open]')) return;
+      if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
       if (loadingRef.current) {
         if (e.code === 'Space' || ['Home', 'Delete', 'Backspace', 'Escape', 'm', 'i', 'o'].includes(e.key)
           || ((e.ctrlKey || e.metaKey) && ['z', 't'].includes(e.key.toLowerCase()))) e.preventDefault();
@@ -985,7 +987,7 @@ export default function App() {
       />
 
       {/* Global DAW Header (Replaces Navbar and integrates Brand & 3 Workflow Tabs) */}
-      <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-40 flex-shrink-0 select-none">
+      <header inert={!!confirmDialog} className="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-40 flex-shrink-0 select-none">
         <div className="max-w-7xl mx-auto relative flex flex-col sm:block">
           {/* Import Button on the Left */}
           <div className="flex items-center shrink-0 sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2">
@@ -996,8 +998,8 @@ export default function App() {
               className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-850 hover:bg-emerald-950/40 text-slate-300 hover:text-emerald-400 border border-slate-800 hover:border-emerald-800/40 text-xs font-bold transition cursor-pointer"
               title="Import an audio file"
             >
-              <FolderOpen className="w-3.5 h-3.5" />
-              <span>Import</span>
+              <FolderOpen className={`w-3.5 h-3.5 ${importStatus || waveformBusy ? 'animate-pulse text-sky-300' : ''}`} />
+              <span role="status" aria-live="polite">{importStatus ? `${importStatus.stage}...` : waveformBusy ? 'Preparing...' : 'Import'}</span>
             </button>
           </div>
 
@@ -1074,8 +1076,15 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main inert={!!importStatus || waveformBusy} className={`flex-1 min-h-0 w-full flex flex-col ${workflowTab === 'save' ? 'px-3 py-2' : workflowTab === 'edit' ? 'px-3 py-2 lg:px-4' : 'p-4 lg:p-6 lg:pb-4'}`}>
+      <main inert={!!importStatus || waveformBusy || !!confirmDialog} className={`flex-1 min-h-0 w-full flex flex-col ${workflowTab === 'save' ? 'px-3 py-2' : workflowTab === 'edit' ? 'px-3 py-2 lg:px-4' : 'p-4 lg:p-6 lg:pb-4'}`}>
         <div className="flex-1 flex flex-col min-h-0 relative">
+          {workflowTab !== 'edit' && (importStatus || waveformBusy) && (
+            <div aria-label="Audio loading banner" className="pointer-events-none absolute inset-x-3 top-3 z-50 rounded-xl border border-sky-500/60 bg-slate-950/95 px-4 py-3 text-center text-sm font-semibold text-sky-200 shadow-lg">
+              <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-sky-300" />
+              {importStatus ? `${importStatus.stage} audio${importStatus.progress !== undefined ? ` — ${Math.floor(importStatus.progress * 100)}%` : ''}` : 'Preparing waveform...'}
+              {importStatus && <div className="mt-1 truncate text-xs font-normal text-slate-300">{importStatus.name}</div>}
+            </div>
+          )}
           {/* Render selected workflow view (Full Screen Container with NO SCROLL) */}
           <div className={`flex-1 flex flex-col relative min-h-0 select-none ${workflowTab === 'edit' || workflowTab === 'save' ? '' : 'bg-slate-950/20 border border-slate-700/60 rounded-2xl overflow-hidden p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.04),0_8px_24px_rgba(0,0,0,0.18)]'}`}>
 
@@ -1314,45 +1323,6 @@ export default function App() {
                       <div ref={setProcessingPanelContainer} className="tool-display relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] pt-1 pb-[7.5px]" />
                     </div>
 
-                  {/* Confirm Dialog: Discard / Import Overwrite */}
-                  {confirmDialog && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm">
-                      <div className="w-72 rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl">
-                        <h2 className="text-sm font-bold text-slate-100">
-                          {confirmDialog === 'discard' ? 'Discard this recording?' : 'Import a new file?'}
-                        </h2>
-                        <p className="mt-2 text-xs leading-relaxed text-slate-400">
-                          {confirmDialog === 'discard'
-                            ? 'This will remove the current audio and any unsaved splits or fades. This cannot be undone.'
-                            : 'Importing a new file will replace the audio currently loaded, along with any unsaved splits or fades.'}
-                        </p>
-                        <div className="mt-4 flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDialog(null)}
-                            className="rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:border-slate-500 hover:text-slate-100 cursor-pointer"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const mode = confirmDialog;
-                              setConfirmDialog(null);
-                              if (mode === 'discard') {
-                                handleClearRecording();
-                              } else {
-                                fileInputRef.current?.click();
-                              }
-                            }}
-                            className="rounded-md border border-red-500/50 bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-500 cursor-pointer"
-                          >
-                            {confirmDialog === 'discard' ? 'Discard' : 'Import'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
             )}
 
@@ -1395,6 +1365,46 @@ export default function App() {
           </div>
         </div>
       </main>
+      {/* Confirm Dialog: Discard / Import Overwrite */}
+      {confirmDialog && (
+        <div role="dialog" aria-modal="true" aria-labelledby="recording-confirmation-title" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm">
+          <div className="w-72 rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+            <h2 id="recording-confirmation-title" className="text-sm font-bold text-slate-100">
+              {confirmDialog === 'discard' ? 'Discard this recording?' : 'Import a new file?'}
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-400">
+              {confirmDialog === 'discard'
+                ? 'This will remove the current audio and any unsaved splits or fades. This cannot be undone.'
+                : 'Importing a new file will replace the audio currently loaded, along with any unsaved splits or fades.'}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(null)}
+                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:border-slate-500 hover:text-slate-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const mode = confirmDialog;
+                  setConfirmDialog(null);
+                  if (mode === 'discard') {
+                    handleClearRecording();
+                  } else {
+                    fileInputRef.current?.click();
+                  }
+                }}
+                className="rounded-md border border-red-500/50 bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-500 cursor-pointer"
+              >
+                {confirmDialog === 'discard' ? 'Discard' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

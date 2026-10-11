@@ -61,6 +61,11 @@ function createWindow() {
     height: 650,
     minWidth: 980,
     minHeight: 650,
+    maxWidth: 980,
+    maxHeight: 650,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     title: 'Audiophonic Recordinator',
     backgroundColor: '#020617', // slate-950 to prevent white flash
     webPreferences: {
