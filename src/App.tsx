@@ -35,6 +35,7 @@ export default function App() {
   const loadingRef = useRef(false);
   loadingRef.current = !!importStatus || waveformBusy;
   const [workflowTab, setWorkflowTab] = useState<'record' | 'edit' | 'save'>('record');
+  const [toolSelectorContainer, setToolSelectorContainer] = useState<HTMLDivElement | null>(null);
   const [processingPanelContainer, setProcessingPanelContainer] = useState<HTMLDivElement | null>(null);
   const trackRowsRef = useRef<HTMLDivElement | null>(null);
   const [trackSlots, setTrackSlots] = useState(15);
@@ -1114,6 +1115,7 @@ export default function App() {
                         importError={importError}
                         onAnalysisBusyChange={setWaveformBusy}
                         processingPanelContainer={processingPanelContainer}
+                        toolSelectorContainer={toolSelectorContainer}
                         playbackPeakMeter={playbackPeakMeter}
                         loadedAudioId={loadedAudioId}
                         audioBuffer={audioBuffer}
@@ -1319,7 +1321,10 @@ export default function App() {
 
                     {/* Keep the Tools display in a fixed-height slot above the waveform. */}
                     <div className="col-start-1 row-start-1 h-[129.328125px] min-w-0 flex flex-col text-xs">
-                      <span className="h-[31.328125px] shrink-0 flex items-end pb-1 pl-[9px] text-[10px] font-bold uppercase tracking-wider text-slate-400">Tools</span>
+                      <div className="tools-hardware-header">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tools</span>
+                        <div ref={setToolSelectorContainer} className="tool-selector-mount" />
+                      </div>
                       <div ref={setProcessingPanelContainer} className="tool-display relative flex-1 min-w-0 bg-slate-900/60 border border-slate-700/70 rounded-xl px-[9px] pt-1 pb-[7.5px]" />
                     </div>
 

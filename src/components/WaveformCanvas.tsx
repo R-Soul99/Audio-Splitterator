@@ -27,7 +27,6 @@ import {
   Square,
   SkipBack,
   Ear,
-  Slice,
   Eye,
   ZoomIn,
   ZoomOut,
@@ -45,6 +44,7 @@ interface WaveformCanvasProps {
   importError?: string | null;
   onAnalysisBusyChange?: (busy: boolean) => void;
   processingPanelContainer: HTMLDivElement | null;
+  toolSelectorContainer: HTMLDivElement | null;
   loadedAudioId: number;
   audioBuffer: AudioBuffer | null;
   currentTime: number;
@@ -222,6 +222,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onApplyVolume,
   playbackPeakMeter,
   processingPanelContainer,
+  toolSelectorContainer,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
@@ -749,7 +750,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const channelTop = c * channelHeight;
         const zeroDbY = centerY - waveformAmplitudeScale(channelHeight, verticalZoom);
         if (zeroDbY < channelTop || zeroDbY > channelTop + channelHeight) continue;
-        const labelY = Math.max(channelTop + 10, zeroDbY);
+        // Keep the label below the guide and the detection-dot band (y=2..8).
+        const labelY = Math.min(channelTop + channelHeight, Math.max(channelTop + 22, zeroDbY + 14));
         const labelX = Math.floor(width * 0.6);
         ctx.save();
         ctx.beginPath();
@@ -1799,6 +1801,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const measured = measureNoiseFloorDb(audioBuffer, selection.start, selection.end);
       setAppliedPreview(null);
       setNoiseFloorDb(measured.suggestedThresholdDb);
+      // Detect seeds both settings from the same quiet selection; later knob edits stay independent.
+      setSilenceDurationSec(Math.max(0.1, Math.min(10, Math.abs(selection.end - selection.start))));
       setDetectedAudioId(loadedAudioId);
       setThresholdFlashKey(k => k + 1);
     } catch {
@@ -1964,8 +1968,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
                           <output aria-label="Noise floor in dB" className="detection-value text-amber-300">{noiseFloorDb.toFixed(1)} dB</output>
                         </div>
                       </div>
-                      <div title="Minimum silence duration required before a split is proposed." className="detection-duration text-slate-400">
-                        <span title="Minimum silence duration required before a split is proposed.">Gap</span>
+                      <div title="Minimum silence duration required before a split is proposed. Detect sets this from the selection duration; adjust Gap afterwards if needed." className="detection-duration text-slate-400">
+                        <span title="Minimum silence duration required before a split is proposed. Detect sets this from the selection duration; adjust Gap afterwards if needed.">Gap</span>
                         <span className="flex items-center gap-1">
                           <RotaryKnob size={24} step={0.1} fineStep={0.01} value={silenceDurationSec} min={0.1} max={10} onChange={setSilenceDurationSec} title="Minimum silence" formatValue={(v) => `${v.toFixed(2)} sec`} />
                           <output aria-label="Minimum silence in seconds" className="detection-value text-slate-200">{silenceDurationSec.toFixed(2)} s</output>
@@ -2000,35 +2004,36 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         processingPanelContainer
       )}
 
+      {toolSelectorContainer && createPortal(
+        <div role="group" aria-label="Tool selector" className="tools-selector-row">
+          <button type="button" aria-label="Chop" title="Chop: click the waveform to split" aria-pressed={chopEnabled}
+            onClick={() => selectEditTool('chop')} disabled={!audioBuffer} className="tool-pushbutton">
+            <span>Chop</span><span aria-hidden="true" className="tool-indicator" />
+          </button>
+          <button type="button" aria-label="Auto-Chop" aria-pressed={processingOpen} aria-expanded={processingOpen}
+            onClick={() => selectEditTool('auto-chop')} className="tool-pushbutton">
+            <span>Auto-Chop</span><span aria-hidden="true" className="tool-indicator" />
+          </button>
+          <button type="button" aria-label="Volume" aria-pressed={showVolume} aria-expanded={showVolume}
+            onClick={() => selectEditTool('volume')} className="tool-pushbutton">
+            <span>Volume</span><span aria-hidden="true" className="tool-indicator" />
+          </button>
+        </div>, toolSelectorContainer
+      )}
+
       {/* 1. Main Waveform Canvas Container (fills remaining height dynamically) */}
       <div className="order-4 flex flex-col flex-1 min-h-0 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner">
         {/* Slim readout strip keeps the waveform itself unobstructed. */}
-        <div aria-label="Waveform readouts" className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800/70 bg-slate-900/40 px-2 py-0.5 text-[10px] leading-4 select-none">
-          <div className="waveform-mode-selectors flex min-w-0 items-center gap-1">
-            <button type="button" aria-label="Chop" title="Chop: click the waveform to split" aria-pressed={chopEnabled}
-              onClick={() => selectEditTool('chop')} disabled={!audioBuffer}
-              className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${chopEnabled ? 'bg-purple-600 text-white border-purple-500' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>
-              <Slice aria-hidden="true" className="w-3 h-3" />Chop
-            </button>
-            <button
-              type="button"
-              onClick={() => selectEditTool('auto-chop')}
-              aria-label="Auto-Chop"
-              aria-pressed={processingOpen}
-              aria-expanded={processingOpen}
-              className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${processingOpen ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}
-            >
-              Auto-Chop
-            </button>
-            <button type="button" aria-label="Volume" aria-pressed={showVolume} aria-expanded={showVolume} onClick={() => selectEditTool('volume')} className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${showVolume ? 'bg-amber-600 text-white border-amber-500 shadow-sm' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'}`}>Volume</button>
-          </div>
-
+        <div aria-label="Waveform readouts" className="flex shrink-0 items-center justify-start gap-3 border-b border-slate-800/70 bg-slate-900/40 px-2 py-0.5 text-[10px] leading-4 select-none">
           <div className="flex shrink-0 items-center gap-1.5">
             <button type="button" onClick={handleSampleNoiseFloor} disabled={detectDisabled} aria-busy={detectingNoiseFloor}
               aria-label="Detect noise floor" title="Detect recalculates and replaces Noise Floor from the selected quiet section."
               className="flex h-4 w-5 items-center justify-center rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
               <Ear aria-hidden="true" className="h-3 w-3" />
             </button>
+            <span key={thresholdFlashKey} className={`font-mono tabular-nums text-amber-400 ${thresholdFlashKey > 0 ? 'flash-once' : ''}`}>
+              {noiseFloorDb.toFixed(1)} dB
+            </span>
             <div className="waveform-sensitivity" title="Sensitivity adjusts detection dots used by Chop and Auto-Chop."><span>Sensitivity</span><RotaryKnob size={16} value={sensitivity} min={0} max={100} step={1} fineStep={0.1}
               onChange={setSensitivity} title="Sensitivity" formatValue={value => `${Math.round(value)}%`} /></div>
             <button type="button" aria-label="Show detected split preview" title="Show detected split preview" aria-pressed={showDetectedPreview}
@@ -2036,9 +2041,6 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
               className={`flex h-4 items-center gap-1 rounded border px-1 text-[9px] cursor-pointer ${showDetectedPreview ? 'border-sky-500/40 text-sky-300 bg-sky-500/10' : 'border-slate-700 text-slate-500 hover:text-slate-300'}`}>
               <Eye aria-hidden="true" className="h-3 w-3" />Preview
             </button>
-            <span key={thresholdFlashKey} className={`font-mono tabular-nums text-amber-400 ${thresholdFlashKey > 0 ? 'flash-once' : ''}`}>
-              {noiseFloorDb.toFixed(1)} dB
-            </span>
           </div>
         </div>
         {/* Fixed-height time ruler; never resizes with panel toggles so the waveform stays put. */}
@@ -2162,7 +2164,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           onDoubleClick={handleMinimapDoubleClick}
           className={`block w-full h-6.5 rounded bg-slate-950 touch-none select-none ${audioBuffer ? '' : 'pointer-events-none'}`}
           style={{ cursor: minimapCursor }}
-          title="Double-click to reset to 1.0x • Drag edges to zoom • Drag inside to slide • Scroll waveform to zoom at cursor • Shift+scroll to adjust height"
+          title="Double-click to reset to 1.0x ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Drag edges to zoom ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Drag inside to slide ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Scroll waveform to zoom at cursor ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Shift+scroll to adjust height"
         />
       </div>
 
