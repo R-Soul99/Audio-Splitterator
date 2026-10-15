@@ -8,6 +8,7 @@ import { detectSilenceSplits, formatTime, cropAudioBuffer, cutAudioBuffer } from
 import { sampleSelection } from './utils/sampleSelection';
 import { PlaybackSegment, playbackPosition, timelinePosition, outputClock } from './utils/playbackClock';
 import { mergeAutoSplitMarkers } from './utils/autoSplitPolicy';
+import { getDesktopWindow } from './utils/desktopWindow';
 import {
   Mic,
   MicOff,
@@ -257,7 +258,25 @@ export default function App() {
   }, [replaceMarkers, resetMarkerUndo]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<'discard' | 'import' | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<'discard' | 'import' | 'close' | null>(null);
+
+  const hasUnsavedWork = isRecordingActive || !!audioBuffer;
+  useEffect(() => {
+    const desktop = getDesktopWindow();
+    if (desktop) {
+      desktop.setUnsavedWork(hasUnsavedWork);
+      return;
+    }
+    if (!hasUnsavedWork) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedWork]);
+
+  useEffect(() => getDesktopWindow()?.onCloseRequested(() => setConfirmDialog('close')), []);
 
   // Initialize or resume shared AudioContext safely
   const getAudioContext = useCallback(() => {
@@ -1375,12 +1394,20 @@ export default function App() {
         <div role="dialog" aria-modal="true" aria-labelledby="recording-confirmation-title" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm">
           <div className="w-72 rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl">
             <h2 id="recording-confirmation-title" className="text-sm font-bold text-slate-100">
-              {confirmDialog === 'discard' ? 'Discard this recording?' : 'Import a new file?'}
+              {confirmDialog === 'discard'
+                ? 'Discard this recording?'
+                : confirmDialog === 'import'
+                  ? 'Import a new file?'
+                  : isRecordingActive ? 'Quit while recording?' : 'Quit Splitterator?'}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-400">
               {confirmDialog === 'discard'
                 ? 'This will remove the current audio and any unsaved splits or fades. This cannot be undone.'
-                : 'Importing a new file will replace the audio currently loaded, along with any unsaved splits or fades.'}
+                : confirmDialog === 'import'
+                  ? 'Importing a new file will replace the audio currently loaded, along with any unsaved splits or fades.'
+                  : isRecordingActive
+                    ? 'A recording is still in progress and has not been stopped. Quitting now will lose it.'
+                    : 'The loaded audio and any splits, fades or track names will be lost. Export your tracks first to keep them.'}
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1397,13 +1424,15 @@ export default function App() {
                   setConfirmDialog(null);
                   if (mode === 'discard') {
                     handleClearRecording();
-                  } else {
+                  } else if (mode === 'import') {
                     fileInputRef.current?.click();
+                  } else {
+                    getDesktopWindow()?.confirmClose();
                   }
                 }}
                 className="rounded-md border border-red-500/50 bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-500 cursor-pointer"
               >
-                {confirmDialog === 'discard' ? 'Discard' : 'Import'}
+                {confirmDialog === 'discard' ? 'Discard' : confirmDialog === 'import' ? 'Import' : 'Quit'}
               </button>
             </div>
           </div>

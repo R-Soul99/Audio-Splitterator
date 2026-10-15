@@ -54,6 +54,16 @@ ipcMain.handle('export:save-file', async (_event, { name, data, segments }) => {
 });
 
 let mainWindow = null;
+let hasUnsavedWork = false;
+let closeConfirmed = false;
+
+ipcMain.on('app:set-unsaved-work', (_event, value) => {
+  hasUnsavedWork = value === true;
+});
+ipcMain.on('app:confirm-close', () => {
+  closeConfirmed = true;
+  mainWindow?.close();
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -106,6 +116,16 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  mainWindow.on('close', (event) => {
+    if (closeConfirmed || !hasUnsavedWork) return;
+    event.preventDefault();
+    mainWindow.webContents.send('app:close-requested');
+  });
+
+  // A reloading or crashed renderer can no longer answer the close prompt.
+  mainWindow.webContents.on('did-start-loading', () => { hasUnsavedWork = false; });
+  mainWindow.webContents.on('render-process-gone', () => { hasUnsavedWork = false; });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
